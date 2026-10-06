@@ -469,5 +469,34 @@ class StreamRecommenderTest {
         }
     }
 
+    @Test
+    fun verifiedTracksTurnAnUnknownReleaseIntoTheViewersLanguage() {
+        val prefsVff = prefs(audio = StreamRankingPreferences.AUDIO_FRENCH_FRANCE)
+        val untagged = insight("Movie.2023.2160p.WEB-DL.DV.HDR10.DDP5.1")
+        val record = VerifiedTrackRecord(
+            listOf(VerifiedTrack("a", "fre", name = "VFF"), VerifiedTrack("a", "eng")),
+            verifiedAtMs = 1, lastUsedMs = 1,
+        )
+        val verified = VerifiedTrackLanguages.applyRecord(untagged, record)
+        val tagged720 = insight("Movie.2023.VFF.720p.WEB-DL")
+        val recommendations = listOf(verified, tagged720).map { StreamRecommender.recommend(it, prefsVff, context) }
+        assertEquals(StreamReasonKind.LANGUAGE, recommendations[0].reasons.first().kind)
+        assertEquals("VFF", recommendations[0].reasons.first().label)
+        assertTrue(recommendations[0].score > recommendations[1].score, "verified VFF in 4K beats a tagged VFF 720p")
+    }
+
+    @Test
+    fun verifiedTracksWithoutTheViewersLanguageAreOtherLanguages() {
+        val untagged = insight("Movie.2023.2160p.WEB-DL")
+        val verified = VerifiedTrackLanguages.applyRecord(
+            untagged,
+            VerifiedTrackRecord(listOf(VerifiedTrack("a", "eng")), verifiedAtMs = 1, lastUsedMs = 1),
+        )
+        val prefsVff = prefs(audio = StreamRankingPreferences.AUDIO_FRENCH_FRANCE, acceptSubtitled = false)
+        val unknownScore = StreamRecommender.recommend(untagged, prefsVff, context).score
+        val verifiedScore = StreamRecommender.recommend(verified, prefsVff, context).score
+        assertTrue(verifiedScore < unknownScore, "a confirmed English-only file ranks under an unknown one")
+    }
+
     // endregion
 }

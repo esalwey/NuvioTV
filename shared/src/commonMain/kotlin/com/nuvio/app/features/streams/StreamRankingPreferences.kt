@@ -42,6 +42,11 @@ data class StreamRankingPreferences(
     val preferCached: Boolean = true,
     /** Filter out CAM / TS / TC / screener releases. */
     val avoidLowQuality: Boolean = true,
+    /**
+     * Fork (VERIFIED-LANGUAGES): read the real audio/subtitle tracks of the top sources (a few
+     * hundred KB of each file's header) when their title does not say.
+     */
+    val verifyLanguages: Boolean = true,
 ) {
     companion object {
         const val AUDIO_AUTO = "auto"
@@ -162,6 +167,8 @@ object StreamRankingSettingsRepository {
     fun setPreferCached(prefer: Boolean) = update { it.copy(preferCached = prefer) }
 
     fun setAvoidLowQuality(avoid: Boolean) = update { it.copy(avoidLowQuality = avoid) }
+
+    fun setVerifyLanguages(verify: Boolean) = update { it.copy(verifyLanguages = verify) }
 
     fun resetToDefaults() {
         ensureLoaded()

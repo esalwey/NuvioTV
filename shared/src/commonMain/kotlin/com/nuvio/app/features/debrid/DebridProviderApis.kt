@@ -273,6 +273,8 @@ private class RealDebridProviderApi(
                 val url = unrestrict.body?.download?.takeIf { it.isNotBlank() }
                     ?: return DirectDebridResolveResult.Stale
                 resolved = true
+                // Fork (VERIFIED-LANGUAGES): the file's track languages are one call away.
+                DebridTrackMetadata.remember(url, DebridProviders.REAL_DEBRID_ID, unrestrict.body.id)
                 DirectDebridResolveResult.Success(
                     url = url,
                     filename = unrestrict.body.filename?.takeIf { it.isNotBlank() }

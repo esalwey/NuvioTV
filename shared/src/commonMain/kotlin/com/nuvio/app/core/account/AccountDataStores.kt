@@ -330,6 +330,12 @@ object AccountDataStores {
             ),
         ),
         AccountDataStore(
+            // Fork (VERIFIED-LANGUAGES): the tracks of files this device probed or played.
+            name = "VerifiedTrackStorage",
+            androidPreferences = "nuvio_verified_tracks",
+            appleKeys = listOf(AppleKeySpec.FileStore("VerifiedTracks")),
+        ),
+        AccountDataStore(
             name = "BingeGroupCacheStorage",
             androidPreferences = "nuvio_binge_group_cache",
             appleKeys = listOf(

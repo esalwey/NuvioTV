@@ -326,6 +326,17 @@ internal object RealDebridApiClient {
             apiKey = apiKey,
         )
 
+    /**
+     * Fork (VERIFIED-LANGUAGES): media details of an unrestricted file (`id` from
+     * [unrestrictLink]) — `details.audio` / `details.subtitles` with `lang_iso` per track.
+     */
+    suspend fun mediaInfos(apiKey: String, id: String): DebridApiResponse<JsonElement> =
+        request(
+            method = "GET",
+            url = "$BASE_URL/streaming/mediaInfos/${encodePathSegment(id)}",
+            apiKey = apiKey,
+        )
+
     private suspend inline fun <reified T> formRequest(
         method: String,
         url: String,
