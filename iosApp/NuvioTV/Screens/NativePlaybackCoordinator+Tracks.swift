@@ -12,13 +12,13 @@ extension NativePlaybackCoordinator {
         guard let settings = PlayerSettingsRepository.shared.uiState.value_ as? PlayerSettingsUiState else { return }
         playerSettings = settings
         let deviceLanguages = DeviceLanguagePreferences.shared.preferredLanguageCodes()
-        let audioTargets = PlayerLanguagePreferencesKt.resolvePreferredAudioLanguageTargets(
-            preferredAudioLanguage: settings.preferredAudioLanguage,
-            secondaryPreferredAudioLanguage: settings.secondaryPreferredAudioLanguage,
-            deviceLanguages: deviceLanguages,
-            // Title's original language for the "Original" audio preference (was nil = inert).
-            contentOriginalLanguage: PlayerAudioLanguagePlan.originalLanguage(for: context)
-        )
+        // The same targets as the mpv engine (`PlayerAudioLanguagePlan.audioTargets`): the audio
+        // picked for this show on an earlier episode/session first, WITH its variant (LANG-09/10:
+        // a VFQ pick is "fr-ca", not just French), then the stream's own audio hint, then the
+        // settings (the title's original language for "Original"). The remux starts on the match
+        // and AVPlayer's audible criteria prefer it.
+        let audioTargets = PlayerAudioLanguagePlan.audioTargets(settings: settings, context: context,
+                                                                persisted: persistedTrackPreference)
         let subTargets = PlayerLanguagePreferencesKt.resolvePreferredSubtitleLanguageTargets(
             preferredSubtitleLanguage: settings.preferredSubtitleLanguage,
             secondaryPreferredSubtitleLanguage: settings.secondaryPreferredSubtitleLanguage,
@@ -26,25 +26,14 @@ extension NativePlaybackCoordinator {
         )
         var plan = LanguagePlan()
         plan.audioTargets = audioTargets
-        // The audio language picked for this show on an earlier episode/session goes first
-        // (LANG-09 / STAB-05): the remux starts on it and AVPlayer's audible criteria prefer it.
-        if let saved = persistedTrackPreference?.audioLanguage, !saved.isEmpty {
-            let savedTag = TrackLabelFormatter.normalizedTag(saved) ?? saved
-            plan.audioTargets = [savedTag] + audioTargets.filter {
-                !PlayerLanguagePreferencesKt.languageMatchesPreference(trackLanguage: $0, targetLanguage: savedTag)
-            }
-        }
         plan.subtitleFilterLanguages = subTargets
         plan.onlyPreferredLanguages = settings.subtitleStyle.showOnlyPreferredLanguages
-        // Always consult the shared plan: even with no subtitle targets (primary "none", no
-        // secondary) it can yield a forced-only plan in the audio's language when "Use forced
-        // subtitles" is on and the audio matches a preferred audio language (mpv parity).
-        if let shared = PlayerTrackSelectionKt.resolveSubtitleAutoSelectionPlan(
-            selectedAudioTrack: selectedAudioTrack,
-            preferredAudioTargets: audioTargets,
-            preferredSubtitleTargets: subTargets,
-            useForcedSubtitles: settings.subtitleStyle.useForcedSubtitles
-        ) {
+        // Always consult the shared plan, with the tvOS defaults the mpv engine applies (spec
+        // §8.1): the "Forced" subtitle option, forced subtitles when the audio is in the device's
+        // language, always-on subtitles with system closed captions. Even with no subtitle targets
+        // it can yield a forced-only plan in the audio's language (mpv parity).
+        if let shared = PlayerAudioLanguagePlan.subtitlePlan(settings: settings, audio: selectedAudioTrack,
+                                                              audioTargets: audioTargets) {
             plan.subtitleTargets = shared.targets
             plan.forcedOnly = shared.mode == .forcedOnly
             plan.subtitlesOff = shared.targets.isEmpty   // nothing to auto-select → never auto-enable
@@ -97,10 +86,11 @@ extension NativePlaybackCoordinator {
     ///   DEFAULT=YES (mpv parity: preferred subtitles start on), the rest AUTOSELECT=NO.
     func subtitleFlags(for renditions: [SubtitleRendition]) -> [SubtitleRenditionFlags] {
         let plan = languagePlan
-        // No DEFAULT when forced-only (addon subs carry no forced flag) or when the shared plan
-        // deferred to player defaults; matches stay AUTOSELECT so the system may still pick them.
-        var defaultTaken = plan.leaveToPlayer
-        return renditions.map { rendition in
+        // DEFAULT goes to the rendition the shared subtitle rule picks (the mpv engine's rule):
+        // the target's variant (VFF vs VFQ), forced vs full per the plan, SDH only with system
+        // closed captions. None when the plan deferred to player defaults or matches nothing.
+        let defaultIndex = plannedDefaultSubtitleIndex(in: renditions)
+        return renditions.enumerated().map { index, rendition in
             // FORCED renditions are always auto-selectable: HLS requires AUTOSELECT=YES with
             // FORCED=YES (an invalid master is an admission failure), and forced tracks — foreign
             // dialogue / signs — are meant to show per the player's own rules even when the viewer
@@ -115,14 +105,65 @@ extension NativePlaybackCoordinator {
             // Forced-only plan: only a FORCED rendition in the target language may start on
             // (embedded tracks carry the flag; addon files never do). Normal plan: only FULL
             // renditions — a forced (signs/foreign-dialogue-only) track must not win DEFAULT just
-            // because it's listed first.
-            let eligible = plan.forcedOnly ? rendition.forced : !rendition.forced
-            let isDefault = matches && eligible && !defaultTaken
-            if isDefault { defaultTaken = true }
+            // because it's listed first. Both enforced by the shared rule.
+            let isDefault = index == defaultIndex
             // Forced renditions stay auto-selectable (the player applies them per its own rules)
             // whenever subtitles aren't off outright.
-            return SubtitleRenditionFlags(autoselect: matches || rendition.forced, isDefault: isDefault)
+            return SubtitleRenditionFlags(autoselect: matches || rendition.forced || isDefault, isDefault: isDefault)
         }
+    }
+
+    /// The rendition the language plan starts on, as an index into `renditions` (the master's
+    /// order), or nil: subtitles off, deferred to the player, or nothing matches. The shared
+    /// `findPreferredSubtitleTrackIndexPreferringSdh`, exactly as the mpv engine applies it.
+    func plannedDefaultSubtitleIndex(in renditions: [SubtitleRendition]) -> Int? {
+        let plan = languagePlan
+        guard !plan.subtitlesOff, !plan.leaveToPlayer, !plan.subtitleTargets.isEmpty, !renditions.isEmpty
+        else { return nil }
+        let tracks = renditions.enumerated().map { index, rendition in
+            SubtitleTrack(
+                index: Int32(index),
+                id: String(rendition.index),
+                // The SDH flag reaches the shared rule through the label, as on mpv.
+                label: rendition.name + (rendition.hearingImpaired ? " SDH" : ""),
+                language: rendition.language,
+                isSelected: false,
+                isForced: rendition.forced
+            )
+        }
+        let mode: SubtitleAutoSelectionMode = plan.forcedOnly ? .forcedOnly : .normalOnly
+        let picked = Int(PlayerTrackSelectionKt.findPreferredSubtitleTrackIndexPreferringSdh(
+            tracks: tracks, targets: plan.subtitleTargets, mode: mode,
+            selectedAudioTrack: planAudioTrack(),
+            preferSdh: PlayerAudioLanguagePlan.closedCaptionsPreferred
+        ))
+        return renditions.indices.contains(picked) ? picked : nil
+    }
+
+    /// The audio the remux produces — the one the subtitle plan was resolved against.
+    private func planAudioTrack() -> AudioTrack? {
+        guard let track = remux?.audioTracks.first(where: \.selected) else { return nil }
+        return AudioTrack(index: 0, id: String(track.streamIndex),
+                          label: track.title ?? track.language ?? "",
+                          language: track.language, isSelected: true)
+    }
+
+    /// No saved choice applied: select the plan's rendition explicitly, so the item starts on the
+    /// same track the master marks DEFAULT (AVPlayer's own criteria cannot tell two "fr"
+    /// renditions, or a plain and an SDH one, apart). Never turns subtitles off: forced renditions
+    /// keep showing per the player's rules when nothing is planned.
+    private func applyPlannedSubtitleDefault(item: AVPlayerItem, group: AVMediaSelectionGroup) {
+        let renditions = subtitleRenditionsByName.values.sorted { $0.index < $1.index }
+        guard let index = plannedDefaultSubtitleIndex(in: renditions) else { return }
+        let name = renditions[index].name
+        guard let option = group.options.first(where: { option in
+            let optionName = Self.renditionName(of: option)
+            return Self.subtitleSlot(ofName: optionName) == 0 && Self.canonicalSubtitleName(optionName) == name
+        }) else { return }
+        guard item.currentMediaSelection.selectedMediaOption(in: group) != option else { return }
+        item.select(option, in: group)
+        selectionVersion &+= 1
+        print("[NativePlayer] subtitles: planned ‘\(name)’")
     }
 
     /// True once the repo has completed the fetch for THIS content (deduplicated prefetches
@@ -137,18 +178,46 @@ extension NativePlaybackCoordinator {
         return false
     }
 
-    /// First playable track whose language matches the highest-priority target with any hit
-    /// (same rule as `PlayerAudioLanguagePlan.trackToForce(targets:tracks:)`). Pure — runs on the remux worker.
-    nonisolated static func preferredAudioStream(in tracks: [RemuxAudioTrack], targets: [String]) -> Int? {
-        for target in targets {
-            for track in tracks where track.playable {
-                if PlayerLanguagePreferencesKt.languageMatchesPreference(trackLanguage: track.language ?? "",
-                                                                          targetLanguage: target) {
-                    return track.streamIndex
-                }
-            }
+    /// The remux worker's initial audio pick (`RemuxSession.Config.preferredAudioPicker`), or nil
+    /// when there is nothing to steer it by. Captures plain values only: it runs on the worker.
+    func preferredAudioPicker() -> (@Sendable ([RemuxAudioTrack]) -> Int?)? {
+        let targets = languagePlan.audioTargets
+        let savedLanguage = persistedTrackPreference?.audioLanguage
+        let savedName = persistedTrackPreference?.audioName
+        let savedTrackId = persistedTrackPreference?.audioTrackId
+        guard !targets.isEmpty || !(savedLanguage ?? "").isEmpty else { return nil }
+        return { tracks in
+            Self.preferredAudioStream(in: tracks, targets: targets, savedLanguage: savedLanguage,
+                                      savedName: savedName, savedTrackId: savedTrackId)
         }
-        return nil
+    }
+
+    /// The playable track to start on: the show's saved choice when this file has it (matched by
+    /// variant, then name — LANG-09/10: VFQ stays VFQ on the next episode even if the France dub
+    /// now has its old track number), else the first target with a match, its exact variant first
+    /// (the same shared rule as `PlayerAudioLanguagePlan.trackToForce` on mpv). Pure — runs on
+    /// the remux worker.
+    nonisolated static func preferredAudioStream(in tracks: [RemuxAudioTrack], targets: [String],
+                                                 savedLanguage: String?, savedName: String?,
+                                                 savedTrackId: String?) -> Int? {
+        let playable = tracks.filter(\.playable)
+        guard !playable.isEmpty else { return nil }
+        let shared = playable.enumerated().map { index, track in
+            AudioTrack(index: Int32(index), id: String(track.streamIndex), label: audioMemoryName(track),
+                       language: track.language, isSelected: false)
+        }
+        let picked = Int(PlayerTrackSelectionKt.resolveInitialAudioTrackIndex(
+            tracks: shared, targets: targets,
+            savedLanguage: savedLanguage, savedName: savedName, savedTrackId: savedTrackId))
+        return playable.indices.contains(picked) ? playable[picked].streamIndex : nil
+    }
+
+    /// The name an audio choice is remembered by, and matched by on the next file: the container
+    /// title ("VFQ", "Commentary"), else the raw language code — the mpv engine's convention, so
+    /// a choice saved on one engine is found on the other.
+    nonisolated static func audioMemoryName(_ track: RemuxAudioTrack) -> String {
+        let title = track.title?.trimmingCharacters(in: .whitespaces) ?? ""
+        return title.isEmpty ? (track.language ?? "") : title
     }
 
     /// Follow AVPlayer's audible selection (system Audio tab): remember the selected track for the
@@ -207,15 +276,19 @@ extension NativePlaybackCoordinator {
         let track = stream.flatMap { s in remux?.audioTracks.first { $0.streamIndex == s } }
         let rawLanguage = track?.language ?? option.extendedLanguageTag
         let language = TrackLabelFormatter.normalizedTag(rawLanguage) ?? rawLanguage
+        // The container title ("VFQ") — what the next file's tracks are matched by — else the
+        // menu label, whose release tag still tells the variant.
+        let memoryName = track.map(Self.audioMemoryName) ?? ""
+        let name = memoryName.isEmpty ? Self.renditionName(of: option) : memoryName
         persistedTrackPreference = PlayerSubtitleMemory.saveAudio(
             parentMetaId: context.parentMetaId,
             language: language,
-            name: Self.renditionName(of: option),
+            name: name,
             trackId: stream.map { String($0) },
             keeping: persistedTrackPreference
         )
         lastSavedAudioStream = stream
-        print("[NativePlayer] audio choice remembered: \(language ?? "?") (\(Self.renditionName(of: option)))")
+        print("[NativePlayer] audio choice remembered: \(language ?? "?") (\(name))")
     }
 
     /// Map an audible option back to our track. `displayName` is AVFoundation's LOCALIZED language
@@ -253,10 +326,12 @@ extension NativePlaybackCoordinator {
     private func applyPersistedSubtitleChoice(item: AVPlayerItem, group: AVMediaSelectionGroup) {
         guard subtitleRestoreItem !== item else { return }
         subtitleRestoreItem = item
+        var restored = false
         if let preference = persistedTrackPreference {
             if preference.subtitleType == PersistedSubtitleSelectionType.shared.DISABLED {
                 item.select(nil, in: group)
                 selectionVersion &+= 1
+                restored = true
                 print("[NativePlayer] subtitles: restored Off")
             } else if let rendition = persistedSubtitleRendition(preference),
                       let option = group.options.first(where: { option in
@@ -265,9 +340,12 @@ extension NativePlaybackCoordinator {
                       }) {
                 item.select(option, in: group)
                 selectionVersion &+= 1
+                restored = true
                 print("[NativePlayer] subtitles: restored ‘\(rendition.name)’")
             }
         }
+        // No saved choice (or none that fits this file): the language plan's pick (mpv parity).
+        if !restored { applyPlannedSubtitleDefault(item: item, group: group) }
         armSubtitleChoiceTracking(item: item, group: group)
     }
 
@@ -317,19 +395,51 @@ extension NativePlaybackCoordinator {
         }
     }
 
-    /// Media-selection change: remember a new subtitle choice — not the delay re-fetch's Off hop, and
-    /// not AVPlayer re-picking subtitles for audio the viewer just switched to.
+    /// Media-selection change: remember a new subtitle choice — not the delay re-fetch's Off hop.
+    /// AVPlayer re-picking subtitles for audio the viewer just switched to (its criteria bring in
+    /// forced subtitles for the new language, or drop the current ones) is undone instead: an
+    /// audio switch never changes the subtitle choice, Off included. The re-pick can arrive in the
+    /// same notification as the audio change or in the next one, hence the short window.
     private func rememberSubtitleChoiceIfChanged(item: AVPlayerItem) {
         guard subtitleChoiceTrackingArmed, !isRefetchingSubtitles, let group = legibleGroup else { return }
         let option = item.currentMediaSelection.selectedMediaOption(in: group)
         let name = Self.subtitleChoiceName(option)
         let audioName = currentAudioChoiceName(item: item)
-        let audioChanged = audioName != lastAudioChoiceName
-        lastAudioChoiceName = audioName
+        if audioName != lastAudioChoiceName {
+            lastAudioChoiceName = audioName
+            lastAudioSwitchAt = Date()
+        }
         guard name != lastSubtitleChoiceName else { return }
+        if let switchedAt = lastAudioSwitchAt, Date().timeIntervalSince(switchedAt) < Self.audioSwitchSubtitleGuardSec,
+           let wanted = lastSubtitleChoiceName {
+            restoreSubtitleChoice(named: wanted, item: item, group: group)
+            return
+        }
         lastSubtitleChoiceName = name
-        if audioChanged { return }
         persistSubtitleChoice(option: option)
+    }
+
+    /// How long after an audio switch a subtitle change counts as AVPlayer's, not the viewer's.
+    private static let audioSwitchSubtitleGuardSec: TimeInterval = 2
+
+    /// Put the subtitle selection back to the viewer's choice ("" = Off) after AVPlayer moved it.
+    private func restoreSubtitleChoice(named wanted: String, item: AVPlayerItem, group: AVMediaSelectionGroup) {
+        let target: AVMediaSelectionOption?
+        if wanted.isEmpty {
+            target = nil
+        } else if let option = group.options.first(where: { option in
+            let name = Self.renditionName(of: option)
+            return Self.subtitleSlot(ofName: name) == 0 && Self.canonicalSubtitleName(name) == wanted
+        }) {
+            target = option
+        } else {
+            // The choice is no longer offered: accept the new selection as it is.
+            lastSubtitleChoiceName = Self.subtitleChoiceName(item.currentMediaSelection.selectedMediaOption(in: group))
+            return
+        }
+        item.select(target, in: group)
+        selectionVersion &+= 1
+        print("[NativePlayer] subtitles kept on ‘\(wanted.isEmpty ? "Off" : wanted)’ after the audio switch")
     }
 
     private func currentAudioChoiceName(item: AVPlayerItem) -> String? {
@@ -568,29 +678,36 @@ extension NativePlaybackCoordinator {
 
     // MARK: - Audio track display names
 
-    /// 10-foot menu label: localized language, codec + channel layout, then the container's track
-    /// title when it adds information ("Commentary", "Atmos"). E.g. "English · TrueHD 7.1 · Atmos".
+    /// 10-foot menu label: localized language with its variant, codec + channel layout, the
+    /// release tag, then the container's track title when it adds information. E.g.
+    /// "Français (Canada) · Dolby Digital+ 5.1 · VFQ", "English · Dolby Atmos · Commentary".
+    /// Same pieces as the mpv engine's rows (`MPVTrackFields`).
     static func audioTrackDisplayName(_ track: RemuxAudioTrack) -> String {
         var parts: [String] = []
-        // Shared formatter (contract C3, LANG-07): ISO 639-2/B codes ("fre") read "French".
-        if let raw = track.language, raw.lowercased() != "und" {
-            let tag = raw.lowercased()
-            if let language = TrackLabelFormatter.languageName(raw)
-                ?? Locale.current.localizedString(forLanguageCode: Self.iso639BtoT[tag] ?? tag) {
-                parts.append(language)
-            }
-        }
         let title = track.title?.trimmingCharacters(in: .whitespaces) ?? ""
-        let atmos = title.localizedCaseInsensitiveContains("atmos")
+        // Shared formatter (contract C3, LANG-07/10): ISO 639-2/B codes ("fre") read "French", and
+        // a title stating the variant ("VFQ", "French (Canada)") makes it "French (Canada)".
+        let tag = TrackLabelFormatter.trackLanguageTag(language: track.language, title: title)
+        if let language = TrackLabelFormatter.languageName(tag) {
+            parts.append(language)
+        } else if let raw = track.language?.lowercased(), !raw.isEmpty, raw != "und",
+                  let language = Locale.current.localizedString(forLanguageCode: Self.iso639BtoT[raw] ?? raw) {
+            parts.append(language)
+        }
+        let hasLanguage = !parts.isEmpty
+        let atmos = TrackLabelFormatter.looksAtmos(title)
         let detail = TrackLabelFormatter.audioDetail(codec: track.codec, channels: track.channels, atmos: atmos)
             ?? "\(Self.audioCodecDisplay[track.codec] ?? track.codec.uppercased()) \(Self.channelText(track.channels))"
         parts.append(detail)
-        // The container title when it adds information ("Commentary"), not when it repeats the
-        // format ("Atmos", "Dolby Digital+ 5.1").
-        if !title.isEmpty, title.count <= 42,
-           !detail.localizedCaseInsensitiveContains(title),
-           !(atmos && detail.localizedCaseInsensitiveContains("atmos") && title.count <= 12) {
-            parts.append(title)
+        // The release tag ("VFF", "VFQ"): two French dubs must read apart.
+        if hasLanguage, let release = TrackLabelFormatter.releaseTag(title) {
+            parts.append(release)
+        }
+        // The container title when it adds information ("Commentary"), not when it only repeats
+        // the language, a release tag or the format ("French", "VFF 5.1", "Atmos").
+        if let descriptor = TrackLabelFormatter.titleDescriptor(title, language: tag ?? track.language),
+           descriptor.count <= 42, !detail.localizedCaseInsensitiveContains(descriptor) {
+            parts.append(descriptor)
         }
         return parts.isEmpty ? String(localized: "Track \(track.streamIndex)") : parts.joined(separator: " \u{00B7} ")
     }

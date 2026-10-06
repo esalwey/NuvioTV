@@ -281,10 +281,46 @@ object SubtitleLanguageMatching {
         return normalizedCode
     }
 
+    // Fork (LANG-10): Latin American Spanish regions (es-MX, es-AR…) read as es-419.
+    private val LATIN_AMERICAN_SPANISH_REGIONS = setOf(
+        "419", "mx", "ar", "co", "cl", "pe", "ve", "ec", "gt", "cu", "bo", "do", "hn", "py", "sv",
+        "ni", "cr", "pa", "uy", "pr", "us",
+    )
+
+    /**
+     * Fork (LANG-10): the language variant a code stands for, in the form the variant matchers
+     * compare: a region that names no distinct dub collapses to the base language ("fr-FR",
+     * "fr-BE" → "fr", "en-US" → "en", "es-ES" → "es", "pt-PT" → "pt"), the variants that matter
+     * stay ("fr-CA" → "fr-ca", "pt-BR" → "pt-br", "es-MX" → "es-419"), and scripts and Chinese
+     * regions are kept ("zh-TW", "sr-Latn"). The Apple TV lists its language as "fr-FR": without
+     * this, a France viewer's target never equals the "fr" a VFF track is detected as.
+     */
+    fun canonicalLanguageVariant(language: String?): String {
+        val normalized = normalizeLanguageCode(language ?: "")
+        if (normalized.isBlank()) return ""
+        val primary = normalized.substringBefore('-')
+        val region = normalized.substringAfter('-', "").substringBefore('-')
+        if (region.isEmpty()) return normalized
+        val isCountry = region.length == 2 && region.all { it in 'a'..'z' }
+        return when (primary) {
+            "fr" -> if (region == "ca") "fr-ca" else if (isCountry) "fr" else normalized
+            "pt" -> if (region == "br") "pt-br" else if (isCountry) "pt" else normalized
+            "es" -> when {
+                region in LATIN_AMERICAN_SPANISH_REGIONS -> "es-419"
+                isCountry -> "es"
+                else -> normalized
+            }
+            "zh" -> normalized
+            else -> if (isCountry) primary else normalized
+        }
+    }
+
     fun matchesLanguageCode(language: String?, target: String): Boolean {
         if (language.isNullOrBlank()) return false
-        val normalizedLanguage = normalizeLanguageCode(language)
-        val normalizedTarget = normalizeLanguageCode(target)
+        // Fork (LANG-10): canonical variants on both sides ("fr-FR" target matches a "fre" track,
+        // "es-ES" matches "spa"), so a device-language target behaves like its base language.
+        val normalizedLanguage = canonicalLanguageVariant(language)
+        val normalizedTarget = canonicalLanguageVariant(target)
         if (matchesNormalizedLanguage(normalizedLanguage, normalizedTarget)) {
             return true
         }
@@ -317,7 +353,8 @@ object SubtitleLanguageMatching {
     }
 
     fun detectTrackLanguageVariant(language: String?, name: String?, trackId: String?): String {
-        val baseLang = normalizeLanguageCode(language ?: "")
+        // Fork (LANG-10): canonical, so a "fr-FR" track (or target) is the "fr" variant.
+        val baseLang = canonicalLanguageVariant(language)
         val haystack = listOfNotNull(name, language, trackId)
             .joinToString(" ")
             .lowercase()
@@ -393,7 +430,7 @@ object SubtitleLanguageMatching {
         target: String,
     ): Boolean {
         if (matchesLanguageCode(language, target)) return true
-        val normalizedTarget = normalizeLanguageCode(target)
+        val normalizedTarget = canonicalLanguageVariant(target)
         // Fork (LANG-10): the title's release tags / native name ("VFQ", "Español"). Counts when
         // the track has no usable code, or when it refines the code's own language (a "fre" track
         // titled "VFQ" is fr-ca) — never against it.

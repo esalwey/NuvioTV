@@ -73,6 +73,50 @@ nonisolated enum TrackLabelFormatter {
 
     // MARK: - Beyond the contract
 
+    /// The language of a track as a BCP 47 tag, with the variant its title states (LANG-10): a
+    /// "fre" track titled "VFQ" or "French (Canada)" is "fr-CA", a "por" one titled "Brazilian" is
+    /// "pt-BR". A region the container already carries ("fr-FR", "fr-CA") is kept as it is, and the
+    /// title never contradicts the code's language. No usable code: what the title says ("VFQ",
+    /// "Español"). Nil when neither names a language.
+    static func trackLanguageTag(language: String?, title: String?) -> String? {
+        guard let codeTag = normalizedTag(language) else {
+            if let stated = normalizedTag(PlayerLanguagePreferencesKt.languageFromTrackText(text: title)) {
+                return stated
+            }
+            // An untagged track titled with a language name ("English").
+            if let titled = normalizedTag(title), languageName(titled) != nil { return titled }
+            return nil
+        }
+        guard !codeTag.contains("-"), let title, !title.trimmingCharacters(in: .whitespaces).isEmpty else {
+            return codeTag
+        }
+        let variant = SubtitleLanguageMatching.shared.detectTrackLanguageVariant(
+            language: language, name: title, trackId: nil)
+        guard let variantTag = normalizedTag(variant), variantTag.contains("-"),
+              variantTag.split(separator: "-").first == codeTag.split(separator: "-").first
+        else { return codeTag }
+        return variantTag
+    }
+
+    /// The release tag a track title carries ("VFF", "VFQ", "VFI", "TrueFrench"…), as the viewer
+    /// knows it from the stream names, or nil. Several are joined ("VFF VFQ" stays readable as
+    /// one descriptor). Whole words only: "VFX" is not "VF".
+    static func releaseTag(_ title: String?) -> String? {
+        guard let title, !title.isEmpty else { return nil }
+        let words = Set(title.lowercased()
+            .split(whereSeparator: { !$0.isLetter && !$0.isNumber })
+            .map(String.init))
+        var found = releaseTags.filter { words.contains($0.word) }.map { $0.display }
+        if found.count > 1 { found.removeAll { $0 == "VF" } }
+        return found.isEmpty ? nil : found.joined(separator: " ")
+    }
+
+    /// In display order; "vf" only counts when no more specific tag is there.
+    private static let releaseTags: [(word: String, display: String)] = [
+        ("truefrench", "TrueFrench"), ("vff", "VFF"), ("vfq", "VFQ"), ("vfi", "VFI"),
+        ("vf2", "VF2"), ("vof", "VOF"), ("vf", "VF"),
+    ]
+
     /// `subtitleDetail(forced:sdh:)` plus the subtitle format ("Forced · SRT", "PGS").
     static func subtitleDetail(forced: Bool, sdh: Bool, codec: String?) -> String? {
         let parts = [subtitleDetail(forced: forced, sdh: sdh), subtitleCodecName(codec)].compactMap { $0 }

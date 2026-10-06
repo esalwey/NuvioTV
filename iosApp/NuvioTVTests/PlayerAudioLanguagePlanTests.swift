@@ -137,6 +137,37 @@ final class PlayerAudioLanguagePlanTests: XCTestCase {
         XCTAssertNil(PlayerAudioLanguagePlan.trackToForce(targets: ["fr"], tracks: tracks))
     }
 
+    func testAppleTvFranceTargetPrefersTheFranceDub() {
+        // An Apple TV in French (France) yields "fr-fr" before "fr".
+        let tracks = makeTitledTracks(
+            (id: 1, lang: "fre", title: "VFQ", selected: true),
+            (id: 2, lang: "fre", title: "VFF", selected: false)
+        )
+        XCTAssertEqual(PlayerAudioLanguagePlan.trackToForce(targets: ["fr-fr", "fr"], tracks: tracks), 2)
+    }
+
+    func testAlangValueAddsTheBaseOfARegionalTarget() {
+        XCTAssertEqual(PlayerAudioLanguagePlan.alangValue(targets: ["fr-ca", "fr", "en"]), "fr-ca,fr,en")
+        XCTAssertEqual(PlayerAudioLanguagePlan.alangValue(targets: ["fr-ca", "en"]), "fr-ca,fr,en")
+    }
+
+    func testTrackLanguageTagCarriesTheTitleVariant() {
+        XCTAssertEqual(TrackLabelFormatter.trackLanguageTag(language: "fre", title: "VFQ"), "fr-CA")
+        XCTAssertEqual(TrackLabelFormatter.trackLanguageTag(language: "fre", title: "French (Canada)"), "fr-CA")
+        XCTAssertEqual(TrackLabelFormatter.trackLanguageTag(language: "fre", title: "VFF"), "fr")
+        XCTAssertEqual(TrackLabelFormatter.trackLanguageTag(language: "fr-FR", title: nil), "fr-FR")
+        XCTAssertEqual(TrackLabelFormatter.trackLanguageTag(language: nil, title: "VFQ"), "fr-CA")
+        XCTAssertEqual(TrackLabelFormatter.trackLanguageTag(language: "eng", title: "VFQ"), "en")
+    }
+
+    func testReleaseTag() {
+        XCTAssertEqual(TrackLabelFormatter.releaseTag("VFQ 5.1"), "VFQ")
+        XCTAssertEqual(TrackLabelFormatter.releaseTag("French TrueFrench"), "TrueFrench")
+        XCTAssertEqual(TrackLabelFormatter.releaseTag("VF VFF"), "VFF")
+        XCTAssertNil(TrackLabelFormatter.releaseTag("VFX breakdown"))
+        XCTAssertNil(TrackLabelFormatter.releaseTag(nil))
+    }
+
     // MARK: - TrackLabelFormatter (contract C3)
 
     func testNormalizedTagIsBcp47() {

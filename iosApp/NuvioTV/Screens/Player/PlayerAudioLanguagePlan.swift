@@ -8,49 +8,53 @@ import UIKit
 /// mpv so `NuvioTVTests` can cover it.
 enum PlayerAudioLanguagePlan {
     /// mpv `alang` option value: the preferred language targets in priority order, comma-joined.
+    /// A regional target ("fr-ca", "fr-fr") is followed by its base language: mpv cannot tell two
+    /// "fre" tracks apart by code anyway, and the base keeps its first pick in the right language
+    /// whatever its region matching does. The variant itself is then settled by `trackToForce`.
     static func alangValue(targets: [String]) -> String {
-        targets.joined(separator: ",")
+        var values: [String] = []
+        for target in targets {
+            let trimmed = target.trimmingCharacters(in: .whitespaces)
+            guard !trimmed.isEmpty else { continue }
+            if !values.contains(trimmed) { values.append(trimmed) }
+            if let dash = trimmed.firstIndex(of: "-") {
+                let base = String(trimmed[..<dash])
+                if !base.isEmpty, !values.contains(base) { values.append(base) }
+            }
+        }
+        return values.joined(separator: ",")
     }
 
     /// The track id to force after the track list is known, or `nil` when nothing should change.
     ///
     /// Walks `targets` in priority order. The first target that matches ANY track decides. Among
-    /// its matches, the tracks of the target's exact variant come first (LANG-10: target "fr" picks
-    /// the "VFF" dub over the "VFQ" one, target "fr-CA" the reverse); if one of those is already
-    /// `selected` (mpv's own `alang` pick satisfied it), return `nil` so the caller does not
-    /// re-poke `aid` after the first frame; otherwise return the first one's id. No target matches
-    /// at all → `nil` (leave mpv's default alone). A track with no language code is matched by its
-    /// title ("Español", "VFQ"). Matching delegates to the shared Kotlin matcher so `jpn`/`ja`,
-    /// `pt-BR`/`pt` etc. behave exactly as the rest of the app.
+    /// its matches, the tracks of the target's exact variant come first (LANG-10: target "fr" —
+    /// or the Apple TV's "fr-FR" — picks the "VFF" dub over the "VFQ" one, target "fr-CA" the
+    /// reverse); if one of those is already `selected` (mpv's own `alang` pick satisfied it),
+    /// return `nil` so the caller does not re-poke `aid` after the first frame; otherwise return the
+    /// first one's id. No target matches at all → `nil` (leave mpv's default alone). A track with
+    /// no language code is matched by its title ("Español", "VFQ"). The decision is the shared
+    /// `preferredAudioTrackCandidates`, the same rule the native engine's remux pick uses.
     static func trackToForce(
         targets: [String],
         tracks: [(id: Int, lang: String, title: String, selected: Bool)]
     ) -> Int? {
-        for target in targets {
-            let matches = tracks.filter { audioTrack(lang: $0.lang, title: $0.title, matches: target) }
-            guard !matches.isEmpty else { continue }
-            let wanted = SubtitleLanguageMatching.shared.normalizeLanguageCode(lang: target)
-            let exact = matches.filter {
-                SubtitleLanguageMatching.shared.detectTrackLanguageVariant(language: $0.lang, name: $0.title, trackId: nil)
-                    == wanted
-            }
-            let pool = exact.isEmpty ? matches : exact
-            if pool.contains(where: { $0.selected }) { return nil }
-            return pool.first?.id
+        guard !targets.isEmpty, !tracks.isEmpty else { return nil }
+        let shared = tracks.enumerated().map { index, track in
+            AudioTrack(
+                index: Int32(index),
+                id: String(track.id),
+                label: track.title,
+                language: track.lang.isEmpty ? nil : track.lang,
+                isSelected: track.selected
+            )
         }
-        return nil
-    }
-
-    /// One audio track against one language target: its code, else (no usable code) its title.
-    static func audioTrack(lang: String, title: String, matches target: String) -> Bool {
-        if PlayerLanguagePreferencesKt.languageMatchesPreference(trackLanguage: lang, targetLanguage: target) {
-            return true
-        }
-        let code = lang.trimmingCharacters(in: .whitespaces).lowercased()
-        guard code.isEmpty || code == "und" || code == "unknown",
-              let stated = PlayerLanguagePreferencesKt.languageFromTrackText(text: title)
-        else { return false }
-        return PlayerLanguagePreferencesKt.languageMatchesPreference(trackLanguage: stated, targetLanguage: target)
+        let pool = PlayerTrackSelectionKt.preferredAudioTrackCandidates(tracks: shared, targets: targets)
+            .map { Int($0.int32Value) }
+            .filter { tracks.indices.contains($0) }
+        guard let first = pool.first else { return nil }
+        if pool.contains(where: { tracks[$0].selected }) { return nil }
+        return tracks[first].id
     }
 
     /// The audio-language targets in priority order, for both engines: the language the viewer
@@ -70,12 +74,24 @@ enum PlayerAudioLanguagePlan {
         // viewer picked for this show still wins below.
         targets = StreamPlaybackAudioHints.audioTargets(context: context, base: targets,
                                                         originalLanguage: originalLanguage(for: context))
-        if let saved = persisted?.audioLanguage,
-           let normalized = PlayerLanguagePreferencesKt.normalizeLanguageCode(language: saved) {
-            targets.removeAll { $0 == normalized }
-            targets.insert(normalized, at: 0)
+        if let saved = persistedAudioTarget(persisted) {
+            targets.removeAll { $0 == saved }
+            targets.insert(saved, at: 0)
         }
         return targets
+    }
+
+    /// The saved audio choice as a target, with its variant (LANG-10): "fre" saved with the name
+    /// "VFQ" is "fr-ca", so the next episode starts on the Québec dub again, not merely on French.
+    /// Nil when nothing usable is saved.
+    static func persistedAudioTarget(_ persisted: PersistedPlayerTrackPreference?) -> String? {
+        guard let saved = persisted?.audioLanguage?.trimmingCharacters(in: .whitespaces), !saved.isEmpty
+        else { return nil }
+        let variant = SubtitleLanguageMatching.shared.detectTrackLanguageVariant(
+            language: saved, name: persisted?.audioName, trackId: nil)
+        let target = variant.isEmpty ? PlayerLanguagePreferencesKt.normalizeLanguageCode(language: saved) : variant
+        guard let target, !target.isEmpty, target != "und", target != "unknown" else { return nil }
+        return target
     }
 
     /// The system "Closed Captions + SDH" accessibility setting (spec §8.1): subtitles always on,

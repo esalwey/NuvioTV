@@ -190,7 +190,8 @@ fun findBestInternalSubtitleTrackIndex(
             continue
         }
 
-        val normalizedTarget = SubtitleLanguageMatching.normalizeLanguageCode(target)
+        // Fork (LANG-10): canonical, so a device target "fr-FR" gets the France/Québec tie-break.
+        val normalizedTarget = SubtitleLanguageMatching.canonicalLanguageVariant(target)
         val candidateIndexes = tracks.indices.filter { index ->
             val track = tracks[index]
             (!normalOnly || !track.isForced) && subtitleTrackMatchesLanguage(track, target)
@@ -266,7 +267,7 @@ fun findBestForcedSubtitleTrackIndex(
     }
     if (directMatch >= 0) return directMatch
 
-    val normalizedTarget = SubtitleLanguageMatching.normalizeLanguageCode(target)
+    val normalizedTarget = SubtitleLanguageMatching.canonicalLanguageVariant(target)
     if (normalizedTarget == "pt-br" || normalizedTarget == "es-419") {
         return tracks.indexOfFirst { track ->
             track.isForced &&
@@ -528,6 +529,14 @@ fun preferredSubtitleTargetsForSettings(settings: PlayerSettingsUiState): List<S
     ).filterNot { it == SubtitleLanguageOption.FORCED }
 }
 
+/**
+ * The audio track a saved choice names (LANG-09). Fork (LANG-10): variant-aware — the saved
+ * language and name decide the variant ("fre" + "VFQ" is fr-ca), and only tracks of that variant
+ * are considered when the file has one: a reused track id or a name like "French" can no longer
+ * land on the France dub when the viewer picked the Québec one (or the reverse). Within the
+ * variant: the saved id when its name still fits, the saved name exactly, the saved name as a
+ * part, then the first track of the variant.
+ */
 fun findPersistedAudioTrackIndex(
     tracks: List<AudioTrack>,
     preference: PersistedPlayerTrackPreference,
@@ -535,36 +544,121 @@ fun findPersistedAudioTrackIndex(
     val targetId = preference.audioTrackId?.trim()?.lowercase()?.takeIf { it.isNotBlank() }
     val targetName = preference.audioName?.trim()?.lowercase()?.takeIf { it.isNotBlank() }
     val targetLanguage = normalizeLanguageCode(preference.audioLanguage)
-    val strictCandidates = tracks.filter {
-        targetLanguage == null || normalizeLanguageCode(it.language) == targetLanguage
+        ?.takeUnless { it == "und" || it == "unknown" }
+    val languageCandidates = if (targetLanguage == null) {
+        tracks
+    } else {
+        tracks.filter { audioTrackMatchesTarget(it, targetLanguage) }
     }
+    if (languageCandidates.isEmpty()) return -1
+    val targetVariant = if (targetLanguage == null) {
+        null
+    } else {
+        SubtitleLanguageMatching.detectTrackLanguageVariant(
+            language = preference.audioLanguage,
+            name = preference.audioName,
+            trackId = null,
+        ).takeIf { it.isNotBlank() }
+    }
+    val candidates = targetVariant?.let { variant ->
+        languageCandidates.filter { audioTrackLanguageVariant(it) == variant }
+    }.orEmpty().ifEmpty { languageCandidates }
     if (targetId != null) {
-        strictCandidates.firstOrNull {
+        candidates.firstOrNull {
             it.id.trim().lowercase() == targetId &&
                 (targetName == null || it.label.trim().lowercase().contains(targetName))
         }?.let { return it.index }
     }
     if (targetName != null) {
-        strictCandidates.firstOrNull { it.label.trim().lowercase() == targetName }
+        candidates.firstOrNull { it.label.trim().lowercase() == targetName }
             ?.let { return it.index }
-        strictCandidates.firstOrNull { it.label.trim().lowercase().contains(targetName) }
+        candidates.firstOrNull { it.label.trim().lowercase().contains(targetName) }
             ?.let { return it.index }
     }
     if (targetLanguage == null) return -1
-    val languageCandidates = tracks.filter { languageMatchesPreference(it.language, targetLanguage) }
-    val targetVariant = SubtitleLanguageMatching.detectTrackLanguageVariant(
-        language = preference.audioLanguage,
-        name = preference.audioName,
-        trackId = preference.audioTrackId,
-    )
-    return languageCandidates.firstOrNull {
-        SubtitleLanguageMatching.detectTrackLanguageVariant(
-            language = it.language,
-            name = it.label,
-            trackId = it.id,
-        ) == targetVariant
-    }?.index ?: languageCandidates.firstOrNull()?.index ?: -1
+    return candidates.first().index
 }
+
+// region Fork (LANG-10): variant-aware audio choice, shared by both tvOS engines.
+
+/**
+ * One audio track against one language target: its code ("fre", "fr-CA", "jpn"), else — only when
+ * the track has no usable code — what its title says ("VFQ", "Español", "English"). A coded
+ * track is never matched against its own code by its title ("Français" on an "eng" track is not
+ * French).
+ */
+fun audioTrackMatchesTarget(track: AudioTrack, target: String): Boolean {
+    if (languageMatchesPreference(track.language, target)) return true
+    val code = track.language?.trim()?.lowercase().orEmpty()
+    if (code.isNotEmpty() && code != "und" && code != "unknown") return false
+    val stated = languageFromTrackText(track.label) ?: normalizeLanguageCode(track.label) ?: return false
+    return languageMatchesPreference(stated, target)
+}
+
+/** The language variant a track is ("fr", "fr-ca", "pt-br", "es-419", "ja"), from its code and title. */
+fun audioTrackLanguageVariant(track: AudioTrack): String =
+    SubtitleLanguageMatching.detectTrackLanguageVariant(
+        language = track.language,
+        name = track.label,
+        trackId = null,
+    )
+
+/**
+ * The tracks a preference resolves to, best first, as their [AudioTrack.index]: the first target
+ * (in priority order) that matches ANY track decides; among its matches the target's exact variant
+ * comes first ("fr" → the VFF dub, "fr-CA" → the VFQ one, "fr-FR" from the Apple TV's language
+ * counts as "fr"); a France-French target with no stated France dub still avoids the Québec one.
+ * Empty when no target matches. Callers that must not re-select an already playing track check
+ * whether the list contains the selected one.
+ */
+fun preferredAudioTrackCandidates(tracks: List<AudioTrack>, targets: List<String>): List<Int> {
+    for (target in targets) {
+        val matches = tracks.filter { audioTrackMatchesTarget(it, target) }
+        if (matches.isEmpty()) continue
+        val wanted = SubtitleLanguageMatching.canonicalLanguageVariant(target)
+        val exact = matches.filter { audioTrackLanguageVariant(it) == wanted }
+        if (exact.isNotEmpty()) return exact.map { it.index }
+        if (wanted == "fr") {
+            val notQuebec = matches.filter { audioTrackLanguageVariant(it) != "fr-ca" }
+            if (notQuebec.isNotEmpty()) return notQuebec.map { it.index }
+        }
+        return matches.map { it.index }
+    }
+    return emptyList()
+}
+
+/** The first of [preferredAudioTrackCandidates], or -1. */
+fun findPreferredAudioTrackIndex(tracks: List<AudioTrack>, targets: List<String>): Int =
+    preferredAudioTrackCandidates(tracks, targets).firstOrNull() ?: -1
+
+/**
+ * The track playback should start on: the title's saved choice ([findPersistedAudioTrackIndex])
+ * when one is saved and fits this file, else the preferred-language pick
+ * ([findPreferredAudioTrackIndex]). -1 = leave the player's default. Plain strings so the native
+ * engine can call it from its remux worker without sharing a preference object across threads.
+ */
+fun resolveInitialAudioTrackIndex(
+    tracks: List<AudioTrack>,
+    targets: List<String>,
+    savedLanguage: String?,
+    savedName: String?,
+    savedTrackId: String?,
+): Int {
+    if (!savedLanguage.isNullOrBlank()) {
+        val persisted = findPersistedAudioTrackIndex(
+            tracks,
+            PersistedPlayerTrackPreference(
+                audioLanguage = savedLanguage,
+                audioName = savedName,
+                audioTrackId = savedTrackId,
+            ),
+        )
+        if (persisted >= 0) return persisted
+    }
+    return findPreferredAudioTrackIndex(tracks, targets)
+}
+
+// endregion
 
 /**
  * Upstream c9d6f5f63 (public here: the tvOS players call it from Swift). The addon subtitle to

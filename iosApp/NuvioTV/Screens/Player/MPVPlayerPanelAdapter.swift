@@ -26,10 +26,11 @@ nonisolated struct MPVTrackFields: Equatable, Sendable {
     var isAddon = false
     var addonName: String? = nil
 
-    /// The language as a BCP 47 tag: the code, else what the title says ("VFQ", "Español").
+    /// The language as a BCP 47 tag: the code refined by the variant the title states ("fre" +
+    /// "VFQ" → "fr-CA", so the row reads "Français (Canada)"), else what the title says ("VFQ",
+    /// "Español").
     var languageTag: String? {
-        TrackLabelFormatter.normalizedTag(language)
-            ?? TrackLabelFormatter.normalizedTag(PlayerLanguagePreferencesKt.languageFromTrackText(text: title))
+        TrackLabelFormatter.trackLanguageTag(language: language, title: title)
     }
 
     var sdh: Bool { !isAudio && (hearingImpaired || TrackLabelFormatter.looksSdh(title)) }
@@ -47,6 +48,11 @@ nonisolated struct MPVTrackFields: Equatable, Sendable {
     var detail: String? {
         var parts: [String] = []
         let hasLanguageName = languageTag.flatMap { TrackLabelFormatter.languageName($0) } != nil
+        // The release tag the file names the track with ("VFF", "VFQ"), which the descriptor below
+        // drops as a mere restatement of the language (LANG-10: two French dubs must read apart).
+        if hasLanguageName, !isAddon, let release = TrackLabelFormatter.releaseTag(title) {
+            parts.append(release)
+        }
         if hasLanguageName, !isAddon,
            let descriptor = TrackLabelFormatter.titleDescriptor(title, language: languageTag) {
             parts.append(descriptor)
@@ -231,6 +237,7 @@ final class MPVPlayerPanelAdapter {
                 }
             }
             subtitles.append(contentsOf: rankedAddonRows(addonRows))
+            subtitles = Self.disambiguated(subtitles)
         }
         if model.subtitles != subtitles { model.subtitles = subtitles }
         if model.subtitlesSearching != state.subtitleSearchInFlight { model.subtitlesSearching = state.subtitleSearchInFlight }
@@ -245,7 +252,24 @@ final class MPVPlayerPanelAdapter {
             option.language = fields.languageTag
             return option
         }
-        if model.audio != audio { model.audio = audio }
+        let distinctAudio = Self.disambiguated(audio)
+        if model.audio != distinctAudio { model.audio = distinctAudio }
+    }
+
+    /// Never two identical rows: tracks that still read the same (two untitled French AC3 5.1
+    /// tracks) get their track number on the descriptor line ("Piste 3"). Rows keep their ids.
+    private static func disambiguated(_ options: [PlayerPanelOption]) -> [PlayerPanelOption] {
+        func key(_ option: PlayerPanelOption) -> String { option.title + "\u{1F}" + (option.detail ?? "") }
+        var counts: [String: Int] = [:]
+        for option in options where option.group != .off { counts[key(option), default: 0] += 1 }
+        guard counts.values.contains(where: { $0 > 1 }) else { return options }
+        return options.map { option in
+            guard option.group != .off, (counts[key(option)] ?? 0) > 1, let number = Int(option.id) else { return option }
+            var copy = option
+            let track = String(localized: "Track \(number)")
+            copy.detail = [option.detail, track].compactMap { $0 }.joined(separator: TrackLabelFormatter.separator)
+            return copy
+        }
     }
 
     /// LANG-05 ranking: the preferred subtitle languages in their order, then the language of the

@@ -236,7 +236,16 @@ extension MPVTVPlayerViewController {
                     tracks: audioInfos.map { (id: $0.id, lang: $0.lang, title: $0.title, selected: $0.selected) }
                 )
             if let id = wanted, audioInfos.first(where: { $0.id == id })?.selected != true {
-                eventQueue.async { [weak self] in self?.setMpvInt("aid", Int64(id)) }
+                eventQueue.async { [weak self] in
+                    guard let self else { return }
+                    // The switch must not move the subtitle choice (mpv may re-run its own
+                    // forced-subtitle fallback on an audio change).
+                    let sidBefore = self.getString("sid")
+                    self.setMpvInt("aid", Int64(id))
+                    self.keepSubtitle(sidBefore)
+                    // Republish so the Audio menu's checkmark follows the forced track.
+                    self.refreshTracksAsync()
+                }
                 pickedAudioId = id
             }
         }
@@ -305,13 +314,15 @@ extension MPVTVPlayerViewController {
         }
         if subInfos.indices.contains(match) {
             let sid = Int64(subInfos[match].id)
-            eventQueue.async { [weak self] in self?.setMpvInt("sid", sid) }
+            // Republish after the pick so the Subtitles menu's checkmark follows it (the walk only
+            // re-runs on track-count changes otherwise).
+            eventQueue.async { [weak self] in self?.setMpvInt("sid", sid); self?.refreshTracksAsync() }
             return .selected
         }
         // Targets to look for and addon subtitles still on their way: wait for them.
         if !plan.targets.isEmpty, !isFinal { return .pending }
         // Nothing matches (or nothing is wanted): subtitles off, whatever the file flags as default.
-        eventQueue.async { [weak self] in self?.setMpvString("sid", "no") }
+        eventQueue.async { [weak self] in self?.setMpvString("sid", "no"); self?.refreshTracksAsync() }
         return .off
     }
 
@@ -538,8 +549,12 @@ extension MPVTVPlayerViewController {
         let metaId = context.parentMetaId
         eventQueue.async { [weak self] in
             guard let self, let mpv = self.mpv else { return }
+            // In place, at the current position: `aid` is a live property, no reload. The viewer's
+            // subtitle choice (a track, or Off) survives the switch.
+            let sidBefore = self.getString("sid")
             var v = Int64(id)
             mpv_set_property(mpv, "aid", MPV_FORMAT_INT64, &v)
+            self.keepSubtitle(sidBefore)
             // LANG-09/STAB-05: remember the pick for this title. Read the track off the handle
             // here, on the event queue (the walk's audio rows carry no language).
             let picked = self.audioTrackInfo(id: id)
@@ -558,6 +573,18 @@ extension MPVTVPlayerViewController {
             }
         }
         refreshTracksAsync()
+    }
+
+    /// `eventQueue` only: put the subtitle selection back to `sid` ("no", or a track id) if an audio
+    /// switch moved it — mpv's forced-subtitle fallback can re-pick subtitles for the new audio
+    /// language, which would silently replace (or switch on) the viewer's choice.
+    private func keepSubtitle(_ sid: String?) {
+        guard let sid, mpv != nil, getString("sid") != sid else { return }
+        if let id = Int64(sid) {
+            setMpvInt("sid", id)
+        } else {
+            setMpvString("sid", sid)
+        }
     }
 
     /// `eventQueue` only: language and title of the audio track `id`, from the live track list.
