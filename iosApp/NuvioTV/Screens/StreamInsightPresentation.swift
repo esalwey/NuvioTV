@@ -41,6 +41,8 @@ struct StreamLanguageChipInfo: Hashable {
     let isUncertain: Bool
     /// What VoiceOver reads ("Français, version inconnue" for "VF ?").
     let accessibilityText: String
+    /// VERIFIED-LANGUAGES: read from the file's own tracks (a seal on the chip), not the title.
+    var isVerified: Bool = false
 }
 
 /// Where a stream sits for this viewer — the section headers inside an add-on's list. Follows the
@@ -51,6 +53,9 @@ enum StreamRowTier: Int, Comparable {
     case yourLanguage = 0
     case otherVersion
     case subtitled
+    /// VERIFIED-LANGUAGES: nothing names the audio — it may hold the viewer's dub. Never lumped in
+    /// with "Other Languages".
+    case unknownLanguage
     case otherLanguages
     case outsideLimits
 
@@ -67,6 +72,9 @@ enum StreamRowTier: Int, Comparable {
         case .subtitled:
             return String(localized: "streams.tier.subtitled", defaultValue: "Original with Subtitles",
                           comment: "Source picker section header: original-language audio with subtitles in the viewer's language (VOSTFR).")
+        case .unknownLanguage:
+            return String(localized: "streams.tier.unknownLanguage", defaultValue: "Language Not Stated",
+                          comment: "Source picker section header: streams whose title names no audio language and whose tracks were not read yet. They may hold the viewer's language.")
         case .otherLanguages:
             return String(localized: "streams.tier.otherLanguages", defaultValue: "Other Languages",
                           comment: "Source picker section header: none of the viewer's languages, or nothing stated.")
@@ -85,6 +93,7 @@ enum StreamRowTier: Int, Comparable {
         if has("LANGUAGE", positive: true) || has("ORIGINAL_LANGUAGE", positive: true) { return .yourLanguage }
         if has("OTHER_VARIANT", positive: false) { return .otherVersion }
         if has("SUBTITLED", positive: true) { return .subtitled }
+        if has("LANGUAGE_UNKNOWN", positive: false) { return .unknownLanguage }
         return .otherLanguages
     }
 }
@@ -99,6 +108,8 @@ struct StreamRowInfo {
     let quality: String
     let audio: [StreamLanguageChipInfo]
     let subtitles: [StreamLanguageChipInfo]
+    /// VERIFIED-LANGUAGES: the audio chips come from the file's tracks.
+    let audioVerified: Bool
     let sizeBytes: Int64?
     /// "WEB-DL · YggTorrent · S01E05 · FW" — shown on focus only.
     let detail: String
@@ -149,8 +160,9 @@ enum StreamInsightPresenter {
             subtitles: insight.subtitleLanguages.map { language in
                 let name = languageName(language)
                 return StreamLanguageChipInfo(text: name, isUncertain: language.confidence == StreamConfidence.low,
-                                              accessibilityText: name)
+                                              accessibilityText: name, isVerified: insight.subtitlesVerified)
             },
+            audioVerified: insight.audioVerified,
             sizeBytes: size,
             detail: detailLine(insight),
             cache: cacheBadge(insight),
@@ -186,6 +198,12 @@ enum StreamInsightPresenter {
     /// the rest in the parser's order; then "VO" when the original track is in the file but not
     /// named (MULTi, DUAL, VO).
     static func audioChips(_ insight: StreamInsight) -> [StreamLanguageChipInfo] {
+        // VERIFIED-LANGUAGES: a title that names no audio says nothing — "Langue ?", not "VO".
+        if insight.audioLanguageUnknown {
+            return [StreamLanguageChipInfo(text: unknownLanguageLabel, isUncertain: true,
+                                           accessibilityText: unknownLanguageAccessibilityLabel)]
+        }
+        let verified = insight.audioVerified
         let uiLanguage = String((Bundle.main.preferredLocalizations.first ?? "en").prefix(2))
         let languages = insight.audioLanguages.enumerated().sorted { lhs, rhs in
             let left = lhs.element.language == uiLanguage ? 0 : 1
@@ -195,11 +213,12 @@ enum StreamInsightPresenter {
         var chips = languages.map { language in
             StreamLanguageChipInfo(
                 text: audioLabel(language),
-                isUncertain: language.confidence == StreamConfidence.low,
-                accessibilityText: audioAccessibilityLabel(language)
+                isUncertain: !verified && language.confidence == StreamConfidence.low,
+                accessibilityText: audioAccessibilityLabel(language),
+                isVerified: verified
             )
         }
-        if insight.includesOriginalAudio && insight.audioLanguages.count < 2 {
+        if !verified && insight.includesOriginalAudio && insight.audioLanguages.count < 2 {
             let original = String(localized: "streams.chip.original", defaultValue: "VO",
                                   comment: "Source picker audio chip: the original-language track is in the file (version originale).")
             chips.append(StreamLanguageChipInfo(
@@ -209,6 +228,23 @@ enum StreamInsightPresenter {
             ))
         }
         return chips
+    }
+
+    /// VERIFIED-LANGUAGES: the audio chip of a stream whose title names no language.
+    static var unknownLanguageLabel: String {
+        String(localized: "streams.chip.unknownLanguage", defaultValue: "Language\u{202F}?",
+               comment: "Source picker audio chip: the stream's title names no audio language (it may hold the viewer's language). Keep it short.")
+    }
+
+    static var unknownLanguageAccessibilityLabel: String {
+        String(localized: "streams.a11y.unknownLanguage", defaultValue: "Language not specified",
+               comment: "VoiceOver, source picker: the stream's title names no audio language; the chip shows 'Language ?'.")
+    }
+
+    /// VoiceOver word after a verified language list.
+    static var verifiedAccessibilityLabel: String {
+        String(localized: "streams.a11y.verified", defaultValue: "verified",
+               comment: "VoiceOver, source picker row: the languages were read from the file's own tracks.")
     }
 
     /// French keeps its release tag so the version is never hidden behind a generic "French":
@@ -320,6 +356,9 @@ enum StreamInsightPresenter {
         case "LANGUAGE_MISSING":
             return String(localized: "streams.reason.languageMissing", defaultValue: "Not in your language",
                           comment: "Source picker reason: none of the viewer's audio languages.")
+        case "LANGUAGE_UNKNOWN":
+            return String(localized: "streams.reason.languageUnknown", defaultValue: "Language not stated",
+                          comment: "Source picker reason: the stream's title names no audio language.")
         case "CACHED":
             return String(localized: "streams.reason.cached", defaultValue: "Cached",
                           comment: "Source picker reason/chip: the debrid service already has this file, it starts instantly.")
@@ -387,6 +426,8 @@ struct StreamLanguageChip: View {
     var kind: Kind = .audio
     var systemImage: String?
     var isUncertain = false
+    /// VERIFIED-LANGUAGES: read from the file's tracks — a seal after the text.
+    var isVerified = false
 
     @ScaledMetric(relativeTo: .caption) private var height: CGFloat = 44
 
@@ -403,6 +444,11 @@ struct StreamLanguageChip: View {
                 }
                 Text(isUncertain && !text.hasSuffix("?") ? "\(text)\u{202F}?" : text)
                     .lineLimit(1)
+                if isVerified {
+                    Image(systemName: "checkmark.seal.fill")
+                        .imageScale(.small)
+                        .accessibilityHidden(true)
+                }
             }
             .font(Theme.Font.meta)
             .foregroundStyle(solid ? paper : ink.opacity(kind == .overflow ? 0.75 : 1))
@@ -462,12 +508,12 @@ struct StreamLanguageChipsLine: View {
             ForEach(Array(audio.prefix(audioCount).enumerated()), id: \.offset) { index, chip in
                 StreamLanguageChip(text: chip.text, kind: .audio,
                                    systemImage: index == 0 ? "speaker.wave.2.fill" : nil,
-                                   isUncertain: chip.isUncertain)
+                                   isUncertain: chip.isUncertain, isVerified: chip.isVerified)
             }
             ForEach(Array(subtitles.prefix(subtitleCount).enumerated()), id: \.offset) { index, chip in
                 StreamLanguageChip(text: chip.text, kind: .subtitle,
                                    systemImage: index == 0 ? "captions.bubble" : nil,
-                                   isUncertain: chip.isUncertain)
+                                   isUncertain: chip.isUncertain, isVerified: chip.isVerified)
             }
             if hidden > 0 {
                 StreamLanguageChip(text: "+\(hidden)", kind: .overflow)
@@ -576,5 +622,53 @@ enum StreamPlaybackAudioHints {
             baseTargets: base,
             originalLanguage: originalLanguage
         )
+    }
+}
+
+/// VERIFIED-LANGUAGES: the player's half of the track memory. Both engines report the file's own
+/// tracks once they know them (one line each: mpv's track walk, the native remux's stream list);
+/// the shared store files them under the stream the picker registered for this link, so the next
+/// list shows them as verified. Side-loaded add-on subtitles are not the file's and are left out.
+enum PlayedTrackRecorder {
+    struct Audio {
+        let language: String?
+        let title: String?
+        let codec: String?
+        let channels: Int
+    }
+
+    struct Subtitle {
+        let language: String?
+        let title: String?
+        let forced: Bool
+    }
+
+    /// Last list recorded per link: the mpv walk runs on every track event, the store only needs it once.
+    private static var lastRecorded: [String: String] = [:]
+
+    static func record(url: URL, audio: [Audio], subtitles: [Subtitle]) {
+        guard !audio.isEmpty || !subtitles.isEmpty else { return }
+        let link = url.absoluteString
+        let signature = audio.map { "a\($0.language ?? "")|\($0.title ?? "")" }.joined(separator: ";")
+            + "#" + subtitles.map { "s\($0.language ?? "")|\($0.title ?? "")|\($0.forced)" }.joined(separator: ";")
+        guard lastRecorded[link] != signature else { return }
+        if lastRecorded.count > 64 { lastRecorded.removeAll() }
+        lastRecorded[link] = signature
+        let tracks: [ContainerTrack] = audio.map { track in
+            ContainerTrack(kind: .audio, language: nonEmpty(track.language), languageTag: nil, name: nonEmpty(track.title),
+                           codec: nonEmpty(track.codec),
+                           channels: track.channels > 0 ? KotlinInt(int: Int32(track.channels)) : nil,
+                           isDefault: false, isForced: false)
+        } + subtitles.map { track in
+            ContainerTrack(kind: .subtitle, language: nonEmpty(track.language), languageTag: nil, name: nonEmpty(track.title),
+                           codec: nil, channels: nil, isDefault: false, isForced: track.forced)
+        }
+        VerifiedTrackStore.shared.recordPlayback(url: link, tracks: tracks)
+    }
+
+    private static func nonEmpty(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespaces)
+        return trimmed.isEmpty ? nil : trimmed
     }
 }

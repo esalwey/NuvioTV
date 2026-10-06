@@ -93,6 +93,17 @@ final class StreamsViewModel: ObservableObject {
     /// STREAM-INSIGHT: the viewer's ranking preferences (nil until the shared repository emits).
     @Published private(set) var rankingPreferences: StreamRankingPreferences?
 
+    /// VERIFIED-LANGUAGES: track lists read from the files during this list, by `streamKey`.
+    private var verifiedRecords: [String: VerifiedTrackRecord] = [:]
+    /// VERIFIED-LANGUAGES: this list's probing (at most 2 files at a time, cancelled with the list).
+    private var verification: TrackVerificationSession?
+    /// VERIFIED-LANGUAGES: background probes started for this list (the top candidates only).
+    private var backgroundProbes = 0
+    private static let backgroundProbeLimit = 6
+    /// VERIFIED-LANGUAGES: the focused row is probed after it kept focus a moment.
+    private var focusProbeTask: Task<Void, Never>?
+    private static let focusProbeDelayNanoseconds: UInt64 = 600_000_000
+
     private var watcher: FlowWatcher?
     private var badgeWatcher: FlowWatcher?
     private var debridWatcher: FlowWatcher?
@@ -199,6 +210,7 @@ final class StreamsViewModel: ObservableObject {
             guard let self, let value = emitted as? StreamRankingPreferences else { return }
             guard self.rankingPreferences != value else { return }
             self.rankingPreferences = value
+            if !value.verifyLanguages { self.cancelVerification() }
             // New preferences: every group re-sorts once and the pick is chosen again.
             self.frozenOrder = [:]
             self.topPickKey = nil
@@ -242,6 +254,7 @@ final class StreamsViewModel: ObservableObject {
 
     func stop() {
         cancelWatchers()
+        cancelVerification()
         isDetached = false
         retryingAddonIds = []
         StreamsRepository.shared.clear()
@@ -252,6 +265,7 @@ final class StreamsViewModel: ObservableObject {
     /// a fresh fetch. `start()` re-attaches; `stop()` still clears when the picker itself closes.
     func detach() {
         cancelWatchers()
+        cancelVerification()
         isDetached = true
     }
 
@@ -317,8 +331,99 @@ final class StreamsViewModel: ObservableObject {
     private func insight(for stream: StreamItem, key: String) -> StreamInsight {
         if let cached = insightCache[key] { return cached }
         let parsed = StreamInsightParser.shared.parse(stream: stream)
-        insightCache[key] = parsed
-        return parsed
+        // VERIFIED-LANGUAGES: the file's real tracks when known — read during this list, or
+        // remembered from an earlier probe or playback (applied before any probing).
+        let record: VerifiedTrackRecord? = verifiedRecords[Self.streamKey(stream)]
+            ?? VerifiedTrackStore.shared.lookup(stream: stream)
+        let result = record.map { VerifiedTrackLanguages.shared.applyRecord(insight: parsed, record: $0) } ?? parsed
+        insightCache[key] = result
+        return result
+    }
+
+    // MARK: - Verified languages (VERIFIED-LANGUAGES)
+
+    private var verifyLanguagesEnabled: Bool {
+        (rankingPreferences ?? StreamRankingSettingsRepository.shared.snapshot()).verifyLanguages
+    }
+
+    /// Kotlin calls back on a background thread: hop to the main actor with the result.
+    nonisolated private static func makeVerificationSession(
+        deliver: @escaping @Sendable (String, VerifiedTrackRecord) -> Void
+    ) -> TrackVerificationSession {
+        TrackVerificationSession(onResult: { id, record in deliver(id, record) })
+    }
+
+    private func verificationSession() -> TrackVerificationSession? {
+        guard verifyLanguagesEnabled else { return nil }
+        if let verification { return verification }
+        let session = Self.makeVerificationSession { [weak self] id, record in
+            Task { @MainActor in self?.applyVerified(key: id, record: record) }
+        }
+        verification = session
+        return session
+    }
+
+    private func cancelVerification() {
+        focusProbeTask?.cancel()
+        focusProbeTask = nil
+        verification?.cancel()
+        verification = nil
+    }
+
+    /// A probe answered: the row's chips become verified and the list re-ranks — open groups keep
+    /// their order and the pinned/Recommended picks stay (`rankGroup`, `updateBestMatch`).
+    private func applyVerified(key: String, record: VerifiedTrackRecord) {
+        guard verification != nil else { return }
+        verifiedRecords[key] = record
+        let prefix = key + "\u{1F}"
+        insightCache = insightCache.filter { !$0.key.hasPrefix(prefix) }
+        if let last = lastState { apply(last) }
+    }
+
+    /// The link to probe for `stream` (nil: nothing free to read, or already verified).
+    private func probeTarget(_ stream: StreamItem) -> String? {
+        let insight = insight(for: stream, key: Self.insightKey(stream))
+        guard !insight.audioVerified else { return nil }
+        let url: String? = TrackVerification.shared.probeUrl(stream: stream, insight: insight)
+        return url
+    }
+
+    /// Once every add-on has answered: probe the best-ranked rows whose links are free to read
+    /// (cached on the debrid service, already resolved by the app, or plain HTTP), up to six.
+    private func scheduleBackgroundVerification(allAnswered: Bool) {
+        guard allAnswered, backgroundProbes < Self.backgroundProbeLimit,
+              let session = verificationSession() else { return }
+        var candidates: [(tier: StreamRowTier, score: Int, key: String, stream: StreamItem, url: String)] = []
+        for group in groups {
+            for stream in group.streams {
+                let key = Self.streamKey(stream)
+                guard let info = rowInfos[key], !info.isExcluded, let url = probeTarget(stream),
+                      !session.wasRequested(id: key, url: url) else { continue }
+                candidates.append((tier: info.tier, score: info.score, key: key, stream: stream, url: url))
+            }
+        }
+        candidates.sort { lhs, rhs in
+            lhs.tier != rhs.tier ? lhs.tier < rhs.tier : lhs.score > rhs.score
+        }
+        for candidate in candidates {
+            guard backgroundProbes < Self.backgroundProbeLimit else { break }
+            if session.request(id: candidate.key, stream: candidate.stream, url: candidate.url) {
+                backgroundProbes += 1
+            }
+        }
+    }
+
+    /// The picker's focus moved: a row that keeps focus ~600 ms is probed (once).
+    func focusChanged(rowKey: String?) {
+        focusProbeTask?.cancel()
+        focusProbeTask = nil
+        guard let rowKey, verifyLanguagesEnabled else { return }
+        focusProbeTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: Self.focusProbeDelayNanoseconds)
+            guard !Task.isCancelled, let self, let stream = self.stream(forRowKey: rowKey),
+                  let url = self.probeTarget(stream), let session = self.verificationSession() else { return }
+            _ = session.request(id: Self.streamKey(stream), stream: stream, url: url)
+        }
     }
 
     private func rankingContext() -> StreamRankingContext {
@@ -458,6 +563,7 @@ final class StreamsViewModel: ObservableObject {
         topPickKey = nil
         frozenOrder = [:]
         insightCache = [:]
+        resetVerification()
         StreamsRepository.shared.clear()
         StreamsRepository.shared.reload(
             type: type,
@@ -478,6 +584,7 @@ final class StreamsViewModel: ObservableObject {
         topPickKey = nil
         frozenOrder = [:]
         insightCache = [:]
+        resetVerification()
         rowInfos = [:]
         autoExpandGroupId = nil
         retryingAddonIds = []
@@ -485,6 +592,13 @@ final class StreamsViewModel: ObservableObject {
         emptyReason = nil
         emptyReasonHint = nil
         isLoading = true
+    }
+
+    /// A new list: its own probes, from scratch (remembered tracks still apply through the store).
+    private func resetVerification() {
+        cancelVerification()
+        verifiedRecords = [:]
+        backgroundProbes = 0
     }
 
     private func apply(_ state: StreamsUiState) {
@@ -553,6 +667,7 @@ final class StreamsViewModel: ObservableObject {
         if autoExpandGroupId == nil, let expandTarget { autoExpandGroupId = expandTarget }
         firstRowKey = groups.first.map { Self.rowKey(groupId: $0.id, index: 0) }
         updateBestMatch(allAnswered: !state.isAnyLoading)
+        scheduleBackgroundVerification(allAnswered: !state.isAnyLoading)
 
         // STAB-04: a Retry on the empty screen keeps that screen (and its focused row) up while
         // the retried addons are the only ones still out.
@@ -802,5 +917,6 @@ final class StreamsViewModel: ObservableObject {
         debridWatcher?.cancel()
         healthWatcher?.cancel()
         rankingWatcher?.cancel()
+        verification?.cancel()
     }
 }

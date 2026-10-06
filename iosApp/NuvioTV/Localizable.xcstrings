@@ -32762,6 +32762,132 @@
           }
         }
       }
+    },
+    "streams.tier.unknownLanguage": {
+      "comment": "Source picker section header: streams whose title names no audio language and whose tracks were not read yet. They may hold the viewer's language.",
+      "extractionState": "extracted_with_value",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Language Not Stated"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Langue non indiquée"
+          }
+        }
+      }
+    },
+    "streams.chip.unknownLanguage": {
+      "comment": "Source picker audio chip: the stream's title names no audio language (it may hold the viewer's language). Keep it short.",
+      "extractionState": "extracted_with_value",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Language ?"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Langue ?"
+          }
+        }
+      }
+    },
+    "streams.a11y.unknownLanguage": {
+      "comment": "VoiceOver, source picker: the stream's title names no audio language; the chip shows 'Language ?'.",
+      "extractionState": "extracted_with_value",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Language not specified"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Langue non précisée"
+          }
+        }
+      }
+    },
+    "streams.a11y.verified": {
+      "comment": "VoiceOver, source picker row: the languages were read from the file's own tracks.",
+      "extractionState": "extracted_with_value",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "verified"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vérifié"
+          }
+        }
+      }
+    },
+    "streams.reason.languageUnknown": {
+      "comment": "Source picker reason: the stream's title names no audio language.",
+      "extractionState": "extracted_with_value",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Language not stated"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Langue non indiquée"
+          }
+        }
+      }
+    },
+    "settings.streams.verifyLanguages": {
+      "comment": "Playback settings toggle: read the audio/subtitle tracks of the top sources to confirm their languages",
+      "extractionState": "extracted_with_value",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Verify Source Languages"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vérifier les langues des sources"
+          }
+        }
+      }
+    },
+    "settings.streams.verifyLanguages.subtitle": {
+      "comment": "Explanation under the Verify Source Languages toggle",
+      "extractionState": "extracted_with_value",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Reads a few hundred KB of each top source (only ready-to-play links, never a torrent that still needs downloading) to list its real audio and subtitle tracks. Verified languages show a seal."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lit quelques centaines de Ko de chaque source en tête de liste (uniquement les liens prêts à lire, jamais un torrent encore à télécharger) pour connaître ses vraies pistes audio et sous-titres. Les langues vérifiées portent un sceau."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

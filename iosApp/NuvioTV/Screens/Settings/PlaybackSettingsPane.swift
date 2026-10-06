@@ -337,6 +337,15 @@ struct PlaybackSettingsPane: View {
                     isOn: Binding(get: { prefs.avoidLowQuality }, set: { repository.setAvoidLowQuality(avoid: $0) })
                 )
             }
+            // VERIFIED-LANGUAGES: read the real tracks of the top sources when their title is silent.
+            SettingsToggleRow(
+                title: String(localized: "settings.streams.verifyLanguages", defaultValue: "Verify Source Languages",
+                              comment: "Playback settings toggle: read the audio/subtitle tracks of the top sources to confirm their languages"),
+                subtitle: String(localized: "settings.streams.verifyLanguages.subtitle",
+                                 defaultValue: "Reads a few hundred KB of each top source (only ready-to-play links, never a torrent that still needs downloading) to list its real audio and subtitle tracks. Verified languages show a seal.",
+                                 comment: "Explanation under the Verify Source Languages toggle"),
+                isOn: Binding(get: { prefs.verifyLanguages }, set: { repository.setVerifyLanguages(verify: $0) })
+            )
         }
     }
 

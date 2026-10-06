@@ -239,6 +239,8 @@ struct StreamPickerView: View {
     }
 
     private func context(url: URL, stream: StreamItem?) -> PlaybackContext {
+        // VERIFIED-LANGUAGES: the tracks the player finds in this link are remembered for this stream.
+        if let stream { VerifiedTrackStore.shared.registerPlayback(url: url.absoluteString, stream: stream) }
         let built = PlaybackContext(
             url: url,
             title: title,
@@ -438,6 +440,10 @@ struct StreamPickerView: View {
             .onChange(of: expandedGroups) { _, ids in
                 // STREAM-INSIGHT: an open group keeps its row order under focus.
                 model.setExpandedGroups(ids)
+            }
+            .onChange(of: focusedRow) { _, key in
+                // VERIFIED-LANGUAGES: a row that keeps focus has its file's tracks read.
+                model.focusChanged(rowKey: key)
             }
             .onAppear {
                 loadHeaderArt()
@@ -1264,8 +1270,12 @@ struct StreamPickerView: View {
             let audioList = info.audio.map { $0.accessibilityText }.joined(separator: ", ")
             let subtitleList = info.subtitles.map { $0.accessibilityText }.joined(separator: ", ")
             if !audioList.isEmpty {
-                parts.append(String(localized: "streams.a11y.audio", defaultValue: "audio \(audioList)",
-                                    comment: "VoiceOver, source picker row: the audio languages. %@ is the list."))
+                let audioText = String(localized: "streams.a11y.audio", defaultValue: "audio \(audioList)",
+                                       comment: "VoiceOver, source picker row: the audio languages. %@ is the list.")
+                // VERIFIED-LANGUAGES: "audio VFF, English, verified".
+                parts.append(info.audioVerified
+                             ? "\(audioText), \(StreamInsightPresenter.verifiedAccessibilityLabel)"
+                             : audioText)
             }
             if !subtitleList.isEmpty {
                 parts.append(String(localized: "streams.a11y.subtitles", defaultValue: "subtitles \(subtitleList)",

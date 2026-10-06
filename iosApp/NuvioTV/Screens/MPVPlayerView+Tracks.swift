@@ -188,6 +188,12 @@ extension MPVTVPlayerViewController {
             if self.state.audioTracks != audio { self.state.audioTracks = audio }
             if self.state.subtitleTracks != newSubs { self.state.subtitleTracks = newSubs }
             self.lastSubtitleInfos = subInfos
+            // VERIFIED-LANGUAGES: remember the file's own tracks for the stream it was picked from.
+            PlayedTrackRecorder.record(
+                url: self.context.url,
+                audio: audioInfos.map { .init(language: $0.lang, title: $0.title, codec: $0.codec, channels: $0.channels) },
+                subtitles: subInfos.filter { $0.sourceURL == nil }.map { .init(language: $0.lang, title: $0.title, forced: $0.forced) }
+            )
             self.autoSelectPreferredTracks(audioInfos: audioInfos, subInfos: subInfos)
             // The subtitle half: a saved choice first, else the language plan. A saved addon choice
             // that waits for this episode's addon subtitles is retried on every walk.

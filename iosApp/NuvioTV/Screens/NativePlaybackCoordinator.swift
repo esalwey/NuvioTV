@@ -503,6 +503,12 @@ final class NativePlaybackCoordinator: ObservableObject {
             NativeAudioTrack(streamIndex: $0.streamIndex, name: Self.audioTrackDisplayName($0),
                              playable: $0.playable, selected: $0.selected)
         }
+        // VERIFIED-LANGUAGES: remember the file's own tracks for the stream it was picked from.
+        PlayedTrackRecorder.record(
+            url: context.url,
+            audio: remux.audioTracks.map { .init(language: $0.language, title: $0.title, codec: $0.codec, channels: $0.channels) },
+            subtitles: remux.subtitleTracks.map { .init(language: $0.language, title: $0.title, forced: $0.forced) }
+        )
         // External subtitles (D5): stream-attached files plus the addon-fetched list (the same
         // source the mpv player side-loads — streams rarely attach their own), offered as WebVTT
         // renditions in the synthesized master. The server downloads/converts on first selection.
