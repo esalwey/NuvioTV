@@ -334,14 +334,9 @@ struct StreamFileSizeChip: View {
             .overlay(shape.stroke(Color.white.opacity(0.15), lineWidth: 1))
     }
 
+    /// Locale-aware: "1,5 Go" / "740 Mo" in French, "1.5 GB" / "740 MB" in English.
     static func label(for bytes: Int64) -> String {
-        let gib = Double(bytes) / (1024.0 * 1024.0 * 1024.0)
-        if gib >= 1.0 {
-            // Localized format so locales can rename units (French: "Go"/"Mo").
-            return String(format: String(localized: "%.1f GB"), (gib * 10.0).rounded() / 10.0)
-        }
-        let mib = Double(bytes) / (1024.0 * 1024.0)
-        return String(format: String(localized: "%d MB"), Int(mib.rounded()))
+        LocalizedNumberFormat.fileSize(bytes)
     }
 }
 

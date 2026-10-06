@@ -4,40 +4,6 @@
     "": {
       "shouldTranslate": false
     },
-    "%.1f GB": {
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%.1f GB"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%.1f GB"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%.1f Go"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%.1f GB"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%.1f GB"
-          }
-        }
-      }
-    },
     "%@": {
       "shouldTranslate": false
     },
@@ -363,40 +329,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "%d"
-          }
-        }
-      }
-    },
-    "%d MB": {
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%d MB"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%d MB"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%d Mo"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%d MB"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%d MB"
           }
         }
       }
@@ -33251,6 +33183,60 @@
           "stringUnit": {
             "state": "translated",
             "value": "Balayez vers le bas pour afficher %@"
+          }
+        }
+      }
+    },
+    "format.rate.perSecond": {
+      "comment": "Player stream info: a download speed. %@ is a localized size such as 4.2 MB.",
+      "extractionState": "extracted_with_value",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "%@/s"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@/s"
+          }
+        }
+      }
+    },
+    "format.bitrate.mbps": {
+      "comment": "Player stream info: a video bitrate in megabits per second. %@ is the localized number, e.g. 12.3.",
+      "extractionState": "extracted_with_value",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "%@ Mb/s"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ Mbit/s"
+          }
+        }
+      }
+    },
+    "format.frameRate": {
+      "comment": "Player stream info: frames per second. %@ is the localized number, e.g. 23.976.",
+      "extractionState": "extracted_with_value",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "%@ fps"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ i/s"
           }
         }
       }

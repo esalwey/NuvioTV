@@ -906,7 +906,7 @@ final class MPVTVPlayerViewController: UIViewController {
         // Append the active subtitle delay to the Engine row so a device pass can read it without
         // opening the panel (beta.15 §B2) — e.g. "mpv · subs +1.50 s".
         if subtitleDelaySec != 0 {
-            let suffix = String(format: "subs %+.2f s", subtitleDelaySec)
+            let suffix = "subs " + LocalizedNumberFormat.signedSeconds(subtitleDelaySec)
             info.engine = engine.isEmpty ? suffix : "\(engine) \u{00B7} \(suffix)"
         } else {
             info.engine = engine
@@ -920,10 +920,10 @@ final class MPVTVPlayerViewController: UIViewController {
         if w > 0, h > 0 { info.resolution = "\(w)\u{00D7}\(h)" }
         info.videoCodec = getString("video-codec") ?? ""
         let fps = getDouble("container-fps")
-        if fps > 0 { info.fps = String(format: "%.3f fps", fps) }
+        if fps > 0 { info.fps = LocalizedNumberFormat.frameRate(fps) }
         info.hwdec = getString("hwdec-current") ?? ""
         let vbr = getDouble("video-bitrate")
-        if vbr > 0 { info.videoBitrate = String(format: "%.1f Mbps", vbr / 1_000_000) }
+        if vbr > 0 { info.videoBitrate = LocalizedNumberFormat.bitrate(bitsPerSecond: vbr) }
         let audioCodec = getString("audio-codec-name") ?? ""
         let channels = getInt("audio-params/channel-count")
         let sampleRate = getInt("audio-params/samplerate")
@@ -935,7 +935,7 @@ final class MPVTVPlayerViewController: UIViewController {
         let cacheSec = getDouble("demuxer-cache-duration")
         if cacheSec > 0 { cacheParts.append(String(format: "%.0fs buffered", cacheSec)) }
         let cacheSpeed = getDouble("cache-speed")
-        if cacheSpeed > 0 { cacheParts.append(String(format: "%.1f MB/s", cacheSpeed / 1_000_000)) }
+        if cacheSpeed > 0 { cacheParts.append(LocalizedNumberFormat.transferRate(bytesPerSecond: cacheSpeed)) }
         info.cache = cacheParts.joined(separator: " \u{00B7} ")
         return info
     }

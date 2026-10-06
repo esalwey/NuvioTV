@@ -1192,7 +1192,7 @@ final class NativePlaybackCoordinator: ObservableObject {
         var engine = routingNote ?? String(localized: "Native")
         if subtitleDelayMs != 0 {
             // Device-pass readout: the persisted/applied delay, mirroring the mpv Engine row.
-            engine += String(format: " \u{00B7} subs %+.2f s", Double(subtitleDelayMs) / 1000)
+            engine += " \u{00B7} subs " + LocalizedNumberFormat.signedSeconds(Double(subtitleDelayMs) / 1000)
         }
         add(String(localized: "Engine"), engine)
         if let s = remux?.videoSignaling {
@@ -1200,7 +1200,7 @@ final class NativePlaybackCoordinator: ObservableObject {
             add("Dolby Vision", s.supplementalCodecs)
             add(String(localized: "Dynamic range"), s.videoRange)
             if s.width > 0, s.height > 0 {
-                let fps = s.frameRate > 0 ? String(format: " · %.6g fps", s.frameRate) : ""
+                let fps = s.frameRate > 0 ? " \u{00B7} " + LocalizedNumberFormat.frameRate(Double(s.frameRate)) : ""
                 add(String(localized: "Resolution"), "\(s.width)\u{00D7}\(s.height)\(fps)")
             }
         }
@@ -1264,14 +1264,15 @@ final class NativePlaybackCoordinator: ObservableObject {
         let event = playerItem?.accessLog()?.events.last
         var bitrate: [String] = []
         if let event, event.indicatedBitrate > 0 {
-            bitrate.append(String(format: "%.1f Mb/s", event.indicatedBitrate / 1_000_000))
+            bitrate.append(LocalizedNumberFormat.bitrate(bitsPerSecond: event.indicatedBitrate))
         }
         if let bandwidth = remux?.estimatedBandwidth, bandwidth > 0 {
-            bitrate.append(String(localized: "declared \(String(format: "%.1f", Double(bandwidth) / 1_000_000)) Mb/s"))
+            let declared = LocalizedNumberFormat.decimal(Double(bandwidth) / 1_000_000, fractionDigits: 1)
+            bitrate.append(String(localized: "declared \(declared) Mb/s"))
         }
         add(String(localized: "Bitrate"), bitrate.joined(separator: " \u{00B7} "))
         if let event, event.numberOfBytesTransferred > 0 {
-            var transfer = String(format: "%.0f MB", Double(event.numberOfBytesTransferred) / 1_048_576)
+            var transfer = LocalizedNumberFormat.fileSize(event.numberOfBytesTransferred)
             if event.numberOfStalls > 0 {
                 transfer += " \u{00B7} " + String(localized: "\(event.numberOfStalls) stall(s)")
             }

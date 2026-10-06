@@ -443,7 +443,7 @@ extension NativePlaybackCoordinator {
             } else if codec.hasPrefix("avc1") || codec.hasPrefix("avc3") {
                 chips.append(PlayerPanelChip(text: "H.264"))
             }
-            if s.frameRate > 0 { chips.append(PlayerPanelChip(text: String(format: "%.6g fps", s.frameRate))) }
+            if s.frameRate > 0 { chips.append(PlayerPanelChip(text: LocalizedNumberFormat.frameRate(Double(s.frameRate)))) }
         }
         if let audio = audioTracks.first(where: \.selected)?.name {
             // Drop the leading language ("English · ") — the chip is about the format.
@@ -451,9 +451,9 @@ extension NativePlaybackCoordinator {
             chips.append(PlayerPanelChip(text: parts.count > 1 ? parts.dropFirst().joined(separator: " \u{00B7} ") : audio))
         }
         if let event = playerItem?.accessLog()?.events.last, event.indicatedBitrate > 0 {
-            chips.append(PlayerPanelChip(text: String(format: "%.1f Mbps", event.indicatedBitrate / 1_000_000)))
+            chips.append(PlayerPanelChip(text: LocalizedNumberFormat.bitrate(bitsPerSecond: event.indicatedBitrate)))
         } else if let bandwidth = remux?.estimatedBandwidth, bandwidth > 0 {
-            chips.append(PlayerPanelChip(text: String(format: "%.1f Mbps", Double(bandwidth) / 1_000_000)))
+            chips.append(PlayerPanelChip(text: LocalizedNumberFormat.bitrate(bitsPerSecond: Double(bandwidth))))
         }
         return chips
     }

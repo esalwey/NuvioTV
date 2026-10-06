@@ -70,11 +70,11 @@ enum PlayerTransportMenus {
     }
 
     static func rateTitle(_ rate: Float) -> String {
-        String(format: "%g\u{00D7}", Double(rate))
+        LocalizedNumberFormat.speed(Double(rate))
     }
 
     static func delayTitle(_ ms: Int) -> String {
-        ms == 0 ? "0 s" : String(format: "%+.2f s", Double(ms) / 1000)
+        LocalizedNumberFormat.signedSeconds(Double(ms) / 1000)
     }
 
     /// The offered offsets, with the current one added when it is off the grid (a value restored
