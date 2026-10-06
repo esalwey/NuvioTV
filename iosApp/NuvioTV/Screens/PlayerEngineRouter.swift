@@ -50,6 +50,12 @@ nonisolated enum PlayerEngineRouter {
         guard p.videoCodec == "hevc" || p.videoCodec == "h264" else {
             return EngineDecision(engine: .mpv, reason: p.videoCodec.isEmpty ? "no video stream" : "video \(p.videoCodec)")
         }
+        // H.264 High 10 / 4:2:2 / 4:4:4 (10-bit anime encodes, mostly): no hardware decoder on Apple
+        // TV and none in AVPlayer — the item fails after the remux spun up and playback restarts on
+        // mpv. Straight to mpv instead.
+        if p.videoCodec == "h264", isUnsupportedH264Profile(p.videoProfile) {
+            return EngineDecision(engine: .mpv, reason: "video h264 profile \(p.videoProfile)")
+        }
 
         // Dolby Vision profile gating. P5 and single-layer P8 play natively on tvOS 17.2+. Dual-layer
         // P7 converts to 8.1 during the remux (Phase 5: EL NALs dropped, RPUs rewritten via libdovi) —
@@ -105,9 +111,20 @@ nonisolated enum PlayerEngineRouter {
 
     /// Codecs the remux transcodes to AAC when no copyable track exists (AudioTranscoder — decoders
     /// verified present in the MPVKit FFmpeg build). Canonical descriptor names as MediaProbe reports
-    /// them: FFmpeg calls DTS (incl. DTS-HD, decoded via its core/extensions) "dts".
+    /// them: FFmpeg calls DTS (incl. DTS-HD, decoded via its core/extensions) "dts". Opus and Vorbis
+    /// joined in 2026-10 (`AudioTranscoder.isTranscodable`).
     private static func isTranscodableAudio(_ codec: String) -> Bool {
-        codec == "truehd" || codec == "dts"
+        codec == "truehd" || codec == "dts" || codec == "opus" || codec == "vorbis"
+    }
+
+    /// FF_PROFILE_H264_* values (the intra flag, 2048, masked off) AVPlayer cannot decode: High 10,
+    /// High 4:2:2, High 4:4:4 (and its predictive form), CAVLC 4:4:4. Unknown (-99) passes.
+    private static func isUnsupportedH264Profile(_ profile: Int32) -> Bool {
+        guard profile >= 0 else { return false }
+        switch profile & ~2048 {
+        case 110, 122, 144, 244, 44: return true
+        default: return false
+        }
     }
 
     private static func nativeReason(_ p: ProbeResult) -> String {
@@ -138,9 +155,10 @@ extension PlayerEngineRouter {
         }
         func sample(video: String = "hevc", dv: DolbyVisionInfo? = nil, hdr: HDRFormat = .sdr,
                     audio: [String] = ["eac3"], seekable: Bool = true,
-                    container: String = "matroska,webm", videoStreams: Int = 1) -> ProbeResult {
+                    container: String = "matroska,webm", videoStreams: Int = 1,
+                    profile: Int32 = 0) -> ProbeResult {
             ProbeResult(
-                container: container, videoCodec: video, videoProfile: 0, hdr: hdr, dolbyVision: dv,
+                container: container, videoCodec: video, videoProfile: profile, hdr: hdr, dolbyVision: dv,
                 audio: audio.enumerated().map { AudioStreamInfo(index: $0.offset, codec: $0.element, channels: 6, language: "eng") },
                 subtitles: [], durationSec: 3600, seekable: seekable, videoStreamCount: videoStreams
             )
@@ -167,7 +185,13 @@ extension PlayerEngineRouter {
         expect(route(probe: sample(video: "av1"), nativeDVEnabled: true).engine, .mpv, "AV1 → mpv")
         expect(route(probe: sample(audio: ["truehd"]), nativeDVEnabled: true).engine, .native, "TrueHD-only → native (transcode)")
         expect(route(probe: sample(audio: ["dts"]), nativeDVEnabled: true).engine, .native, "DTS-only → native (transcode)")
-        expect(route(probe: sample(audio: ["opus"]), nativeDVEnabled: true).engine, .mpv, "Opus-only → mpv")
+        expect(route(probe: sample(audio: ["opus"]), nativeDVEnabled: true).engine, .native, "Opus-only → native (transcode)")
+        expect(route(probe: sample(audio: ["vorbis"]), nativeDVEnabled: true).engine, .native, "Vorbis-only → native (transcode)")
+        expect(route(probe: sample(audio: ["pcm_s16le"]), nativeDVEnabled: true).engine, .mpv, "PCM-only → mpv")
+        expect(route(probe: sample(video: "h264", profile: 100), nativeDVEnabled: true).engine, .native, "H.264 High → native")
+        expect(route(probe: sample(video: "h264", profile: 110), nativeDVEnabled: true).engine, .mpv, "H.264 High 10 → mpv")
+        expect(route(probe: sample(video: "h264", profile: 244), nativeDVEnabled: true).engine, .mpv, "H.264 High 4:4:4 → mpv")
+        expect(route(probe: sample(video: "h264", profile: -99), nativeDVEnabled: true).engine, .native, "H.264 unknown profile → native")
         expect(route(probe: sample(audio: ["truehd", "ac3"]), nativeDVEnabled: true).engine, .native, "TrueHD+AC3 → native")
         expect(route(probe: sample(seekable: false), nativeDVEnabled: true).engine, .mpv, "non-seekable → mpv")
         expect(route(probe: sample(container: "avi"), nativeDVEnabled: true).engine, .mpv, "AVI → mpv")

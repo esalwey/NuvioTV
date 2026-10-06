@@ -31,8 +31,14 @@ private let avErrorInputChanged: Int32 = -0x636e6701
 
 nonisolated final class AudioTranscoder {
     /// Codec ids worth transcoding (decoders verified present in the MPVKit FFmpeg build; MLP is not).
+    /// Opus and Vorbis (2026-10, one player UI for every format): FFmpeg's own native decoders, the
+    /// ones mpv plays these tracks with — files whose only audio is Opus/Vorbis (common in MKV web
+    /// releases) now keep the native AVPlayer path instead of going to mpv wholesale. A decoder that
+    /// turned out missing fails `init` before the first segment, and the coordinator falls back to
+    /// mpv exactly as for any other pre-playback remux failure.
     static func isTranscodable(_ id: AVCodecID) -> Bool {
         id == AV_CODEC_ID_TRUEHD || id == AV_CODEC_ID_DTS
+            || id == AV_CODEC_ID_OPUS || id == AV_CODEC_ID_VORBIS
     }
 
     /// Target AAC-LC bitrate for the layout the source downmixes to.

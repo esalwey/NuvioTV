@@ -27,9 +27,34 @@ extension MPVTVPlayerViewController: UIGestureRecognizerDelegate {
     /// accelerate.
     private static let scrubSecondsPerPoint: Double = 1.0 / 8.0
 
+    /// Down swipe: the content tabs under the scrubber (Info, Episodes, Chapters, Stream Info), as
+    /// on the system player.
     @objc func handleSwipeDown() {
-        guard presentedViewController == nil else { return }
-        onOpenPanel?()
+        guard presentedViewController == nil, !state.isScrubbing, !state.isEnded, !state.playbackErrorShown else { return }
+        openChrome(.tabs)
+    }
+
+    /// Up swipe: with the bar showing, focus moves up to its buttons; otherwise the bar shows.
+    @objc func handleSwipeUp() {
+        guard presentedViewController == nil, !state.isScrubbing, !state.isEnded, !state.playbackErrorShown else { return }
+        if chromeIsShowing {
+            openChrome(.transport)
+        } else {
+            flashControls()
+        }
+    }
+
+    /// The transport bar is on screen (shown by an interaction, or held by a pause).
+    private var chromeIsShowing: Bool {
+        state.controlsVisible || state.pauseChromeShown
+    }
+
+    /// Hands focus to the chrome's focus layer (menus, content tabs): fast-forward stops, and the
+    /// track lists are refreshed (the async walk fills them if this raced the events).
+    private func openChrome(_ entry: PlayerChromeEntry) {
+        endFastForward()
+        refreshTracksAsync()
+        onOpenChrome?(entry)
     }
 
     /// Show a skip prompt while the playhead is inside a segment (leaving a 1s tail so the button
@@ -152,12 +177,23 @@ extension MPVTVPlayerViewController: UIGestureRecognizerDelegate {
                     // Mid-scrub, Down does nothing (spec §6.9.4); Select/Play or Back resolve it first.
                     handled = true
                 } else if presentedViewController == nil {
-                    // Same gesture as the native player: Down opens the top panel — during a skip
-                    // prompt too (F6: Select skips now). Track lists are refreshed on open (the
-                    // async walk fills them if this raced the events).
-                    endFastForward()
-                    refreshTracksAsync()
-                    onOpenPanel?()
+                    // Same gesture as the native player: Down opens the content tabs — during a
+                    // skip prompt too (F6: Select skips now).
+                    if !state.isEnded, !state.playbackErrorShown { openChrome(.tabs) }
+                    handled = true
+                }
+            case .upArrow:
+                if state.isScrubbing {
+                    // Mid-scrub, Up does nothing either; Select/Play or Back resolve it first.
+                    handled = true
+                } else if presentedViewController == nil {
+                    // The system player's grammar: the first Up shows the bar, the next one moves
+                    // focus up to its buttons (Subtitles, Audio, the app's menus).
+                    if chromeIsShowing, !state.isEnded, !state.playbackErrorShown {
+                        openChrome(.transport)
+                    } else {
+                        flashControls()
+                    }
                     handled = true
                 }
             case .menu:
@@ -216,7 +252,7 @@ extension MPVTVPlayerViewController: UIGestureRecognizerDelegate {
             state.showStreamInfo = false
             return true
         }
-        // The top panel normally takes Back itself (it is presented over this controller).
+        // The chrome's focus layer normally takes Back itself (it is presented over this controller).
         if state.panelOpen, presentedViewController != nil { return true }
         if state.isScrubbing {
             cancelScrub()
@@ -533,6 +569,6 @@ extension MPVTVPlayerViewController: UIGestureRecognizerDelegate {
             }
         }
         hideWork = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 4.0, execute: work)
+        DispatchQueue.main.asyncAfter(deadline: .now() + PlayerChromeMetrics.autoHideDelay, execute: work)
     }
 }

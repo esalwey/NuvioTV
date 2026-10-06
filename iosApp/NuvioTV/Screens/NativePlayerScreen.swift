@@ -249,14 +249,14 @@ struct NativePlayerScreen: View {
                 tabs.append(episodes)
             }
             let info = PlayerInfoTabHost(rootView: AnyView(
-                NativeStreamInfoTab(model: panelModel) { [weak coordinator] in
+                PlayerStreamInfoTab(model: panelModel) { [weak coordinator] in
                     coordinator?.remux?.audioTracks.first(where: \.selected).map {
                         AudioTranscoder.deliveredFormatDescription(codec: $0.codec, channels: $0.channels,
                                                                    transcodes: $0.transcodes)
                     }
                 }))
             info.title = String(localized: "Stream Info")
-            info.preferredContentSize = CGSize(width: 0, height: NativeStreamInfoTab.tabHeight)
+            info.preferredContentSize = CGSize(width: 0, height: PlayerStreamInfoTab.tabHeight)
             tabs.append(info)
             return tabs
         }
@@ -390,14 +390,6 @@ struct NativePlayerScreen: View {
     }
 }
 
-private extension NextEpisodeEngine {
-    /// "Sources" in the transport bar replaces this episode's stream: an Up Next countdown must
-    /// not hand off underneath the picker. Only when the card is actually up.
-    func cancelForSourceSwitch() {
-        if isCardVisible { dismissForSession() }
-    }
-}
-
 /// Up Next contextual actions (static titles — the countdown lives in `UpNextCard`, because a
 /// per-second UIAction title change re-animates the transport bar).
 enum UpNextAction: String {
@@ -429,18 +421,8 @@ private struct TransportMenuState: Equatable {
     var supportsSubtitleDelay: Bool
     var subtitleDelayMs: Int
 
-    /// Speeds offered, the system player's range.
-    static let rates: [Float] = [0.5, 0.75, 1, 1.25, 1.5, 2]
-    /// Subtitle offsets offered (ms; positive = subtitles later).
-    static let subtitleDelays: [Int] = [-2000, -1000, -500, -250, 0, 250, 500, 1000, 2000]
-
-    static func rateTitle(_ rate: Float) -> String {
-        String(format: "%g\u{00D7}", Double(rate))
-    }
-
-    static func delayTitle(_ ms: Int) -> String {
-        ms == 0 ? "0 s" : String(format: "%+.2f s", Double(ms) / 1000)
-    }
+    // Choices, titles and symbols come from `PlayerTransportMenus` / `PlayerTransportItem`, the
+    // description the mpv chrome draws from too.
 }
 
 /// Hosts a content tab's SwiftUI view inside the system player's info area.
@@ -524,42 +506,42 @@ private struct AVPlayerContainer: UIViewControllerRepresentable {
 
     // MARK: Transport-bar menus
 
+    /// The app's transport-bar items, from the description both engines share
+    /// (`PlayerTransportMenus.customItems` — the mpv chrome draws the same list, then Subtitles and
+    /// Audio, which are the system's own buttons here).
     private func transportMenuItems() -> [UIMenuElement] {
-        var items: [UIMenuElement] = []
-        if menu.canChooseSource {
+        PlayerTransportMenus.customItems(canChooseSource: menu.canChooseSource,
+                                         supportsSubtitleDelay: menu.supportsSubtitleDelay)
+            .compactMap { menuElement(for: $0) }
+    }
+
+    private func menuElement(for item: PlayerTransportItem) -> UIMenuElement? {
+        let image = UIImage(systemName: item.symbol)
+        switch item {
+        case .sources:
             let choose = onChooseSource
-            items.append(UIAction(title: String(localized: "Sources"),
-                                  image: UIImage(systemName: "rectangle.stack")) { _ in choose() })
-        }
-        let setRate = onSetRate
-        let current = menu.rate
-        let speeds = TransportMenuState.rates.map { rate in
-            UIAction(title: TransportMenuState.rateTitle(rate),
-                     state: abs(rate - current) < 0.01 ? .on : .off) { _ in setRate(rate) }
-        }
-        items.append(UIMenu(title: String(localized: "Playback Speed"),
-                            image: UIImage(systemName: "speedometer"),
-                            options: [.singleSelection], children: speeds))
-        if menu.supportsSubtitleDelay {
-            let setDelay = onSetSubtitleDelay
-            var delays = TransportMenuState.subtitleDelays
-            if !delays.contains(menu.subtitleDelayMs) {
-                delays.append(menu.subtitleDelayMs)
-                delays.sort()
+            return UIAction(title: item.title, image: image) { _ in choose() }
+        case .playbackSpeed:
+            let setRate = onSetRate
+            let current = menu.rate
+            let speeds = PlayerTransportMenus.rates.map { rate in
+                UIAction(title: PlayerTransportMenus.rateTitle(rate),
+                         state: abs(rate - current) < 0.01 ? .on : .off) { _ in setRate(rate) }
             }
+            return UIMenu(title: item.title, image: image, options: [.singleSelection], children: speeds)
+        case .subtitleTiming:
+            let setDelay = onSetSubtitleDelay
             let selected = menu.subtitleDelayMs
-            let actions = delays.map { ms in
-                UIAction(title: TransportMenuState.delayTitle(ms), state: ms == selected ? .on : .off) { _ in
+            let actions = PlayerTransportMenus.delayChoices(including: selected).map { ms in
+                UIAction(title: PlayerTransportMenus.delayTitle(ms), state: ms == selected ? .on : .off) { _ in
                     setDelay(ms)
                 }
             }
-            items.append(UIMenu(title: String(localized: "player.menu.subtitleTiming",
-                                              defaultValue: "Subtitle Timing",
-                                              comment: "Native player transport-bar menu: shift addon subtitles earlier (-) or later (+)."),
-                                image: UIImage(systemName: "clock.arrow.circlepath"),
-                                options: [.singleSelection], children: actions))
+            return UIMenu(title: item.title, image: image, options: [.singleSelection], children: actions)
+        case .subtitles, .audio:
+            // The system player's own buttons.
+            return nil
         }
-        return items
     }
 
     // MARK: Chapters
@@ -573,53 +555,21 @@ private struct AVPlayerContainer: UIViewControllerRepresentable {
         item.navigationMarkerGroups = Self.chapterGroups(for: chapters, durationSec: duration)
     }
 
-    /// Chapter markers from the skip segments: Beginning, Recap, Intro, the episode itself, Credits.
+    /// Chapter markers from the skip segments (`PlayerChapters`, shared with the mpv Chapters tab):
+    /// Beginning, Recap, Intro, the episode itself, Credits.
     static func chapterGroups(for segments: [SkipSegment], durationSec: Double?) -> [AVNavigationMarkersGroup] {
-        let sorted = segments.filter { $0.end > $0.start }.sorted { $0.start < $1.start }
-        guard !sorted.isEmpty else { return [] }
-        var points: [(start: Double, title: String)] = []
-        if sorted[0].start > 2 {
-            points.append((0, String(localized: "player.chapter.beginning", defaultValue: "Beginning",
-                                     comment: "Native player Chapters tab: the part before the first recap/intro segment.")))
-        }
-        for (index, segment) in sorted.enumerated() {
-            points.append((segment.start, chapterTitle(for: segment.type)))
-            let isCredits = UpNextTrigger.outroTypes.contains(segment.type.lowercased())
-            let nextStart = index + 1 < sorted.count ? sorted[index + 1].start : nil
-            if !isCredits, nextStart.map({ $0 - segment.end > 2 }) ?? true {
-                points.append((segment.end, String(localized: "player.chapter.episode", defaultValue: "Episode",
-                                                   comment: "Native player Chapters tab: the episode itself, after the intro or recap.")))
-            }
-        }
-        guard points.count > 1 else { return [] }
-        let end = max(durationSec ?? 0, sorted.map(\.end).max() ?? 0)
-        var markers: [AVTimedMetadataGroup] = []
-        for (index, point) in points.enumerated() {
-            let next = index + 1 < points.count ? points[index + 1].start : end
-            let length = max(next - point.start, 1)
+        let chapters = PlayerChapters.fromSegments(segments, durationSec: durationSec)
+        guard !chapters.isEmpty else { return [] }
+        let markers = chapters.map { chapter -> AVTimedMetadataGroup in
             let title = AVMutableMetadataItem()
             title.identifier = .commonIdentifierTitle
-            title.value = point.title as NSString
+            title.value = chapter.title as NSString
             title.extendedLanguageTag = "und"
-            let range = CMTimeRange(start: CMTime(seconds: point.start, preferredTimescale: 600),
-                                    duration: CMTime(seconds: length, preferredTimescale: 600))
-            markers.append(AVTimedMetadataGroup(items: [title], timeRange: range))
+            let range = CMTimeRange(start: CMTime(seconds: chapter.start, preferredTimescale: 600),
+                                    duration: CMTime(seconds: max(chapter.end - chapter.start, 1), preferredTimescale: 600))
+            return AVTimedMetadataGroup(items: [title], timeRange: range)
         }
         return [AVNavigationMarkersGroup(title: nil, timedNavigationMarkers: markers)]
-    }
-
-    private static func chapterTitle(for type: String) -> String {
-        let type = type.lowercased()
-        if UpNextTrigger.outroTypes.contains(type) {
-            return String(localized: "player.chapter.credits", defaultValue: "Credits",
-                          comment: "Native player Chapters tab: the end credits segment.")
-        }
-        if type == "recap" {
-            return String(localized: "player.chapter.recap", defaultValue: "Recap",
-                          comment: "Native player Chapters tab: the previously-on recap segment.")
-        }
-        return String(localized: "player.chapter.intro", defaultValue: "Intro",
-                      comment: "Native player Chapters tab: the opening titles segment.")
     }
 
     // MARK: Contextual actions
@@ -654,164 +604,5 @@ private struct AVPlayerContainer: UIViewControllerRepresentable {
         var chapterSignature = ""
         var menu: TransportMenuState?
         var allowedSubtitleLanguages: [String]?
-    }
-}
-
-// MARK: - Content tabs
-
-/// Episodes content tab (series): the current season as a shelf of 16:9 stills, the playing one
-/// marked and focused first. Selecting another episode plays it — in place when the presenter can
-/// swap contexts, else through its stream list.
-private struct PlayerEpisodesTab: View {
-    @ObservedObject var engine: NextEpisodeEngine
-    let season: Int?
-    let episode: Int?
-    let onSelect: (MetaVideo) -> Void
-
-    @State private var picked: String?
-    @FocusState private var focused: String?
-
-    init(engine: NextEpisodeEngine, season: Int?, episode: Int?, onSelect: @escaping (MetaVideo) -> Void) {
-        _engine = ObservedObject(wrappedValue: engine)
-        self.season = season
-        self.episode = episode
-        self.onSelect = onSelect
-    }
-
-    static let tabHeight: CGFloat = 400
-    private static let stillSize = CGSize(width: 410, height: 231)
-
-    var body: some View {
-        ScrollViewReader { proxy in
-            ScrollView(.horizontal, showsIndicators: false) {
-                LazyHStack(alignment: .top, spacing: Theme.Spacing.xl) {
-                    ForEach(seasonEpisodes, id: \.key) { entry in
-                        card(entry.video, key: entry.key, number: entry.number)
-                            .id(entry.key)
-                    }
-                }
-                .padding(.vertical, Theme.Spacing.lg)
-            }
-            .scrollClipDisabled()
-            .defaultFocus($focused, currentKey)
-            .onAppear {
-                if let currentKey { proxy.scrollTo(currentKey, anchor: .leading) }
-            }
-        }
-    }
-
-    private struct Entry {
-        let key: String
-        let number: Int
-        let video: MetaVideo
-    }
-
-    private var currentKey: String? {
-        guard let season, let episode else { return nil }
-        return "\(season)x\(episode)"
-    }
-
-    private var seasonEpisodes: [Entry] {
-        engine.episodes
-            .compactMap { video -> Entry? in
-                guard let s = video.season?.value, let e = video.episode?.value else { return nil }
-                guard season == nil || s == season else { return nil }
-                return Entry(key: "\(s)x\(e)", number: Int(e), video: video)
-            }
-            .sorted { $0.number < $1.number }
-    }
-
-    private func card(_ video: MetaVideo, key: String, number: Int) -> some View {
-        let isCurrent = key == currentKey
-        let still: String? = video.thumbnail
-        return Button {
-            guard !isCurrent else { return }
-            picked = key
-            onSelect(video)
-        } label: {
-            VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
-                CachedAsyncImage(string: CachedTitleArt.nonEmpty(still))
-                    .frame(width: Self.stillSize.width, height: Self.stillSize.height)
-                    .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous))
-                    .overlay {
-                        if picked == key, engine.isSearching {
-                            ProgressView()
-                        }
-                    }
-                    .contentShape(.hoverEffect, RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous))
-                    .hoverEffect(.highlight)
-                VStack(alignment: .leading, spacing: Theme.Spacing.xxs) {
-                    Text(verbatim: eyebrow(number: number, isCurrent: isCurrent))
-                        .font(Theme.Font.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                    Text(verbatim: video.title)
-                        .font(Theme.Font.meta)
-                        .foregroundStyle(.primary)
-                        .lineLimit(2)
-                }
-                .frame(width: Self.stillSize.width, alignment: .leading)
-            }
-        }
-        .buttonStyle(.borderless)
-        .focused($focused, equals: key)
-        .accessibilityLabel(Text(verbatim: "\(eyebrow(number: number, isCurrent: isCurrent)), \(video.title)"))
-    }
-
-    /// "Episode 5" — "Now Playing · Episode 5" on the current one.
-    private func eyebrow(number: Int, isCurrent: Bool) -> String {
-        let label = String(localized: "player.episodes.number", defaultValue: "Episode \(number)",
-                           comment: "Native player Episodes tab: the episode number above its title.")
-        guard isCurrent else { return label }
-        let playing = String(localized: "player.episodes.nowPlaying", defaultValue: "Now Playing",
-                             comment: "Native player Episodes tab: marks the episode that is playing.")
-        return "\(playing) \u{00B7} \(label)"
-    }
-}
-
-/// Stream Info content tab: the live technical rows (engine, video, audio, subtitles…) plus the
-/// audio format that actually reaches the TV (PLY-A14). Read-only, three columns.
-private struct NativeStreamInfoTab: View {
-    @ObservedObject var model: PlayerTopPanelModel
-    /// The delivered audio format, read live from the remux.
-    let deliveredAudio: () -> String?
-
-    static let tabHeight: CGFloat = 340
-
-    var body: some View {
-        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: Theme.Spacing.xl, alignment: .topLeading),
-                                 count: 3),
-                  alignment: .leading, spacing: Theme.Spacing.md) {
-            ForEach(rows) { row in
-                VStack(alignment: .leading, spacing: Theme.Spacing.xxs) {
-                    Text(verbatim: row.label)
-                        .font(Theme.Font.caption)
-                        .foregroundStyle(.secondary)
-                    Text(verbatim: row.value)
-                        .font(Theme.Font.meta)
-                        .foregroundStyle(.primary)
-                        .lineLimit(2)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .accessibilityElement(children: .combine)
-            }
-        }
-        .padding(.vertical, Theme.Spacing.lg)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-    }
-
-    private var rows: [NativeInfoRow] {
-        var rows = model.info.rows
-        if let delivered = deliveredAudio() {
-            let label = String(localized: "player.info.audioFormat", defaultValue: "Audio format",
-                               comment: "Native player Stream Info tab: the audio format sent to the TV or receiver.")
-            let row = NativeInfoRow(label: label, value: delivered)
-            if let audioIndex = rows.firstIndex(where: { $0.label == String(localized: "Audio") }) {
-                rows.insert(row, at: audioIndex + 1)
-            } else {
-                rows.append(row)
-            }
-        }
-        return rows
     }
 }

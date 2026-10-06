@@ -192,18 +192,25 @@ final class NativePlayerHostController: UIViewController, UIGestureRecognizerDel
 /// Type-erased handle on a presented panel host (the hosting controller itself is generic).
 protocol PlayerPanelPresenting: AnyObject {
     func close(animated: Bool)
+    /// Close, then run `action` once the panel is gone (an action that replaces playback must not
+    /// run under it).
+    func close(animated: Bool, then action: (() -> Void)?)
 }
 
 /// Hosts the SwiftUI panel over the player. Menu closes the panel (swallowed here so it never
 /// reaches the SwiftUI `fullScreenCover` that would pop the whole player); swipe up also closes.
 final class PlayerPanelHostController<Content: View>: UIHostingController<Content>, PlayerPanelPresenting {
     var onClosed: (() -> Void)?
+    /// A swipe up closes the panel (the top panel). Set before presenting.
+    var closesOnSwipeUp = true
     private var closing = false
 
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .clear
         view.accessibilityIdentifier = "player.panel"
+        // The mpv chrome's focus layer moves focus up with the swipe instead (`closesOnSwipeUp`).
+        guard closesOnSwipeUp else { return }
         let up = UISwipeGestureRecognizer(target: self, action: #selector(handleSwipeUp))
         up.direction = .up
         view.addGestureRecognizer(up)
@@ -226,9 +233,22 @@ final class PlayerPanelHostController<Content: View>: UIHostingController<Conten
     @objc private func handleSwipeUp() { close(animated: true) }
 
     func close(animated: Bool) {
-        guard !closing else { return }
+        close(animated: animated, then: nil)
+    }
+
+    func close(animated: Bool, then action: (() -> Void)?) {
+        guard !closing else {
+            // Already going away: the action still runs, once the dismissal had time to finish.
+            if let action {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { action() }
+            }
+            return
+        }
         closing = true
         let onClosed = onClosed
-        dismiss(animated: animated && !UIAccessibility.isReduceMotionEnabled) { onClosed?() }
+        dismiss(animated: animated && !UIAccessibility.isReduceMotionEnabled) {
+            onClosed?()
+            action?()
+        }
     }
 }

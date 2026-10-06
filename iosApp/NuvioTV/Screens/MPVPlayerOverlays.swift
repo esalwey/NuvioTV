@@ -8,172 +8,128 @@ import UIKit
 import Libmpv
 import SharedCore
 
-/// Live chrome data the libmpv screen collects for its transport bar (spec §6.9.3): chapter ticks
-/// from the file's own chapters, else from the intro/recap/credits segments.
+/// Live chrome data the libmpv screen collects for its transport bar and Chapters tab: chapter
+/// ticks from the file's own chapters, else from the intro/recap/credits segments.
 @MainActor
 final class MPVChromeModel: ObservableObject {
     /// File chapters (mpv `chapter-list`), in seconds, the first one (0) excluded.
     @Published var chapterTimes: [Double] = []
     /// Skip-segment boundaries (intro/recap/credits starts and ends), in seconds.
     @Published var segmentBounds: [Double] = []
+    /// The skip segments themselves — the Chapters tab names them like the native screen does.
+    @Published var segments: [SkipSegment] = []
 
     /// What the scrubber marks: the file's chapters when it has any, else the known segments.
     var tickTimes: [Double] { chapterTimes.isEmpty ? segmentBounds : chapterTimes }
+
+    /// The Chapters tab: the segments' chapters (the native screen's `navigationMarkerGroups`),
+    /// else the file's own chapters.
+    func chapters(durationSec: Double) -> [PlayerChapter] {
+        let fromSegments = PlayerChapters.fromSegments(segments, durationSec: durationSec > 0 ? durationSec : nil)
+        if !fromSegments.isEmpty { return fromSegments }
+        return PlayerChapters.fromFileChapters(chapterTimes, durationSec: durationSec)
+    }
 }
 
-/// Sustained-pause details for the transport bar (TV-app pause look, spec §6.9.3): a larger title,
-/// the synopsis and what's left, over a deeper scrim. nil = the plain chrome.
-struct PlayerPauseDetails: Equatable {
-    let synopsis: String?
-    let remaining: String?
-    let provider: String?
+/// Time labels of the chrome ("4:05", "1:02:33").
+enum PlayerChromeFormat {
+    static func time(_ seconds: Double) -> String {
+        guard seconds.isFinite, seconds >= 0 else { return "0:00" }
+        let total = Int(seconds)
+        let h = total / 3600, m = (total % 3600) / 60, s = total % 60
+        return h > 0 ? String(format: "%d:%02d:%02d", h, m, s) : String(format: "%d:%02d", m, s)
+    }
 }
 
-/// Bottom transport chrome, a clone of the tvOS 26 system player (spec §6.9.3): no panel — the
-/// controls float on a bottom dim gradient. Title block (eyebrow + headline), a thin scrubber with
-/// chapter ticks, a playhead mark and a separate scrub head, elapsed / end time / remaining, and
-/// the content-tab pills that the swipe-down panel opens on. Only the pills wear Liquid Glass.
-/// Nothing here is focusable: libmpv owns the remote.
-struct PlayerControlsOverlay: View {
+/// The tvOS 26 system player's transport bar, reproduced for the libmpv engine so it looks and reads
+/// exactly like the native screen's `AVPlayerViewController` (user report: one interface for every
+/// format). One Liquid Glass platter at the bottom holding, top to bottom: the title view (episode
+/// line over the title, from the same metadata the native item carries) with the transport buttons
+/// at its trailing end, the scrubber with chapter ticks and the scrub head, elapsed and remaining
+/// time, and the content-tab row ("swipe down").
+///
+/// The buttons, the scrubber overlay and the tab row are slots: the passive overlay
+/// (`PlayerControlsOverlay`, nothing focusable — libmpv owns the remote) draws them as glyphs, and
+/// the presented focus layer (`MPVTransportFocusView`) puts real menus and tabs in the same places,
+/// so moving focus into the bar never shifts a pixel.
+struct PlayerTransportBar<Buttons: View, ScrubberOverlay: View, Tabs: View>: View {
     @ObservedObject var state: MPVPlaybackState
-    let titleParts: PlaybackTitleParts
-    /// Sustained pause: the title block grows and gains the synopsis (replaces the old pause card).
-    var pauseDetails: PlayerPauseDetails? = nil
+    let summary: PlayerInfoSummary
     /// Chapter marks in seconds (file chapters, or the skip segments).
-    var chapterTicks: [Double] = []
-    /// The swipe-down panel's tabs, shown as the system player's content pills.
-    var tabs: [PlayerPanelTab] = []
-    /// The tab the panel opens on (drawn as the focused pill).
-    var highlightedTab: PlayerPanelTab = .info
-    /// Height of the chrome content (gradient excluded), for the prompts stacked above it.
-    var onContentHeightChange: ((CGFloat) -> Void)? = nil
+    let ticks: [Double]
+    let buttons: Buttons
+    let scrubberOverlay: ScrubberOverlay
+    let tabs: Tabs
 
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @Environment(\.colorSchemeContrast) private var contrast
 
-    // Explicit: the private environment values would make the synthesized initializer private.
     init(state: MPVPlaybackState,
-         titleParts: PlaybackTitleParts,
-         pauseDetails: PlayerPauseDetails? = nil,
-         chapterTicks: [Double] = [],
-         tabs: [PlayerPanelTab] = [],
-         highlightedTab: PlayerPanelTab = .info,
-         onContentHeightChange: ((CGFloat) -> Void)? = nil) {
+         summary: PlayerInfoSummary,
+         ticks: [Double],
+         @ViewBuilder buttons: () -> Buttons,
+         @ViewBuilder scrubberOverlay: () -> ScrubberOverlay,
+         @ViewBuilder tabs: () -> Tabs) {
         _state = ObservedObject(wrappedValue: state)
-        self.titleParts = titleParts
-        self.pauseDetails = pauseDetails
-        self.chapterTicks = chapterTicks
-        self.tabs = tabs
-        self.highlightedTab = highlightedTab
-        self.onContentHeightChange = onContentHeightChange
+        self.summary = summary
+        self.ticks = ticks
+        self.buttons = buttons()
+        self.scrubberOverlay = scrubberOverlay()
+        self.tabs = tabs()
     }
 
     var body: some View {
-        ZStack(alignment: .bottom) {
-            scrim
-            content
-                .onGeometryChange(for: CGFloat.self, of: { $0.size.height }, action: { height in
-                    onContentHeightChange?(height)
-                })
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
-        .foregroundStyle(.white)
-        .environment(\.colorScheme, .dark)
-        .allowsHitTesting(false)
-    }
-
-    // MARK: - Layers
-
-    /// Bottom dim so white text reads over any scene: 45 % of the screen, black 0 → 0.65; deeper
-    /// and taller while the pause details are up.
-    private var scrim: some View {
-        let paused = pauseDetails != nil
-        return LinearGradient(
-            stops: [
-                .init(color: .black.opacity(0), location: paused ? 0.25 : 0.55),
-                .init(color: .black.opacity(paused ? 0.55 : 0.35), location: paused ? 0.6 : 0.8),
-                .init(color: .black.opacity(paused ? 0.8 : 0.65), location: 1),
-            ],
-            startPoint: .top, endPoint: .bottom)
-            .ignoresSafeArea()
-            .animation(.easeInOut(duration: 0.35), value: paused)
-    }
-
-    private var content: some View {
         VStack(alignment: .leading, spacing: 0) {
-            titleBlock
-                .padding(.bottom, Theme.Spacing.lg)
+            HStack(alignment: .bottom, spacing: Theme.Spacing.xl) {
+                titleBlock
+                Spacer(minLength: 0)
+                buttons
+            }
+            .padding(.bottom, Theme.Spacing.lg)
             ProgressBar(fraction: state.fraction,
                         scrubFraction: state.scrubFraction,
-                        scrubLabel: state.scrubTargetSec.map { Self.timeString($0) },
+                        scrubLabel: state.scrubTargetSec.map { PlayerChromeFormat.time($0) },
                         ticks: tickFractions)
                 .frame(height: ProgressBar.headSize.height)
+                .overlay { scrubberOverlay }
             timeRow
                 .padding(.top, Theme.Spacing.sm)
-            if !tabs.isEmpty {
-                pills
-                    .padding(.top, Theme.Spacing.lg)
-            }
+            tabs
+                .padding(.top, Theme.Spacing.md)
         }
+        .padding(.horizontal, Theme.Spacing.xl)
+        .padding(.top, Theme.Spacing.lg)
+        .padding(.bottom, Theme.Spacing.md)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .modifier(PlayerBarSurface(reduceTransparency: reduceTransparency, contrast: contrast))
+        .foregroundStyle(.white)
+        .environment(\.colorScheme, .dark)
     }
 
-    // MARK: - Title
+    // MARK: - Title view
 
-    /// "SEVERANCE · S2 · E5" over "Trojan's Horse" for an episode; the movie's name alone otherwise.
+    /// The native title view: the episode line (series only, `iTunesMetadataTrackSubTitle`) over
+    /// the title (`commonIdentifierTitle` — the series, or the movie). System text styles: the
+    /// player chrome is SF, as on the system player, whatever the app's font family.
     private var titleBlock: some View {
         VStack(alignment: .leading, spacing: Theme.Spacing.xxs) {
-            if let eyebrow {
-                Text(verbatim: eyebrow)
-                    .font(Theme.Font.meta)
-                    .textCase(.uppercase)
+            if let line = summary.episodeLine {
+                Text(verbatim: line)
+                    .font(Font.callout)
                     .foregroundStyle(secondaryStyle)
                     .lineLimit(1)
             }
-            Text(verbatim: headline)
-                // System text styles (Headline 38 / Title 3 48): the player chrome is SF, as on the
-                // system player, whatever the app's font family.
-                .font(pauseDetails == nil ? Font.headline : Font.title3)
+            Text(verbatim: summary.header.title)
+                .font(Font.headline)
                 .fontWeight(.bold)
-                .lineLimit(pauseDetails == nil ? 1 : 2)
-            if let details = pauseDetails {
-                if let synopsis = details.synopsis {
-                    Text(verbatim: synopsis)
-                        .font(Theme.Font.body)
-                        .foregroundStyle(secondaryStyle)
-                        .lineLimit(3)
-                        .frame(maxWidth: 1100, alignment: .leading)
-                        .padding(.top, Theme.Spacing.xs)
-                }
-                let facts = [details.remaining, details.provider].compactMap { $0 }
-                if !facts.isEmpty {
-                    Text(verbatim: facts.joined(separator: " \u{00B7} "))
-                        .font(Theme.Font.meta)
-                        .monospacedDigit()
-                        .foregroundStyle(secondaryStyle)
-                        .lineLimit(1)
-                        .padding(.top, Theme.Spacing.xxs)
-                }
-            }
+                .lineLimit(1)
         }
         .accessibilityElement(children: .combine)
     }
 
-    private var headline: String {
-        guard titleParts.isEpisode else { return titleParts.heading }
-        return titleParts.episodeName ?? titleParts.heading
-    }
-
-    private var eyebrow: String? {
-        guard titleParts.isEpisode else { return nil }
-        var parts: [String] = []
-        if let series = titleParts.series, series != headline { parts.append(series) }
-        if let code = titleParts.code { parts.append(code) }
-        return parts.isEmpty ? nil : parts.joined(separator: " \u{00B7} ")
-    }
-
     // MARK: - Times
 
+    /// Elapsed on the leading end, remaining on the trailing end, as on the system bar.
     private var timeRow: some View {
         HStack(alignment: .firstTextBaseline, spacing: Theme.Spacing.sm) {
             if let rate = state.fastForwardRate {
@@ -188,98 +144,223 @@ struct PlayerControlsOverlay: View {
                 Image(systemName: "pause.fill")
                     .accessibilityLabel(Text("Paused"))
             }
-            Text(verbatim: Self.timeString(state.positionSec))
+            Text(verbatim: PlayerChromeFormat.time(state.positionSec))
             Spacer(minLength: Theme.Spacing.lg)
-            if let endsAt {
-                Text(verbatim: endsAt)
-                    .foregroundStyle(secondaryStyle)
-                    .padding(.trailing, Theme.Spacing.md)
-            }
-            Text(verbatim: "-" + Self.timeString(max(state.durationSec - state.positionSec, 0)))
+            Text(verbatim: "-" + PlayerChromeFormat.time(max(state.durationSec - state.positionSec, 0)))
         }
-        .font(Theme.Font.meta)
+        .font(Font.callout)
         .monospacedDigit()
+        .foregroundStyle(secondaryStyle)
         .lineLimit(1)
-    }
-
-    /// "Ends at 22:41": wall-clock end at the current speed (system player parity).
-    private var endsAt: String? {
-        guard state.durationSec > 0, state.positionSec.isFinite else { return nil }
-        let speed = state.playbackSpeed > 0 ? state.playbackSpeed : 1
-        let remaining = max(state.durationSec - state.positionSec, 0) / speed
-        guard remaining.isFinite else { return nil }
-        let time = Date().addingTimeInterval(remaining).formatted(date: .omitted, time: .shortened)
-        return String(localized: "player.chrome.endsAt",
-                      defaultValue: "Ends at \(time)",
-                      comment: "mpv player transport bar: wall-clock time the video ends, e.g. 'Ends at 22:41'.")
     }
 
     private var tickFractions: [Double] {
         guard state.durationSec > 0 else { return [] }
-        return chapterTicks
+        return ticks
             .map { $0 / state.durationSec }
             .filter { $0 > 0.005 && $0 < 0.995 }
     }
 
-    // MARK: - Content pills
-
-    /// The system player's content tabs (Info · Subtitles · Audio · Playback): glass capsules, the
-    /// one Down opens drawn focused (white, black label). Visual only — Down opens the panel there.
-    private var pills: some View {
-        GlassEffectContainer(spacing: Theme.Spacing.md) {
-            HStack(spacing: Theme.Spacing.md) {
-                ForEach(tabs) { tab in
-                    pill(tab)
-                }
-                Image(systemName: "chevron.down")
-                    .font(Theme.Font.caption.weight(.semibold))
-                    .foregroundStyle(secondaryStyle)
-                    .padding(.leading, Theme.Spacing.xxs)
-            }
-        }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(Text(verbatim: String(
-            localized: "player.chrome.pills.accessibility",
-            defaultValue: "Swipe down for Info, Subtitles, Audio and Playback",
-            comment: "VoiceOver label of the mpv player's content tab pills (the swipe-down panel's tabs).")))
+    private var secondaryStyle: Color {
+        .white.opacity(contrast == .increased ? 0.9 : 0.7)
     }
+}
+
+/// The bar's platter: Liquid Glass in the players' shared tint, or an opaque dark fill with Reduce
+/// Transparency.
+private struct PlayerBarSurface: ViewModifier {
+    let reduceTransparency: Bool
+    let contrast: ColorSchemeContrast
 
     @ViewBuilder
-    private func pill(_ tab: PlayerPanelTab) -> some View {
-        let focused = tab == highlightedTab
-        let label = Text(verbatim: tab.title)
-            .font(Theme.Font.meta)
-            .foregroundStyle(focused ? Color.black : Color.white)
-            .padding(.horizontal, Theme.Spacing.lg)
-            .padding(.vertical, Theme.Spacing.xs)
-        if focused {
-            label.background(Capsule().fill(.white))
-        } else if reduceTransparency {
-            label
-                .background(Capsule().fill(Color.black.opacity(0.75)))
-                .overlay(Capsule().strokeBorder(.white.opacity(contrast == .increased ? 0.5 : 0.15), lineWidth: 1))
+    func body(content: Content) -> some View {
+        let shape = RoundedRectangle(cornerRadius: Theme.Radius.panel, style: .continuous)
+        if reduceTransparency {
+            content
+                .background(shape.fill(Color.black.opacity(0.85)))
+                .overlay(shape.strokeBorder(Color.white.opacity(contrast == .increased ? 0.5 : 0.15), lineWidth: 1))
         } else {
-            label
-                .glassEffect(.regular, in: .capsule)
+            content
+                .glassEffect(.regular.tint(PlayerChipStyle.glassTint), in: shape)
                 .overlay {
                     if contrast == .increased {
-                        Capsule().strokeBorder(.white.opacity(0.5), lineWidth: 1.5)
+                        shape.strokeBorder(Color.white.opacity(0.5), lineWidth: 1.5)
                     }
                 }
         }
     }
+}
 
-    // MARK: - Helpers
+// MARK: - Transport buttons and tab pills
 
-    private var secondaryStyle: Color {
-        .white.opacity(contrast == .increased ? 0.9 : 0.7)
+/// One round transport-bar button: the item's SF Symbol in a circle, white when focused.
+struct PlayerTransportGlyph: View {
+    let item: PlayerTransportItem
+    var focused = false
+
+    static let diameter: CGFloat = 66
+
+    var body: some View {
+        Image(systemName: item.symbol)
+            .font(.system(size: 26, weight: .semibold))
+            .foregroundStyle(focused ? Color.black : Color.white)
+            .frame(width: Self.diameter, height: Self.diameter)
+            .background(Circle().fill(focused ? Color.white : Color.white.opacity(0.14)))
+            .scaleEffect(focused ? 1.12 : 1)
+            .shadow(color: .black.opacity(focused ? 0.35 : 0), radius: 10, y: 4)
+            .animation(.easeOut(duration: 0.18), value: focused)
+    }
+}
+
+/// The transport buttons as drawn while nothing in the bar has focus.
+struct PlayerTransportGlyphRow: View {
+    let items: [PlayerTransportItem]
+
+    var body: some View {
+        HStack(spacing: Theme.Spacing.md) {
+            ForEach(items) { PlayerTransportGlyph(item: $0) }
+        }
+        .accessibilityHidden(true)
+    }
+}
+
+/// Button style of the focusable transport buttons (and the menus' labels): the glyph, focus-aware.
+struct PlayerTransportButtonStyle: ButtonStyle {
+    let item: PlayerTransportItem
+
+    func makeBody(configuration: Configuration) -> some View {
+        FocusAwareGlyph(item: item, pressed: configuration.isPressed)
     }
 
-    static func timeString(_ seconds: Double) -> String {
-        guard seconds.isFinite, seconds >= 0 else { return "0:00" }
-        let total = Int(seconds)
-        let h = total / 3600, m = (total % 3600) / 60, s = total % 60
-        return h > 0 ? String(format: "%d:%02d:%02d", h, m, s) : String(format: "%d:%02d", m, s)
+    private struct FocusAwareGlyph: View {
+        let item: PlayerTransportItem
+        let pressed: Bool
+        @Environment(\.isFocused) private var focused
+
+        var body: some View {
+            PlayerTransportGlyph(item: item, focused: focused)
+                .scaleEffect(pressed ? 0.94 : 1)
+        }
+    }
+}
+
+/// One content-tab title under the scrubber: plain text at rest, a white capsule when focused.
+struct PlayerTabPill: View {
+    let title: String
+    var focused = false
+    /// The tab whose content is showing (focus went down into it).
+    var selected = false
+
+    var body: some View {
+        Text(verbatim: title)
+            .font(Font.callout.weight(.semibold))
+            .foregroundStyle(focused ? Color.black : Color.white.opacity(selected ? 1 : 0.7))
+            .padding(.horizontal, Theme.Spacing.lg)
+            .padding(.vertical, Theme.Spacing.xs)
+            .background {
+                if focused {
+                    Capsule().fill(Color.white)
+                } else if selected {
+                    Capsule().fill(Color.white.opacity(0.18))
+                }
+            }
+            .scaleEffect(focused ? 1.06 : 1)
+            .animation(.easeOut(duration: 0.18), value: focused)
+    }
+}
+
+struct PlayerTabPillButtonStyle: ButtonStyle {
+    let title: String
+    var selected = false
+
+    func makeBody(configuration: Configuration) -> some View {
+        FocusAwarePill(title: title, selected: selected)
+    }
+
+    private struct FocusAwarePill: View {
+        let title: String
+        let selected: Bool
+        @Environment(\.isFocused) private var focused
+
+        var body: some View {
+            PlayerTabPill(title: title, focused: focused, selected: selected)
+        }
+    }
+}
+
+/// The tab row as drawn while nothing in the bar has focus.
+struct PlayerTabPillRow: View {
+    let tabs: [PlayerContentTab]
+
+    var body: some View {
+        HStack(spacing: Theme.Spacing.sm) {
+            ForEach(tabs) { PlayerTabPill(title: $0.title) }
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(verbatim: String(
+            localized: "player.chrome.tabs.swipeFor",
+            defaultValue: "Swipe down for \(names)",
+            comment: "VoiceOver label of the player's content tab row, e.g. 'Swipe down for Info, Episodes, Stream Info'.")))
+    }
+
+    private var names: String {
+        tabs.map { $0.title }.joined(separator: ", ")
+    }
+}
+
+/// Passive bottom chrome of the libmpv screen: a bottom dim and the transport bar, nothing
+/// focusable (libmpv owns the remote; `MPVTransportFocusView` takes over when focus enters the bar).
+struct PlayerControlsOverlay: View {
+    @ObservedObject var state: MPVPlaybackState
+    let summary: PlayerInfoSummary
+    var chapterTicks: [Double] = []
+    var items: [PlayerTransportItem] = []
+    var tabs: [PlayerContentTab] = []
+    /// Height of the chrome content (scrim excluded), for the prompts stacked above it.
+    var onContentHeightChange: ((CGFloat) -> Void)? = nil
+
+    var body: some View {
+        ZStack(alignment: .bottom) {
+            PlayerChromeScrim()
+            PlayerTransportBar(state: state, summary: summary, ticks: chapterTicks) {
+                PlayerTransportGlyphRow(items: items)
+            } scrubberOverlay: {
+                EmptyView()
+            } tabs: {
+                PlayerTabPillRow(tabs: tabs)
+            }
+            .padding(.horizontal, PlayerChromeLayout.barInset)
+            .padding(.bottom, PlayerChromeLayout.barBottomInset)
+            .onGeometryChange(for: CGFloat.self, of: { $0.size.height }, action: { height in
+                onContentHeightChange?(height + PlayerChromeLayout.barBottomInset)
+            })
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+        .allowsHitTesting(false)
+    }
+}
+
+/// Where the bar sits on screen (both the passive overlay and the focus layer).
+enum PlayerChromeLayout {
+    static let barInset: CGFloat = Theme.Spacing.screen
+    static let barBottomInset: CGFloat = Theme.Spacing.xl
+}
+
+/// Bottom dim behind the bar so the glass reads over any scene; deeper while a content tab is open.
+struct PlayerChromeScrim: View {
+    var deep = false
+
+    var body: some View {
+        LinearGradient(
+            stops: [
+                .init(color: .black.opacity(0), location: deep ? 0.2 : 0.55),
+                .init(color: .black.opacity(deep ? 0.55 : 0.25), location: deep ? 0.55 : 0.8),
+                .init(color: .black.opacity(deep ? 0.8 : 0.5), location: 1),
+            ],
+            startPoint: .top, endPoint: .bottom)
+            .ignoresSafeArea()
+            .animation(.easeInOut(duration: 0.3), value: deep)
+            .allowsHitTesting(false)
     }
 }
 

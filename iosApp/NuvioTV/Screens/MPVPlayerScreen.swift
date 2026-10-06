@@ -13,11 +13,11 @@ import SharedCore
 private struct MPVPlayerRepresentable: UIViewControllerRepresentable {
     let context: PlaybackContext
     let state: MPVPlaybackState
-    let panelModel: PlayerTopPanelModel
     /// Native → mpv fallback hand-over position (NE-7); nil = resume from saved progress.
     let startPositionSec: Double?
-    /// Builds the engine-specific fourth tab at open time (its views observe live state).
-    let makeExtraTab: () -> PlayerPanelExtraTab
+    /// Builds the chrome's focus layer (transport menus or content tabs) at open time; its views
+    /// observe live state. The closer dismisses it.
+    let makeChromeView: (PlayerChromeEntry, PlayerChromeCloser) -> AnyView
     let onExit: () -> Void
     /// Error card's "Choose Another Source" (PLY-1); nil = no stream picker behind the player.
     let onChooseAnotherSource: (() -> Void)?
@@ -33,19 +33,24 @@ private struct MPVPlayerRepresentable: UIViewControllerRepresentable {
         controller.forceDVReshape = forceDVReshape
         controller.onExit = onExit
         controller.onChooseAnotherSource = onChooseAnotherSource
-        let state = state, model = panelModel, makeExtraTab = makeExtraTab
-        controller.onOpenPanel = { [weak controller] in
+        let state = state, makeChromeView = makeChromeView
+        controller.onOpenChrome = { [weak controller] entry in
             guard let controller, controller.presentedViewController == nil else { return }
-            let panel = PlayerPanelHostController(rootView: PlayerTopPanel(model: model, extraTab: makeExtraTab()))
-            panel.modalPresentationStyle = .overFullScreen
-            panel.modalTransitionStyle = .crossDissolve
-            model.onClose = { [weak panel] in panel?.close(animated: true) }
-            panel.onClosed = { [weak state] in
+            let closer = PlayerChromeCloser()
+            let host = PlayerPanelHostController(rootView: makeChromeView(entry, closer))
+            // Up moves focus inside the layer (tabs → scrubber); it must not close it.
+            host.closesOnSwipeUp = false
+            host.modalPresentationStyle = .overFullScreen
+            host.modalTransitionStyle = .crossDissolve
+            closer.host = host
+            host.onClosed = { [weak state, weak controller] in
                 state?.panelOpen = false
                 state?.reclaimFocus?()     // libmpv's controller must be first responder again
+                // Back on the scrubber with the bar still up, like the system player.
+                controller?.flashControls()
             }
             state.panelOpen = true
-            controller.present(panel, animated: !UIAccessibility.isReduceMotionEnabled)
+            controller.present(host, animated: !UIAccessibility.isReduceMotionEnabled)
         }
         ctx.coordinator.attach(controller: controller, state: state, chromeModel: chromeModel)
         return controller
@@ -60,9 +65,12 @@ private struct MPVPlayerRepresentable: UIViewControllerRepresentable {
     }
 }
 
-/// SwiftUI host for the libmpv player + transport overlay; presented full-screen over the stream
-/// picker. The `NextEpisodeEngine` (owned by `PlayerScreen`, shared with the native screen) drives
-/// the Up Next card near the end of a series episode and the end screen after it.
+/// SwiftUI host for the libmpv player and its chrome; presented full-screen over the stream picker.
+/// The chrome is a replica of the native screen's `AVPlayerViewController` (same transport bar,
+/// menus, content tabs and remote grammar — `PlayerTransportBar`, `MPVTransportFocusView`), so every
+/// format looks the same whichever engine plays it. The `NextEpisodeEngine` (owned by
+/// `PlayerScreen`, shared with the native screen) drives the Up Next card near the end of a series
+/// episode and the end screen after it.
 ///
 /// NOTE for presenters: when swapping contexts for autoplay, apply `.id(context.id)` so SwiftUI
 /// rebuilds this screen (and the libmpv controller) for the new episode.
@@ -70,7 +78,7 @@ struct MPVPlayerScreen: View {
     let context: PlaybackContext
     /// Up Next orchestration, owned by `PlayerScreen` (survives a native → mpv fallback).
     @ObservedObject var upNext: NextEpisodeEngine
-    /// The presenter can swap playback contexts (episode jump / source switching in the panel).
+    /// The presenter can swap playback contexts (episode jump from the Episodes tab).
     let canSwitchStreams: Bool
     /// Native → mpv fallback hand-over position (NE-7/PLY-8).
     let startPositionSec: Double?
@@ -82,26 +90,21 @@ struct MPVPlayerScreen: View {
     var onExitToDetails: (() -> Void)? = nil
     /// Open the stream picker for the next episode. nil → leave the player.
     var onPickNextSource: ((MetaVideo) -> Void)? = nil
-    /// The stream failed (error card, PLY-1): close the player onto a stream list for this episode.
-    /// nil → no picker behind the player; the card's button just leaves it.
+    /// Close the player onto a stream list for this episode: the transport bar's "Sources" item and
+    /// the error card's "Choose Another Source" (PLY-1). nil → no Sources item; the card's button
+    /// just leaves the player.
     var onChooseAnotherSource: (() -> Void)? = nil
     /// DV Profile 5 forced onto mpv (contract C1): passed through to the libmpv controller.
     var forceDVReshape: Bool = false
 
     @StateObject private var state: MPVPlaybackState
     @Environment(\.dismiss) private var dismiss
-    @State private var showPauseInfo = false
-    @State private var pauseInfoTask: Task<Void, Never>?
     @StateObject private var panelModel: PlayerTopPanelModel
     @State private var panelAdapter: MPVPlayerPanelAdapter?
     /// The end screen's cover was closed with Menu: leave for the details page once it's gone.
     @State private var endScreenClosedByMenu = false
-    /// Series · code · episode name for the transport bar and the pause card (AES-8/AES-9).
-    private let titleParts: PlaybackTitleParts
-    /// "Swipe down for info", flashed at the start of playback until the panel has been used once.
-    @State private var showSwipeHint = false
-    @State private var swipeHintTask: Task<Void, Never>?
-    @State private var didFlashStartHint = false
+    /// Title view and Info tab content — the same metadata the native screen hands AVKit.
+    private let summary: PlayerInfoSummary
     /// Measured height of the transport chrome's content (`promptBottomInset`).
     @State private var transportHeight: CGFloat = 0
     /// Chapter ticks for the scrubber (file chapters, else the skip segments).
@@ -119,7 +122,7 @@ struct MPVPlayerScreen: View {
          onChooseAnotherSource: (() -> Void)? = nil,
          forceDVReshape: Bool = false) {
         self.context = context
-        titleParts = PlaybackTitleParts(context: context)
+        summary = PlayerInfoSummary(context: context)
         _upNext = ObservedObject(wrappedValue: upNext)
         self.canSwitchStreams = canSwitchStreams
         self.startPositionSec = startPositionSec
@@ -136,14 +139,9 @@ struct MPVPlayerScreen: View {
     var body: some View {
         ZStack(alignment: .bottom) {
             MPVPlayerRepresentable(
-                context: context, state: state, panelModel: panelModel,
+                context: context, state: state,
                 startPositionSec: startPositionSec,
-                makeExtraTab: { [state, upNext, canSwitchStreams, panelModel] in
-                    PlayerPanelExtraTab {
-                        MPVPlaybackTab(state: state, engine: upNext, canSwitchStreams: canSwitchStreams,
-                                       onClose: { panelModel.onClose?() })
-                    }
-                },
+                makeChromeView: chromeViewBuilder,
                 onExit: { dismiss() },
                 onChooseAnotherSource: onChooseAnotherSource,
                 forceDVReshape: forceDVReshape,
@@ -162,38 +160,25 @@ struct MPVPlayerScreen: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
 
-            // System-player chrome (spec §6.9.3). A sustained pause grows its title block with the
-            // synopsis (TV-app pause look) instead of a separate card, so nothing is named twice.
+            // The system player's transport bar, at rest (nothing focusable: libmpv owns the remote).
+            // While the focus layer is up it draws the same bar itself, so this one steps aside.
             PlayerControlsOverlay(
                 state: state,
-                titleParts: titleParts,
-                pauseDetails: pauseCardVisible ? pauseDetails : nil,
+                summary: summary,
                 chapterTicks: chromeModel.tickTimes,
-                tabs: PlayerPanelTab.allCases,
-                highlightedTab: panelModel.lastTab,
+                items: MPVChromeContent.items(panelModel: panelModel,
+                                              canChooseSource: onChooseAnotherSource != nil),
+                tabs: MPVChromeContent.tabs(
+                    hasEpisodes: context.season != nil && !upNext.episodes.isEmpty,
+                    hasChapters: !chromeModel.chapters(durationSec: state.durationSec).isEmpty),
                 // Measured, not assumed: the prompts above it clear its real height (Larger Text,
-                // a movie's one-line title, the pause details). They follow in step with the bar.
+                // a movie's one-line title). They follow in step with the bar.
                 onContentHeightChange: { height in
                     withAnimation(PlayerChipStyle.animation) { transportHeight = height }
                 }
             )
             .opacity(chromeShown ? 1 : 0)
             .animation(.easeInOut(duration: 0.25), value: chromeShown)
-
-            // AES-9: the "Swipe down for info" hint flashes once playback starts (and rides the
-            // pause card), instead of living in the transport bar; gone once the panel was opened.
-            // Down opens the panel during a skip prompt too now (Select skips, F6).
-            if showSwipeHint, !state.panelOpen, !upNext.isCardVisible, !state.isEnded {
-                PlayerSwipeHint().transition(.opacity)
-            }
-
-            // Live diagnostics, toggled from the playback-settings panel.
-            if state.showStreamInfo, let info = state.streamInfo {
-                StreamInfoOverlayView(info: info)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
-                    .padding(PlayerChipStyle.edgePadding)
-                    .transition(.opacity)
-            }
 
             // Transient prompts, bottom-trailing — same chip family as the native screen's
             // contextual actions (PlayerChipStyle). libmpv owns the remote, so these are drawn
@@ -218,10 +203,7 @@ struct MPVPlayerScreen: View {
         .animation(PlayerChipStyle.animation, value: state.skipPrompt)
         .animation(PlayerChipStyle.animation, value: upNext.phase)
         .animation(PlayerChipStyle.animation, value: state.controlsVisible)
-        .animation(PlayerChipStyle.animation, value: showSwipeHint)
-        .animation(.easeInOut(duration: 0.25), value: showPauseInfo)
         .animation(.easeInOut(duration: 0.25), value: state.pauseChromeDismissed)
-        .animation(.easeInOut(duration: 0.25), value: state.showStreamInfo)
         .fullScreenCover(isPresented: endScreenPresented, onDismiss: { endScreenDidDismiss() }) {
             PlayerEndScreen(
                 engine: upNext,
@@ -248,14 +230,11 @@ struct MPVPlayerScreen: View {
         .onChange(of: routingNote) { _, note in state.routingNote = note ?? "" }
         .onDisappear {
             UIApplication.shared.isIdleTimerDisabled = false
-            swipeHintTask?.cancel()
         }
-        // First frames on screen: flash the swipe hint once (the native screen's start hint).
+        // First frames on screen: the loading view gives way.
         .onChange(of: state.isBuffering) { _, buffering in
-            guard !buffering, !didFlashStartHint else { return }
-            didFlashStartHint = true
+            guard !buffering, !firstFrameShown else { return }
             withAnimation(.easeInOut(duration: 0.25)) { firstFrameShown = true }
-            flashSwipeHint()
         }
         .onChange(of: state.positionSec) { _, position in
             upNext.onProgress(positionSec: position, durationSec: state.durationSec)
@@ -269,15 +248,10 @@ struct MPVPlayerScreen: View {
                 upNext.playbackResumedFromEnd()
             }
         }
-        // The Up Next countdown waits while the top panel — or the error card (PLY-1) — is up: no
+        // The Up Next countdown waits while the focus layer — or the error card (PLY-1) — is up: no
         // automatic hand-off may replace the player from under either.
         .onChange(of: state.panelOpen) { _, open in
             upNext.setPanelOpen(open || state.playbackErrorShown)
-            // The viewer found the panel: the swipe hint has done its job (AES-9).
-            if open {
-                PlayerSwipeHint.markLearned()
-                hideSwipeHint()
-            }
         }
         .onChange(of: state.playbackErrorShown) { _, shown in upNext.setPanelOpen(shown || state.panelOpen) }
         .onChange(of: state.isPaused) { _, paused in
@@ -286,51 +260,15 @@ struct MPVPlayerScreen: View {
             // Paused → let the idle timer run again (a long-paused frame should be allowed to
             // hand off to the screensaver, same as the native player); playing → hold it.
             UIApplication.shared.isIdleTimerDisabled = !paused
-            pauseInfoTask?.cancel()
-            if paused {
-                pauseInfoTask = Task {
-                    try? await Task.sleep(nanoseconds: 1_500_000_000)
-                    guard !Task.isCancelled else { return }
-                    showPauseInfo = true
-                }
-            } else {
-                showPauseInfo = false
-            }
         }
     }
 
-    /// The pause card is on screen: a sustained pause, not buffering, not the last frame, no Up
-    /// Next card over it, and Back hasn't put the pause chrome away (F3).
-    private var pauseCardVisible: Bool {
-        showPauseInfo && state.isPaused && !state.isBuffering && !state.isEnded && !upNext.isCardVisible
-            && !state.playbackErrorShown && !state.pauseChromeDismissed && !state.isScrubbing
-    }
-
-    /// The transport chrome is on screen: shown by the controller, or held by a sustained pause
-    /// (spec §6.9.3: the chrome never hides while paused).
+    /// The transport chrome is on screen: shown by an interaction, or held by a pause (the system
+    /// player never hides its bar while paused, until Back puts it away — F3), and not while the
+    /// focus layer draws it.
     private var chromeShown: Bool {
-        firstFrameShown && !state.playbackErrorShown && (state.controlsVisible || pauseCardVisible)
-    }
-
-    /// What the sustained-pause title block adds: the synopsis, the time left and the source.
-    private var pauseDetails: PlayerPauseDetails {
-        PlayerPauseDetails(
-            synopsis: CachedTitleArt.nonEmpty(context.synopsis),
-            remaining: state.durationSec > 0
-                ? String(localized: "\(Self.remainingString(state.durationSec - state.positionSec)) remaining")
-                : nil,
-            provider: CachedTitleArt.nonEmpty(context.providerName))
-    }
-
-    /// "42 min" / "1 h 12 min". Whole minutes, truncated, so 59:59 never rounds up to "60 min".
-    private static func remainingString(_ remaining: Double) -> String {
-        let clamped = max(remaining, 0)
-        let seconds = clamped.isFinite ? (clamped / 60).rounded(.down) * 60 : 0
-        let formatter = DateComponentsFormatter()
-        formatter.unitsStyle = .abbreviated
-        formatter.allowedUnits = seconds >= 3600 ? [.hour, .minute] : [.minute]
-        formatter.zeroFormattingBehavior = .dropLeading
-        return formatter.string(from: seconds) ?? ""
+        firstFrameShown && !state.playbackErrorShown && !state.panelOpen
+            && (state.controlsVisible || state.pauseChromeShown)
     }
 
     /// Bottom inset of the bottom-trailing prompts (Up Next card, skip chip): the screen-edge inset,
@@ -341,24 +279,43 @@ struct MPVPlayerScreen: View {
         return max(PlayerChipStyle.edgePadding, transportHeight + Theme.Spacing.lg)
     }
 
-    /// Shows the swipe hint for a few seconds after a beat — until the viewer has opened the panel
-    /// once (`PlayerSwipeHint.isLearned`), same timing as the native screen.
-    private func flashSwipeHint() {
-        guard !PlayerSwipeHint.isLearned else { return }
-        swipeHintTask?.cancel()
-        swipeHintTask = Task { @MainActor in
-            try? await Task.sleep(for: .seconds(1))
-            guard !Task.isCancelled else { return }
-            showSwipeHint = true
-            try? await Task.sleep(for: .seconds(4))
-            guard !Task.isCancelled else { return }
-            showSwipeHint = false
+    /// Builds the chrome's focus layer. Built from values, not from this view: the controller keeps
+    /// the closure for the session.
+    private var chromeViewBuilder: (PlayerChromeEntry, PlayerChromeCloser) -> AnyView {
+        let state = self.state, panelModel = self.panelModel, chromeModel = self.chromeModel
+        let upNext = self.upNext, summary = self.summary
+        let season = context.season, episode = context.episode
+        let canSwitchStreams = self.canSwitchStreams
+        let chooseSource = self.onChooseAnotherSource
+        let pickSource = self.pickSourceAction
+        return { entry, closer in
+            let actions = MPVChromeActions(
+                close: { closer.close() },
+                chooseSource: chooseSource.map { choose -> () -> Void in
+                    {
+                        // Same as the native transport bar: the countdown must not hand off under
+                        // the picker, and the player closes onto this episode's stream list.
+                        upNext.cancelForSourceSwitch()
+                        closer.close { choose() }
+                    }
+                },
+                selectEpisode: { video in
+                    closer.close {
+                        if canSwitchStreams {
+                            upNext.jumpToEpisode(video)
+                        } else {
+                            pickSource(video)
+                        }
+                    }
+                },
+                seek: { seconds in
+                    closer.close()
+                    state.seekTo?(seconds)
+                })
+            return AnyView(MPVTransportFocusView(
+                state: state, panelModel: panelModel, chromeModel: chromeModel, upNext: upNext,
+                summary: summary, entry: entry, season: season, episode: episode, actions: actions))
         }
-    }
-
-    private func hideSwipeHint() {
-        swipeHintTask?.cancel()
-        showSwipeHint = false
     }
 
     /// Hooks between this screen, its libmpv controller (via `state`) and the shared engine.
@@ -380,8 +337,10 @@ struct MPVPlayerScreen: View {
         }
         state.onSkipSegmentsLoaded = { [weak upNext, weak chromeModel] segments in
             upNext?.setSkipSegments(segments)
-            // The scrubber marks the segments when the file has no chapters of its own.
+            // The scrubber marks the segments when the file has no chapters of its own, and the
+            // Chapters tab names them (the native screen's chapter markers).
             chromeModel?.segmentBounds = Array(Set(segments.flatMap { [$0.start, $0.end] })).sorted()
+            chromeModel?.segments = segments
         }
         state.upNextCardUp = { [weak upNext] in upNext?.isCardVisible ?? false }
         state.isPlaceholderClip = { [weak upNext] durationSec in

@@ -188,8 +188,9 @@ final class MPVTVPlayerViewController: UIViewController {
     /// Set when a Menu press was consumed by the up-next dismiss so the matching release is
     /// swallowed too (same pattern as `PlayerPanelHostController`) — nothing above sees a half press.
     var swallowMenuRelease = false
-    /// Open the swipe-down top panel (D-pad Down with nothing else to do, or a down swipe).
-    var onOpenPanel: (() -> Void)?
+    /// Hand focus to the chrome's focus layer: the transport buttons (Up, a swipe up, with the bar
+    /// showing) or the content tabs (Down with nothing else to do, or a down swipe).
+    var onOpenChrome: ((PlayerChromeEntry) -> Void)?
     /// Explicit start position handed over by a native → mpv fallback (NE-7/PLY-8). Wins over the
     /// saved progress — which may already be marked completed near the end, and would restart the
     /// episode from 0.
@@ -249,12 +250,21 @@ final class MPVTVPlayerViewController: UIViewController {
         state.setAudioDelay = { [weak self] seconds in self?.setAudioDelay(seconds) }
         state.replay = { [weak self] in self?.replay() }
         state.reclaimFocus = { [weak self] in self?.becomeFirstResponder() }
+        state.seekTo = { [weak self] seconds in
+            guard let self else { return }
+            let target = self.state.durationSec > 0 ? min(seconds, max(self.state.durationSec - 1, 0)) : seconds
+            self.seekAbsolute(target, exact: true)
+        }
         view.accessibilityIdentifier = "player.mpv"
 
-        // Touch-surface swipe down → top panel (presses arrive as `.downArrow`; real swipes don't).
+        // Touch-surface swipes: down → the content tabs, up → the transport buttons (presses arrive
+        // as `.downArrow` / `.upArrow`; real swipes don't).
         let swipeDown = UISwipeGestureRecognizer(target: self, action: #selector(handleSwipeDown))
         swipeDown.direction = .down
         view.addGestureRecognizer(swipeDown)
+        let swipeUp = UISwipeGestureRecognizer(target: self, action: #selector(handleSwipeUp))
+        swipeUp.direction = .up
+        view.addGestureRecognizer(swipeUp)
 
         backgroundObserver = NotificationCenter.default.addObserver(
             forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main

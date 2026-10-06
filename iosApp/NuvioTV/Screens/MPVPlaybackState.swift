@@ -40,7 +40,8 @@ final class MPVPlaybackState: ObservableObject {
 
     @Published var audioTracks: [PlayerTrack] = []
     @Published var subtitleTracks: [PlayerTrack] = []
-    /// The swipe-down top panel (Info · Subtitles · Audio · Playback) is presented.
+    /// The chrome's focus layer (transport menus, content tabs — `MPVTransportFocusView`) is
+    /// presented over the player and owns the remote.
     @Published var panelOpen: Bool = false
     /// Addon subtitle fetch in flight — the picker shows "Searching…" instead of hiding the row.
     @Published var subtitleSearchInFlight: Bool = false
@@ -76,6 +77,8 @@ final class MPVPlaybackState: ObservableObject {
     var setAudioDelay: ((Double) -> Void)?
     var replay: (() -> Void)?
     var reclaimFocus: (() -> Void)?
+    /// Exact seek to an absolute time (the Chapters tab).
+    var seekTo: ((Double) -> Void)?
 
     /// Wired by `MPVPlayerScreen` to the `NextEpisodeEngine`; each returns true when the Up Next
     /// card consumed the press (PLY-A4/F5). Select → play the next episode now ("Choose a Source"
