@@ -8030,40 +8030,6 @@
         }
       }
     },
-    "Diagnostics": {
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Diagnose"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Diagnósticos"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Diagnostics"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Diagnostica"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Chẩn đoán"
-          }
-        }
-      }
-    },
     "Died %@": {
       "localizations": {
         "de": {
@@ -8856,40 +8822,6 @@
         }
       }
     },
-    "Embedded": {
-      "localizations": {
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Intégré"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Integrado"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Eingebettet"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Incorporato (Embedded)"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nhúng"
-          }
-        }
-      }
-    },
     "Embedded subtitles": {
       "localizations": {
         "de": {
@@ -9134,40 +9066,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Tiếng Anh"
-          }
-        }
-      }
-    },
-    "Enhance Dialogue and sound options are in the player's Audio button.": {
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Dialog verbessern und Klangoptionen findest du im Audio-Button des Players."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mejorar diálogos y opciones de sonido: botón Audio del reproductor."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Amélioration des dialogues et options sonores : bouton Audio du lecteur."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Migliora dialoghi e opzioni audio: pulsante Audio del lettore."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tăng cường lời thoại và tùy chọn âm thanh nằm trong nút Âm thanh của trình phát."
           }
         }
       }
@@ -10286,40 +10184,6 @@
         }
       }
     },
-    "From addons": {
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Von Addons"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "De addons"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Depuis les add-ons"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Dagli addon"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Từ addon"
-          }
-        }
-      }
-    },
     "Full": {
       "localizations": {
         "de": {
@@ -11013,40 +10877,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Ẩn ảnh banner khi duyệt"
-          }
-        }
-      }
-    },
-    "Hide Stream Info": {
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Stream-Info ausblenden"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ocultar información de stream"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Masquer les infos du stream"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nascondi informazioni flusso"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ẩn thông tin luồng"
           }
         }
       }
@@ -12229,40 +12059,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Tiếng Nhật"
-          }
-        }
-      }
-    },
-    "Jumping finds a stream automatically and switches playback.": {
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Springen findet automatisch einen Stream und schaltet die Wiedergabe um."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Saltar encuentra un stream automáticamente e intercambia la reproducción."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sauter recherche automatiquement un stream et bascule la lecture."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Il salto trova un flusso automaticamente e passa alla riproduzione."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Chuyển tập sẽ tự động tìm luồng và chuyển sang phát."
           }
         }
       }
@@ -14350,40 +14146,6 @@
         }
       }
     },
-    "No alternate sources found yet.": {
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Noch keine alternativen Quellen gefunden."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Aún no se encontraron fuentes alternas."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Aucune source alternative trouvée pour l’instant."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nessuna fonte alternativa trovata ancora."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Chưa tìm thấy nguồn thay thế nào."
-          }
-        }
-      }
-    },
     "No badge packs imported yet.": {
       "localizations": {
         "de": {
@@ -14745,40 +14507,6 @@
         }
       }
     },
-    "No stream details yet.": {
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Noch keine Stream-Details."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sin detalles de stream aún."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Aucun détail de stream pour l’instant."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nessun dettaglio del flusso ancora."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Chưa có chi tiết luồng."
-          }
-        }
-      }
-    },
     "No stream found for the next episode.": {
       "localizations": {
         "de": {
@@ -14887,40 +14615,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Không tìm thấy luồng cho phim này."
-          }
-        }
-      }
-    },
-    "No subtitles for this title": {
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Keine Untertitel für diesen Titel"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "No hay subtítulos para este título"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Aucun sous-titre pour ce titre"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nessun sottotitolo per questo titolo"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Không có phụ đề cho nội dung này"
           }
         }
       }
@@ -18235,40 +17929,6 @@
         }
       }
     },
-    "Playing": {
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Wird abgespielt"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Reproduciendo"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Lecture en cours"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "In riproduzione"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Đang phát"
-          }
-        }
-      }
-    },
     "Playing in %lld s": {
       "localizations": {
         "fr": {
@@ -20311,40 +19971,6 @@
         }
       }
     },
-    "Reset": {
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Zurücksetzen"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Reiniciar"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Réinitialiser"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Reset"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Đặt lại"
-          }
-        }
-      }
-    },
     "Reset to Defaults": {
       "localizations": {
         "de": {
@@ -22310,40 +21936,6 @@
         }
       }
     },
-    "Show Stream Info": {
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Stream-Info anzeigen"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mostrar información de stream"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Afficher les infos du stream"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mostra informazioni flusso"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Hiện thông tin luồng"
-          }
-        }
-      }
-    },
     "Show Up Next as soon as the credits begin, for episodes whose credits timing is known (needs Skip Intro). A scene after the credits plays first.": {
       "localizations": {
         "fr": {
@@ -23678,40 +23270,6 @@
         }
       }
     },
-    "Speakers & Headphones": {
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Lautsprecher & Kopfhörer"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Altavoces y auriculares"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Enceintes et casques"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Altoparlanti e cuffie"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Loa và tai nghe"
-          }
-        }
-      }
-    },
     "Specials": {
       "localizations": {
         "de": {
@@ -24418,40 +23976,6 @@
         }
       }
     },
-    "Subtitle Delay": {
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Untertitel-Verzögerung"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Retraso de subtítulos"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Délai des sous-titres"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ritardo sottotitoli"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Độ trễ phụ đề"
-          }
-        }
-      }
-    },
     "Subtitles": {
       "localizations": {
         "de": {
@@ -24516,40 +24040,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Nhẹ nhàng"
-          }
-        }
-      }
-    },
-    "Swipe down for info": {
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nach unten streichen für Infos"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Desliza hacia abajo para ver la información"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Balayez vers le bas pour les infos"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Scorri verso il basso per le info"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vuốt xuống để xem thông tin"
           }
         }
       }
@@ -24788,40 +24278,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Đang chuyển âm thanh…"
-          }
-        }
-      }
-    },
-    "Switching resumes from your last saved position.": {
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Beim Wechsel wird von deiner letzten gespeicherten Position fortgefahren."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "El cambio se reanuda desde tu última posición guardada."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Le changement reprend depuis votre dernière position enregistrée."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Il passaggio riprende dall'ultima posizione salvata."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Chuyển sẽ tiếp tục từ vị trí đã lưu gần nhất."
           }
         }
       }
@@ -32288,23 +31744,6 @@
         }
       }
     },
-    "player.audio.delay.hint": {
-      "extractionState": "extracted_with_value",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "new",
-            "value": "Positive values play the sound later."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Les valeurs positives retardent le son."
-          }
-        }
-      }
-    },
     "player.error.failed.title": {
       "extractionState": "extracted_with_value",
       "localizations": {
@@ -32505,103 +31944,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Afficher les détails"
-          }
-        }
-      }
-    },
-    "player.subtitles.lateFound": {
-      "extractionState": "extracted_with_value",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "new",
-            "value": "%lld found after playback started"
-          }
-        },
-        "fr": {
-          "variations": {
-            "plural": {
-              "one": {
-                "stringUnit": {
-                  "state": "translated",
-                  "value": "%lld trouvé après le début de la lecture"
-                }
-              },
-              "other": {
-                "stringUnit": {
-                  "state": "translated",
-                  "value": "%lld trouvés après le début de la lecture"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "player.subtitles.otherLanguages": {
-      "extractionState": "extracted_with_value",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "new",
-            "value": "Other Languages"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Autres langues"
-          }
-        }
-      }
-    },
-    "player.subtitles.group.expanded": {
-      "extractionState": "extracted_with_value",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "new",
-            "value": "Expanded"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Développé"
-          }
-        }
-      }
-    },
-    "player.subtitles.group.collapsed": {
-      "extractionState": "extracted_with_value",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "new",
-            "value": "Collapsed"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Réduit"
-          }
-        }
-      }
-    },
-    "player.subtitles.delay.hint": {
-      "extractionState": "extracted_with_value",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "new",
-            "value": "Positive values show subtitles later."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Les valeurs positives affichent les sous-titres plus tard."
           }
         }
       }

@@ -75,11 +75,6 @@ final class PlayerTopPanelModel: ObservableObject {
     /// Whether the current engine can shift audio (mpv `audio-delay`). False hides the row.
     @Published var supportsAudioDelay: Bool = false
 
-    /// Last tab the viewer had open, so the panel reopens there for the rest of the session (F16).
-    /// The model lives as long as the player screen, which is exactly one session. Not published:
-    /// only read when the panel is built.
-    var lastTab: PlayerPanelTab = .info
-
     /// nil = Off.
     var onSelectSubtitle: ((PlayerPanelOption?) -> Void)?
     var onSelectAudio: ((PlayerPanelOption) -> Void)?

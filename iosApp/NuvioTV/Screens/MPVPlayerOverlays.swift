@@ -436,30 +436,3 @@ private struct ProgressBar: View {
         return min(max(width * clamped(fraction), inset), width - inset)
     }
 }
-
-/// Top-trailing live diagnostics card (codec, resolution, fps, hwdec, bitrate, audio, cache).
-struct StreamInfoOverlayView: View {
-    let info: StreamInfoSnapshot
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
-            Text("Stream Info")
-                .font(Theme.Font.meta)
-                .foregroundStyle(Theme.Palette.textSecondary)
-            ForEach(info.rows, id: \.0) { row in
-                HStack(alignment: .top, spacing: Theme.Spacing.sm) {
-                    Text(row.0)
-                        .foregroundStyle(Theme.Palette.textSecondary)
-                        .frame(width: 190, alignment: .leading)
-                    Text(row.1)
-                        .foregroundStyle(Theme.Palette.textPrimary)
-                        .lineLimit(2)
-                }
-                .font(Theme.Font.caption.monospacedDigit())
-            }
-        }
-        .padding(PlayerChipStyle.panelPadding)
-        .frame(maxWidth: 560, alignment: .leading)
-        .playerPanelGlass()
-    }
-}
