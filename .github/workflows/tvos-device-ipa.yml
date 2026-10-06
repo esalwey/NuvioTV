@@ -7,9 +7,13 @@ name: tvOS Device IPA (unsigned)
 # Output:
 #   - always: the IPA as a workflow artifact (14 days)
 #   - on push to main, or "Run workflow" with publish=true:
-#     a GitHub prerelease tagged custom-b<build>-<sha8> carrying NuvioTV.ipa.
-#     tvsign picks it up with source = <owner>/NuvioTV,
-#     tag prefix = "custom-", signs it and installs it on the Apple TV.
+#     a GitHub prerelease tagged custom-b<build>-<sha8> carrying NuvioTV.ipa
+#     (tvsign "beta" channel).
+#   - on push of a tag tvos-v<version> (e.g. tvos-v0.4.0): a regular release
+#     "NuvioTV <version>" on that tag, MARKETING_VERSION taken from the tag
+#     (tvsign "stable" channel, tag prefix "tvos-v").
+#   Both carry NuvioTV.ipa and NuvioTV.ipa.sha256; tvsign signs the IPA and
+#   installs it on the Apple TV.
 on:
   workflow_dispatch:
     inputs:
@@ -28,6 +32,8 @@ on:
         default: false
   push:
     branches: ["main", "ipa/**"]
+    # Stable releases. Path filters do not apply to tag pushes.
+    tags: ["tvos-v*"]
     paths:
       - "iosApp/**"
       - "shared/**"
@@ -57,7 +63,9 @@ jobs:
     env:
       CONFIG: ${{ inputs.configuration || 'Release' }}
       KEEP_TOPSHELF: ${{ inputs.include_top_shelf && '1' || '0' }}
-      PUBLISH: ${{ (github.event_name == 'workflow_dispatch' && inputs.publish) || (github.event_name == 'push' && github.ref == 'refs/heads/main') }}
+      PUBLISH: ${{ (github.event_name == 'workflow_dispatch' && inputs.publish) || (github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/tvos-v'))) }}
+      # Set for a stable release build (push of a tvos-v<version> tag).
+      RELEASE_TAG: ${{ startsWith(github.ref, 'refs/tags/tvos-v') && github.ref_name || '' }}
       DD: ${{ github.workspace }}/iosApp/build/tvos-ipa
       # Runtime config baked into SharedCore by :shared:generateSharedRuntimeConfigs
       # (read from env when local.properties is absent). Without these the app falls back
@@ -83,7 +91,8 @@ jobs:
       # Version.xcconfig holds the base (last hand-set value); each run of this workflow
       # adds its run_number, which GitHub keeps monotonic per workflow. Re-runs of the
       # same run keep the same number, which is fine: same commit, same build.
-      - name: Stamp build number
+      # A tvos-v<version> tag also sets the marketing version (CFBundleShortVersionString).
+      - name: Stamp build number (and version from a release tag)
         run: |
           set -euo pipefail
           XC=iosApp/Configuration/Version.xcconfig
@@ -91,6 +100,15 @@ jobs:
           [ -n "$BASE" ] || { echo "::error::CURRENT_PROJECT_VERSION not found in $XC"; exit 1; }
           BUILD=$((BASE + GITHUB_RUN_NUMBER))
           sed -i '' "s/^CURRENT_PROJECT_VERSION=.*/CURRENT_PROJECT_VERSION=${BUILD}/" "$XC"
+          if [ -n "$RELEASE_TAG" ]; then
+            VERSION="${RELEASE_TAG#tvos-v}"
+            if ! [[ "$VERSION" =~ ^[0-9]+(\.[0-9]+){1,2}$ ]]; then
+              echo "::error::tag $RELEASE_TAG: expected tvos-v<major>.<minor>[.<patch>], e.g. tvos-v0.4.0"; exit 1
+            fi
+            grep -qE '^MARKETING_VERSION=' "$XC" || { echo "::error::MARKETING_VERSION not found in $XC"; exit 1; }
+            sed -i '' "s/^MARKETING_VERSION=.*/MARKETING_VERSION=${VERSION}/" "$XC"
+            echo "EXPECTED_VERSION=$VERSION" >> "$GITHUB_ENV"
+          fi
           cat "$XC"
           echo "EXPECTED_BUILD=$BUILD" >> "$GITHUB_ENV"
 
@@ -176,7 +194,7 @@ jobs:
               CODE_SIGNING_ALLOWED=NO \
               CODE_SIGNING_REQUIRED=NO \
               CODE_SIGN_IDENTITY="" \
-              NUVIO_BETA_TAG="custom-${GITHUB_SHA::8}" > "$LOG" 2>&1; then
+              NUVIO_BETA_TAG="${RELEASE_TAG:-custom-${GITHUB_SHA::8}}" > "$LOG" 2>&1; then
             echo "::group::errors"
             grep -nE "(error:|\*\* BUILD FAILED)" "$LOG" | head -150 || true
             echo "::endgroup::"
@@ -195,6 +213,9 @@ jobs:
           echo "Version: $VER ($BUILD)"
           if [ "$BUILD" != "$EXPECTED_BUILD" ]; then
             echo "::error::CFBundleVersion is $BUILD, expected $EXPECTED_BUILD (Version.xcconfig stamp not applied)"; exit 1
+          fi
+          if [ -n "${EXPECTED_VERSION:-}" ] && [ "$VER" != "$EXPECTED_VERSION" ]; then
+            echo "::error::CFBundleShortVersionString is $VER, expected $EXPECTED_VERSION from tag $RELEASE_TAG"; exit 1
           fi
           echo "Commit : $(/usr/libexec/PlistBuddy -c 'Print :NuvioCommitSHA' "$APP/Info.plist" 2>/dev/null || echo '?')"
           echo "Archs  : $(lipo -archs "$APP/NuvioTV")"
@@ -215,9 +236,12 @@ jobs:
             rm -rf "$OUT/Payload/NuvioTV.app/PlugIns"
           fi
           (cd "$OUT" && zip -qry NuvioTV.ipa Payload)
+          (cd "$OUT" && shasum -a 256 NuvioTV.ipa > NuvioTV.ipa.sha256)
           ls -lh "$OUT/NuvioTV.ipa"
+          cat "$OUT/NuvioTV.ipa.sha256"
           {
             echo "IPA_PATH=$OUT/NuvioTV.ipa"
+            echo "SHA_PATH=$OUT/NuvioTV.ipa.sha256"
             echo "APP_VERSION=$VER"
             echo "APP_BUILD=$BUILD"
           } >> "$GITHUB_ENV"
@@ -231,17 +255,31 @@ jobs:
           retention-days: 14
 
       - name: Publish prerelease (for tvsign)
-        if: env.PUBLISH == 'true'
+        if: env.PUBLISH == 'true' && env.RELEASE_TAG == ''
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           TAG="custom-b${APP_BUILD}-${GITHUB_SHA::8}"
-          gh release create "$TAG" "$IPA_PATH" \
+          gh release create "$TAG" "$IPA_PATH" "$SHA_PATH" \
             --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" \
             --prerelease \
             --title "NuvioTV ${APP_VERSION} (${APP_BUILD}) custom ${GITHUB_SHA::8}" \
             --notes "Build non signé depuis ${GITHUB_REF_NAME} @ ${GITHUB_SHA::8}. Signé et installé par tvsign."
+
+      # Stable release on the pushed tvos-v<version> tag (tvsign "stable" channel).
+      - name: Publish release (tvos-v tag)
+        if: env.PUBLISH == 'true' && env.RELEASE_TAG != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release create "$RELEASE_TAG" "$IPA_PATH" "$SHA_PATH" \
+            --repo "$GITHUB_REPOSITORY" \
+            --verify-tag \
+            --latest \
+            --title "NuvioTV ${APP_VERSION}" \
+            --notes "NuvioTV ${APP_VERSION} (build ${APP_BUILD}), ${GITHUB_SHA::8}. Build non signé : signé et installé par tvsign (canal stable)."
 
       - uses: actions/upload-artifact@v4
         if: failure()
