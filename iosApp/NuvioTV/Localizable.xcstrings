@@ -31474,6 +31474,888 @@
         }
       }
     },
+    "streams.recommended": {
+      "comment": "Source picker: capsule on the stream that best matches the viewer's preferences.",
+      "extractionState": "extracted_with_value",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Recommended"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recommandé"
+          }
+        }
+      }
+    },
+    "streams.chip.original": {
+      "comment": "Source picker audio chip: the original-language track is in the file (version originale).",
+      "extractionState": "extracted_with_value",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "VO"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VO"
+          }
+        }
+      }
+    },
+    "streams.detail.seeders": {
+      "comment": "Source picker detail line: how many peers share this torrent. %lld is the count.",
+      "extractionState": "extracted_with_value",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "%lld seeders"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld seeders"
+          }
+        }
+      }
+    },
+    "streams.detail.pack": {
+      "comment": "Source picker detail line: the stream is a whole-season pack. %@ is the season code, e.g. S01.",
+      "extractionState": "extracted_with_value",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "%@ pack"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pack %@"
+          }
+        }
+      }
+    },
+    "streams.reason.otherVariant": {
+      "comment": "Source picker reason: right language, other version (e.g. VFQ for a VFF viewer). %@ is the tag.",
+      "extractionState": "extracted_with_value",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "%@, not your version"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@, pas votre version"
+          }
+        }
+      }
+    },
+    "streams.reason.languageMissing": {
+      "comment": "Source picker reason: none of the viewer's audio languages.",
+      "extractionState": "extracted_with_value",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Not in your language"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pas dans votre langue"
+          }
+        }
+      }
+    },
+    "streams.reason.cached": {
+      "comment": "Source picker reason/chip: the debrid service already has this file, it starts instantly.",
+      "extractionState": "extracted_with_value",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Cached"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En cache"
+          }
+        }
+      }
+    },
+    "streams.reason.notCached": {
+      "comment": "Source picker reason: the debrid service must download this torrent first.",
+      "extractionState": "extracted_with_value",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Needs downloading"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "À télécharger"
+          }
+        }
+      }
+    },
+    "streams.reason.direct": {
+      "comment": "Source picker reason: a plain playable link.",
+      "extractionState": "extracted_with_value",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Direct link"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lien direct"
+          }
+        }
+      }
+    },
+    "streams.reason.lowQuality": {
+      "comment": "Source picker reason: CAM/TS/TC release. %@ is the tag.",
+      "extractionState": "extracted_with_value",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "%@: filmed in a cinema"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ : filmé en salle"
+          }
+        }
+      }
+    },
+    "streams.reason.overResolution": {
+      "comment": "Source picker reason: filtered by the max-resolution setting.",
+      "extractionState": "extracted_with_value",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Above your maximum resolution"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Au-dessus de votre résolution maximale"
+          }
+        }
+      }
+    },
+    "streams.reason.overSize": {
+      "comment": "Source picker reason: filtered by the max-size setting.",
+      "extractionState": "extracted_with_value",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Above your size limit"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Au-dessus de votre taille maximale"
+          }
+        }
+      }
+    },
+    "streams.reason.hdrUnsupported": {
+      "comment": "Source picker reason: HDR/Dolby Vision this display path can't show. %@ is the format.",
+      "extractionState": "extracted_with_value",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "%@ not supported by this TV"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ non pris en charge par ce téléviseur"
+          }
+        }
+      }
+    },
+    "streams.reason.hdrAvoided": {
+      "comment": "Source picker reason: the viewer asked to avoid HDR.",
+      "extractionState": "extracted_with_value",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "HDR (you prefer SDR)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HDR (vous préférez le SDR)"
+          }
+        }
+      }
+    },
+    "streams.reason.noSeeders": {
+      "comment": "Source picker reason: nobody shares this torrent.",
+      "extractionState": "extracted_with_value",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "No seeders"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucun seeder"
+          }
+        }
+      }
+    },
+    "streams.a11y.audio": {
+      "comment": "VoiceOver, source picker row: the audio languages. %@ is the list.",
+      "extractionState": "extracted_with_value",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "audio %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "audio %@"
+          }
+        }
+      }
+    },
+    "streams.a11y.subtitles": {
+      "comment": "VoiceOver, source picker row: the subtitle languages. %@ is the list.",
+      "extractionState": "extracted_with_value",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "subtitles %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sous-titres %@"
+          }
+        }
+      }
+    },
+    "settings.streams.section": {
+      "comment": "Playback settings section: how the source picker ranks streams",
+      "extractionState": "extracted_with_value",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Stream Recommendations"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recommandation des sources"
+          }
+        }
+      }
+    },
+    "settings.streams.explanation": {
+      "comment": "Explanation at the top of the Stream Recommendations settings section",
+      "extractionState": "extracted_with_value",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "The source list reads each stream's title (languages, quality, HDR, audio, size) and puts the best match for you first, marked Recommended. VFF is French from France, VFQ French from Québec, VF French without a stated version."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La liste des sources lit le titre de chaque source (langues, qualité, HDR, audio, taille) et place en premier celle qui vous convient le mieux, marquée Recommandé. VFF : doublage français de France, VFQ : doublage québécois, VF : français sans version précisée."
+          }
+        }
+      }
+    },
+    "settings.streams.enabled": {
+      "comment": "Playback settings toggle: rank streams and mark the recommended one",
+      "extractionState": "extracted_with_value",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Recommend Streams"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recommander les sources"
+          }
+        }
+      }
+    },
+    "settings.streams.enabled.subtitle": {
+      "comment": "Explanation under the Recommend Streams toggle",
+      "extractionState": "extracted_with_value",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Sort each add-on's streams for you and pin the recommended one. Off: add-on order."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trie les sources de chaque add-on pour vous et épingle la source recommandée. Désactivé : ordre de l’add-on."
+          }
+        }
+      }
+    },
+    "settings.streams.audio": {
+      "comment": "Playback settings picker: the audio language/version streams are ranked for",
+      "extractionState": "extracted_with_value",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Preferred Audio"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Audio préféré"
+          }
+        }
+      }
+    },
+    "settings.streams.audio.subtitle": {
+      "comment": "Explanation under the Preferred Audio picker",
+      "extractionState": "extracted_with_value",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "VFF and VFQ are different dubs: pick the one you want first, or any French version."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VFF et VFQ sont des doublages différents : choisissez celui que vous voulez en premier, ou n’importe quelle version française."
+          }
+        }
+      }
+    },
+    "settings.streams.fallback": {
+      "comment": "Playback settings picker: audio language accepted when the preferred one is missing",
+      "extractionState": "extracted_with_value",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Also Acceptable"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Également acceptée"
+          }
+        }
+      }
+    },
+    "settings.streams.fallback.subtitle": {
+      "comment": "Explanation under the Also Acceptable picker",
+      "extractionState": "extracted_with_value",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Ranked next when no stream has your preferred audio."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Classée ensuite quand aucune source n’a votre audio préféré."
+          }
+        }
+      }
+    },
+    "settings.streams.subtitled": {
+      "comment": "Playback settings toggle: accept original audio + subtitles (VOSTFR) when no dub exists",
+      "extractionState": "extracted_with_value",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Original Version with Subtitles"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VO sous-titrée"
+          }
+        }
+      }
+    },
+    "settings.streams.subtitled.subtitle": {
+      "comment": "Explanation under the Original Version with Subtitles toggle",
+      "extractionState": "extracted_with_value",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "When no stream is dubbed in your language, recommend the original audio with subtitles (VOSTFR) before other languages."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quand aucune source n’est doublée dans votre langue, recommander la version originale sous-titrée (VOSTFR) avant les autres langues."
+          }
+        }
+      }
+    },
+    "settings.streams.subtitleLanguage": {
+      "comment": "Playback settings picker: subtitle language that makes an original-audio stream acceptable",
+      "extractionState": "extracted_with_value",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Subtitle Language"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Langue des sous-titres"
+          }
+        }
+      }
+    },
+    "settings.streams.maxResolution": {
+      "comment": "Playback settings picker: streams above this resolution are not recommended",
+      "extractionState": "extracted_with_value",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Maximum Resolution"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Résolution maximale"
+          }
+        }
+      }
+    },
+    "settings.streams.hdr": {
+      "comment": "Playback settings picker: how HDR streams are ranked",
+      "extractionState": "extracted_with_value",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "HDR & Dolby Vision"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HDR et Dolby Vision"
+          }
+        }
+      }
+    },
+    "settings.streams.maxSize": {
+      "comment": "Playback settings picker: streams larger than this are not recommended",
+      "extractionState": "extracted_with_value",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Maximum Size"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Taille maximale"
+          }
+        }
+      }
+    },
+    "settings.streams.cached": {
+      "comment": "Playback settings toggle: rank debrid-cached (instant) streams first",
+      "extractionState": "extracted_with_value",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Prefer Cached Streams"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Privilégier les sources en cache"
+          }
+        }
+      }
+    },
+    "settings.streams.cached.subtitle": {
+      "comment": "Explanation under the Prefer Cached Streams toggle",
+      "extractionState": "extracted_with_value",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Streams your debrid service already has start instantly."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les sources déjà présentes sur votre service debrid démarrent instantanément."
+          }
+        }
+      }
+    },
+    "settings.streams.lowQuality": {
+      "comment": "Playback settings toggle: never recommend releases filmed in a cinema",
+      "extractionState": "extracted_with_value",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Avoid CAM and TS"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Éviter les CAM et TS"
+          }
+        }
+      }
+    },
+    "settings.streams.lowQuality.subtitle": {
+      "comment": "Explanation under the Avoid CAM and TS toggle",
+      "extractionState": "extracted_with_value",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Releases filmed in a cinema (CAM, TS, TC, screeners) are never recommended. They stay in the list, dimmed."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les versions filmées en salle (CAM, TS, TC, screeners) ne sont jamais recommandées. Elles restent dans la liste, grisées."
+          }
+        }
+      }
+    },
+    "settings.streams.audio.auto": {
+      "comment": "Preferred Audio option: follow the Audio language picker",
+      "extractionState": "extracted_with_value",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Same as Audio Language"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comme la langue audio"
+          }
+        }
+      }
+    },
+    "settings.streams.audio.original": {
+      "comment": "Preferred Audio option: the title's original language",
+      "extractionState": "extracted_with_value",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Original Version (VO)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Version originale (VO)"
+          }
+        }
+      }
+    },
+    "settings.streams.audio.vff": {
+      "comment": "Preferred Audio option: French dub made in France",
+      "extractionState": "extracted_with_value",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "French (France) — VFF"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Français (France) — VFF"
+          }
+        }
+      }
+    },
+    "settings.streams.audio.vfq": {
+      "comment": "Preferred Audio option: French dub made in Québec",
+      "extractionState": "extracted_with_value",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "French (Québec) — VFQ"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Français (Québec) — VFQ"
+          }
+        }
+      }
+    },
+    "settings.streams.audio.frAny": {
+      "comment": "Preferred Audio option: VFF, VFQ or unspecified French, equally",
+      "extractionState": "extracted_with_value",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "French (Any Version)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Français (toutes versions)"
+          }
+        }
+      }
+    },
+    "settings.streams.subtitle.auto": {
+      "comment": "Subtitle Language option: follow the Subtitles picker (else the audio language)",
+      "extractionState": "extracted_with_value",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Same as Subtitle Language"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comme la langue des sous-titres"
+          }
+        }
+      }
+    },
+    "settings.streams.noLimit": {
+      "comment": "Stream Recommendations picker option: no maximum",
+      "extractionState": "extracted_with_value",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "No Limit"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucune limite"
+          }
+        }
+      }
+    },
+    "settings.streams.size.gb": {
+      "comment": "Maximum Size option: a whole number of gigabytes (French: Go). %lld is the number.",
+      "extractionState": "extracted_with_value",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "%lld GB"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld Go"
+          }
+        }
+      }
+    },
+    "settings.streams.hdr.prefer": {
+      "comment": "HDR & Dolby Vision option: rank HDR streams higher",
+      "extractionState": "extracted_with_value",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Prefer HDR"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Privilégier le HDR"
+          }
+        }
+      }
+    },
+    "settings.streams.hdr.avoid": {
+      "comment": "HDR & Dolby Vision option: rank HDR streams lower",
+      "extractionState": "extracted_with_value",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Prefer SDR"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Privilégier le SDR"
+          }
+        }
+      }
+    },
+    "settings.streams.hdr.auto": {
+      "comment": "HDR & Dolby Vision option: prefer HDR only when this TV can show it",
+      "extractionState": "extracted_with_value",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Automatic"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatique"
+          }
+        }
+      }
+    },
+    "settings.streams.hdr.none": {
+      "comment": "HDR & Dolby Vision picker subtitle when the display path has no HDR",
+      "extractionState": "extracted_with_value",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "This TV currently shows SDR: HDR streams are ranked lower (they play tone-mapped)."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce téléviseur affiche actuellement en SDR : les sources HDR sont classées plus bas (elles sont converties à la lecture)."
+          }
+        }
+      }
+    },
+    "settings.streams.hdr.noDv": {
+      "comment": "HDR & Dolby Vision picker subtitle when HDR works but native Dolby Vision is off",
+      "extractionState": "extracted_with_value",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "This TV shows HDR. Dolby Vision plays as HDR10 unless the native Dolby Vision player is on, so DV-only streams rank lower."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce téléviseur affiche le HDR. Le Dolby Vision est lu en HDR10 sauf si le lecteur natif Dolby Vision est activé : les sources uniquement DV sont classées plus bas."
+          }
+        }
+      }
+    },
+    "settings.streams.hdr.full": {
+      "comment": "HDR & Dolby Vision picker subtitle when HDR and Dolby Vision both work",
+      "extractionState": "extracted_with_value",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "This TV shows HDR and Dolby Vision: Automatic ranks them first."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce téléviseur affiche le HDR et le Dolby Vision : Automatique les place en premier."
+          }
+        }
+      }
+    },
     "player.audio.delay.hint": {
       "extractionState": "extracted_with_value",
       "localizations": {
@@ -32315,6 +33197,60 @@
           "stringUnit": {
             "state": "translated",
             "value": "Sous-titres forcés"
+          }
+        }
+      }
+    },
+    "player.tab.chapters": {
+      "comment": "Player content tab under the scrubber: the chapter list (intro, episode, credits).",
+      "extractionState": "extracted_with_value",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Chapters"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chapitres"
+          }
+        }
+      }
+    },
+    "player.chapter.number": {
+      "comment": "Player Chapters tab: a chapter of the file that has no name of its own.",
+      "extractionState": "extracted_with_value",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Chapter %lld"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chapitre %lld"
+          }
+        }
+      }
+    },
+    "player.chrome.tabs.swipeFor": {
+      "comment": "VoiceOver label of the player's content tab row, e.g. 'Swipe down for Info, Episodes, Stream Info'.",
+      "extractionState": "extracted_with_value",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Swipe down for %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Balayez vers le bas pour afficher %@"
           }
         }
       }

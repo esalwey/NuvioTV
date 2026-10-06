@@ -27,12 +27,21 @@ struct PlaybackSettingsPane: View {
     /// watches them straight off the shared repository (same `FlowWatcher` pattern).
     @StateObject private var secondaryLanguages = SecondaryLanguagePreferences()
 
+    /// STREAM-INSIGHT: the stream-recommendation preferences (shared `StreamRankingSettingsRepository`).
+    @StateObject private var streamRanking = StreamRankingPreferencesModel()
+
     var body: some View {
         Group {
             sections
         }
-        .onAppear { secondaryLanguages.start() }
-        .onDisappear { secondaryLanguages.stop() }
+        .onAppear {
+            secondaryLanguages.start()
+            streamRanking.start()
+        }
+        .onDisappear {
+            secondaryLanguages.stop()
+            streamRanking.stop()
+        }
     }
 
     @ViewBuilder
@@ -241,6 +250,91 @@ struct PlaybackSettingsPane: View {
                     title: String(localized: "settings.subtitles.preferredOnly", defaultValue: "Show Only Preferred Languages", comment: "Playback settings toggle: hide add-on subtitles in other languages"),
                     subtitle: String(localized: "settings.subtitles.preferredOnly.subtitle", defaultValue: "Hide add-on subtitles that are not in your preferred or secondary subtitle language.", comment: "Explanation under the Show Only Preferred Languages toggle"),
                     isOn: Binding(get: { style.showOnlyPreferredLanguages }, set: { updateSubtitleStyle(showOnlyPreferredLanguages: $0) })
+                )
+            }
+        }
+
+        streamRecommendationSection
+    }
+
+    // MARK: - Stream recommendations (STREAM-INSIGHT)
+
+    /// How the source picker ranks streams and picks the "Recommended" one. Saved per profile;
+    /// "Same as Audio Language" (the default) follows the Audio picker above, so nothing changes
+    /// for a viewer who never opens this section.
+    @ViewBuilder
+    private var streamRecommendationSection: some View {
+        let prefs = streamRanking.preferences
+        let repository = StreamRankingSettingsRepository.shared
+        SettingsSection(String(localized: "settings.streams.section", defaultValue: "Stream Recommendations", comment: "Playback settings section: how the source picker ranks streams")) {
+            Text(String(localized: "settings.streams.explanation", defaultValue: "The source list reads each stream's title (languages, quality, HDR, audio, size) and puts the best match for you first, marked Recommended. VFF is French from France, VFQ French from Qu\u{00E9}bec, VF French without a stated version.", comment: "Explanation at the top of the Stream Recommendations settings section"))
+                .font(Theme.Font.caption)
+                .foregroundStyle(Theme.Palette.textSecondary)
+                .frame(maxWidth: 1100, alignment: .leading)
+            SettingsToggleRow(
+                title: String(localized: "settings.streams.enabled", defaultValue: "Recommend Streams", comment: "Playback settings toggle: rank streams and mark the recommended one"),
+                subtitle: String(localized: "settings.streams.enabled.subtitle", defaultValue: "Sort each add-on's streams for you and pin the recommended one. Off: add-on order.", comment: "Explanation under the Recommend Streams toggle"),
+                isOn: Binding(get: { prefs.enabled }, set: { repository.setEnabled(enabled: $0) })
+            )
+            if prefs.enabled {
+                SettingsPickerRow(
+                    title: String(localized: "settings.streams.audio", defaultValue: "Preferred Audio", comment: "Playback settings picker: the audio language/version streams are ranked for"),
+                    subtitle: String(localized: "settings.streams.audio.subtitle", defaultValue: "VFF and VFQ are different dubs: pick the one you want first, or any French version.", comment: "Explanation under the Preferred Audio picker"),
+                    selection: Binding(get: { prefs.audioLanguage }, set: { repository.setAudioLanguage(language: $0) }),
+                    options: StreamRankingOptions.audioCodes(including: prefs.audioLanguage),
+                    label: { StreamRankingOptions.audioLabel($0) }
+                )
+                SettingsPickerRow(
+                    title: String(localized: "settings.streams.fallback", defaultValue: "Also Acceptable", comment: "Playback settings picker: audio language accepted when the preferred one is missing"),
+                    subtitle: String(localized: "settings.streams.fallback.subtitle", defaultValue: "Ranked next when no stream has your preferred audio.", comment: "Explanation under the Also Acceptable picker"),
+                    selection: Binding(
+                        get: { prefs.fallbackAudioLanguages.first ?? "" },
+                        set: { repository.setFallbackAudioLanguage(language: $0.isEmpty ? nil : $0) }
+                    ),
+                    options: StreamRankingOptions.fallbackCodes(including: prefs.fallbackAudioLanguages.first ?? ""),
+                    label: { StreamRankingOptions.audioLabel($0) }
+                )
+                SettingsToggleRow(
+                    title: String(localized: "settings.streams.subtitled", defaultValue: "Original Version with Subtitles", comment: "Playback settings toggle: accept original audio + subtitles (VOSTFR) when no dub exists"),
+                    subtitle: String(localized: "settings.streams.subtitled.subtitle", defaultValue: "When no stream is dubbed in your language, recommend the original audio with subtitles (VOSTFR) before other languages.", comment: "Explanation under the Original Version with Subtitles toggle"),
+                    isOn: Binding(get: { prefs.acceptSubtitledOriginal }, set: { repository.setAcceptSubtitledOriginal(accept: $0) })
+                )
+                if prefs.acceptSubtitledOriginal {
+                    SettingsPickerRow(
+                        title: String(localized: "settings.streams.subtitleLanguage", defaultValue: "Subtitle Language", comment: "Playback settings picker: subtitle language that makes an original-audio stream acceptable"),
+                        selection: Binding(get: { prefs.subtitleLanguage }, set: { repository.setSubtitleLanguage(language: $0) }),
+                        options: StreamRankingOptions.subtitleCodes(including: prefs.subtitleLanguage),
+                        label: { StreamRankingOptions.subtitleLabel($0) }
+                    )
+                }
+                SettingsPickerRow(
+                    title: String(localized: "settings.streams.maxResolution", defaultValue: "Maximum Resolution", comment: "Playback settings picker: streams above this resolution are not recommended"),
+                    selection: Binding(get: { Int(prefs.maxResolution) }, set: { repository.setMaxResolution(lines: Int32($0)) }),
+                    options: StreamRankingOptions.withCurrent([0, 2160, 1080, 720], Int(prefs.maxResolution)),
+                    label: { StreamRankingOptions.resolutionLabel($0) }
+                )
+                SettingsPickerRow(
+                    title: String(localized: "settings.streams.hdr", defaultValue: "HDR & Dolby Vision", comment: "Playback settings picker: how HDR streams are ranked"),
+                    subtitle: StreamRankingOptions.hdrCapabilityText,
+                    selection: Binding(get: { prefs.hdrMode }, set: { repository.setHdrMode(mode: $0) }),
+                    options: ["auto", "prefer", "avoid"],
+                    label: { StreamRankingOptions.hdrLabel($0) }
+                )
+                SettingsPickerRow(
+                    title: String(localized: "settings.streams.maxSize", defaultValue: "Maximum Size", comment: "Playback settings picker: streams larger than this are not recommended"),
+                    selection: Binding(get: { Int(prefs.maxSizeGb) }, set: { repository.setMaxSizeGb(gigabytes: Int32($0)) }),
+                    options: StreamRankingOptions.withCurrent([0, 5, 10, 20, 40, 60, 100], Int(prefs.maxSizeGb)),
+                    label: { StreamRankingOptions.sizeLabel($0) }
+                )
+                SettingsToggleRow(
+                    title: String(localized: "settings.streams.cached", defaultValue: "Prefer Cached Streams", comment: "Playback settings toggle: rank debrid-cached (instant) streams first"),
+                    subtitle: String(localized: "settings.streams.cached.subtitle", defaultValue: "Streams your debrid service already has start instantly.", comment: "Explanation under the Prefer Cached Streams toggle"),
+                    isOn: Binding(get: { prefs.preferCached }, set: { repository.setPreferCached(prefer: $0) })
+                )
+                SettingsToggleRow(
+                    title: String(localized: "settings.streams.lowQuality", defaultValue: "Avoid CAM and TS", comment: "Playback settings toggle: never recommend releases filmed in a cinema"),
+                    subtitle: String(localized: "settings.streams.lowQuality.subtitle", defaultValue: "Releases filmed in a cinema (CAM, TS, TC, screeners) are never recommended. They stay in the list, dimmed.", comment: "Explanation under the Avoid CAM and TS toggle"),
+                    isOn: Binding(get: { prefs.avoidLowQuality }, set: { repository.setAvoidLowQuality(avoid: $0) })
                 )
             }
         }
@@ -604,6 +698,114 @@ private struct SubtitleColorSwatch: View {
                 )
             )
             .padding(Theme.Spacing.xs)
+    }
+}
+
+/// STREAM-INSIGHT: values and labels of the Stream Recommendations pickers. Codes are the shared
+/// `StreamRankingPreferences` ones: "auto", "original", "fr-fr" (VFF), "fr-ca" (VFQ), "fr" (any
+/// French), then lower-case ISO codes ("en", "es-419", "pt-br"…).
+enum StreamRankingOptions {
+    static let curatedAudio = ["auto", "original", "fr-fr", "fr-ca", "fr", "en", "es-es", "es-419", "pt-br", "pt-pt", "it", "de", "ja", "ko"]
+
+    static func audioCodes(including current: String) -> [String] {
+        let extra = LanguageOptions.trackLanguages.map(\.code).filter { !curatedAudio.contains($0) }
+        return withCurrent(curatedAudio + extra, current)
+    }
+
+    static func fallbackCodes(including current: String) -> [String] {
+        let base = audioCodes(including: current).filter { $0 != "auto" }
+        return withCurrent([""] + base, current)
+    }
+
+    static func subtitleCodes(including current: String) -> [String] {
+        withCurrent(["auto"] + LanguageOptions.trackLanguages.map(\.code), current)
+    }
+
+    static func audioLabel(_ code: String) -> String {
+        switch code {
+        case "": return String(localized: "None")
+        case "auto":
+            return String(localized: "settings.streams.audio.auto", defaultValue: "Same as Audio Language", comment: "Preferred Audio option: follow the Audio language picker")
+        case "original":
+            return String(localized: "settings.streams.audio.original", defaultValue: "Original Version (VO)", comment: "Preferred Audio option: the title's original language")
+        case "fr-fr":
+            return String(localized: "settings.streams.audio.vff", defaultValue: "French (France) \u{2014} VFF", comment: "Preferred Audio option: French dub made in France")
+        case "fr-ca":
+            return String(localized: "settings.streams.audio.vfq", defaultValue: "French (Qu\u{00E9}bec) \u{2014} VFQ", comment: "Preferred Audio option: French dub made in Qu\u{00E9}bec")
+        case "fr":
+            return String(localized: "settings.streams.audio.frAny", defaultValue: "French (Any Version)", comment: "Preferred Audio option: VFF, VFQ or unspecified French, equally")
+        default:
+            return LanguageOptions.trackLabel(code)
+        }
+    }
+
+    static func subtitleLabel(_ code: String) -> String {
+        if code == "auto" {
+            return String(localized: "settings.streams.subtitle.auto", defaultValue: "Same as Subtitle Language", comment: "Subtitle Language option: follow the Subtitles picker (else the audio language)")
+        }
+        return LanguageOptions.trackLabel(code)
+    }
+
+    static func resolutionLabel(_ lines: Int) -> String {
+        switch lines {
+        case 0: return String(localized: "settings.streams.noLimit", defaultValue: "No Limit", comment: "Stream Recommendations picker option: no maximum")
+        case 2160: return "4K"
+        default: return "\(lines)p"
+        }
+    }
+
+    static func sizeLabel(_ gigabytes: Int) -> String {
+        if gigabytes == 0 { return resolutionLabel(0) }
+        return String(localized: "settings.streams.size.gb", defaultValue: "\(gigabytes) GB",
+                      comment: "Maximum Size option: a whole number of gigabytes (French: Go). %lld is the number.")
+    }
+
+    static func hdrLabel(_ mode: String) -> String {
+        switch mode {
+        case "prefer":
+            return String(localized: "settings.streams.hdr.prefer", defaultValue: "Prefer HDR", comment: "HDR & Dolby Vision option: rank HDR streams higher")
+        case "avoid":
+            return String(localized: "settings.streams.hdr.avoid", defaultValue: "Prefer SDR", comment: "HDR & Dolby Vision option: rank HDR streams lower")
+        default:
+            return String(localized: "settings.streams.hdr.auto", defaultValue: "Automatic", comment: "HDR & Dolby Vision option: prefer HDR only when this TV can show it")
+        }
+    }
+
+    /// What this Apple TV + TV can show, read live (AVPlayer.eligibleForHDRPlayback).
+    static var hdrCapabilityText: String {
+        if !StreamDisplayCapabilities.supportsHdr {
+            return String(localized: "settings.streams.hdr.none", defaultValue: "This TV currently shows SDR: HDR streams are ranked lower (they play tone-mapped).", comment: "HDR & Dolby Vision picker subtitle when the display path has no HDR")
+        }
+        if !StreamDisplayCapabilities.supportsDolbyVision {
+            return String(localized: "settings.streams.hdr.noDv", defaultValue: "This TV shows HDR. Dolby Vision plays as HDR10 unless the native Dolby Vision player is on, so DV-only streams rank lower.", comment: "HDR & Dolby Vision picker subtitle when HDR works but native Dolby Vision is off")
+        }
+        return String(localized: "settings.streams.hdr.full", defaultValue: "This TV shows HDR and Dolby Vision: Automatic ranks them first.", comment: "HDR & Dolby Vision picker subtitle when HDR and Dolby Vision both work")
+    }
+
+    static func withCurrent<T: Equatable>(_ options: [T], _ current: T) -> [T] {
+        options.contains(current) ? options : options + [current]
+    }
+}
+
+/// STREAM-INSIGHT: the shared stream-recommendation preferences, watched for the pane.
+@MainActor
+private final class StreamRankingPreferencesModel: ObservableObject {
+    @Published private(set) var preferences: StreamRankingPreferences = StreamRankingSettingsRepository.shared.snapshot()
+
+    private var watcher: FlowWatcher?
+
+    func start() {
+        guard watcher == nil else { return }
+        StreamRankingSettingsRepository.shared.ensureLoaded()
+        watcher = FlowWatcherKt.watch(StreamRankingSettingsRepository.shared.uiState) { [weak self] emitted in
+            guard let self, let value = emitted as? StreamRankingPreferences else { return }
+            if self.preferences != value { self.preferences = value }
+        }
+    }
+
+    func stop() {
+        watcher?.cancel()
+        watcher = nil
     }
 }
 

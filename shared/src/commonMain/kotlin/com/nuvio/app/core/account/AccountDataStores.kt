@@ -349,6 +349,13 @@ object AccountDataStores {
                 AppleKeySpec.ProfileScoped("debrid_stream_badge_rules"),
             ),
         ),
+        AccountDataStore(
+            name = "StreamRankingSettingsStorage",
+            androidPreferences = "nuvio_stream_ranking_settings",
+            appleKeys = listOf(
+                AppleKeySpec.ProfileScoped("stream_ranking_preferences"),
+            ),
+        ),
 
         // ── Player ─────────────────────────────────────────────────────────────────────────────
         AccountDataStore(

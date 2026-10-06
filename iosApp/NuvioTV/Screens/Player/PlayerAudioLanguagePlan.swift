@@ -66,6 +66,10 @@ enum PlayerAudioLanguagePlan {
             deviceLanguages: DeviceLanguagePreferences.shared.preferredLanguageCodes(),
             contentOriginalLanguage: originalLanguage(for: context)
         )
+        // The stream-recommendation audio choice (e.g. VFQ on a VF2 file) goes first; a track the
+        // viewer picked for this show still wins below.
+        targets = StreamPlaybackAudioHints.audioTargets(context: context, base: targets,
+                                                        originalLanguage: originalLanguage(for: context))
         if let saved = persisted?.audioLanguage,
            let normalized = PlayerLanguagePreferencesKt.normalizeLanguageCode(language: saved) {
             targets.removeAll { $0 == normalized }

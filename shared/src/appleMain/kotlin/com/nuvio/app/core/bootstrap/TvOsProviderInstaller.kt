@@ -49,6 +49,7 @@ import com.nuvio.app.features.settings.ThemeSettingsRepository
 import com.nuvio.app.features.settings.ThemeSettingsStoreProvider
 import com.nuvio.app.features.settings.TvOsThemeSettingsStore
 import com.nuvio.app.features.streams.StreamBadgeSettingsRepository
+import com.nuvio.app.features.streams.StreamRankingSettingsRepository
 import com.nuvio.app.features.streams.StreamContextStore
 import com.nuvio.app.features.streams.StreamLaunchStore
 import com.nuvio.app.features.streams.StreamsRepository
@@ -262,6 +263,7 @@ private object TvOsAccountDataCleaner : com.nuvio.app.core.account.AccountDataCl
         TrackingProviderRegistry.clearLocalState()
         PlayerSettingsRepository.clearLocalState()
         StreamBadgeSettingsRepository.clearLocalState()
+        StreamRankingSettingsRepository.clearLocalState()
         CatalogRepository.clear()
         StreamsRepository.clear()
         MetaDetailsRepository.clear()
@@ -396,6 +398,7 @@ private object TvOsProfileLifecycleCoordinator : ProfileLifecycleCoordinator {
         step("cardDepthStyle") { CardDepthStyleRepository.onProfileChanged() }
         step("playerSettings") { PlayerSettingsRepository.onProfileChanged() }
         step("streamBadges") { StreamBadgeSettingsRepository.onProfileChanged() }
+        step("streamRanking") { StreamRankingSettingsRepository.onProfileChanged() }
         step("homeCatalogSettings") { HomeCatalogSettingsRepository.onProfileChanged() }
         step("home") { HomeRepository.clear() }
         // H1 (BUG-47/UX-13) made the See All grid's pop RETAIN CatalogRepository state (detach()
