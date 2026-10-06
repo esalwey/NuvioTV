@@ -209,7 +209,22 @@ data class StreamInsight(
     val isDirectLink: Boolean = false,
     /** A torrent / magnet that still needs a debrid resolve or P2P. */
     val isTorrent: Boolean = false,
+    /**
+     * Fork (VERIFIED-LANGUAGES): [audioLanguages] come from the file's own tracks (probed, the
+     * debrid service's media info, or recorded when it was played), not from the title.
+     */
+    val audioVerified: Boolean = false,
+    /** The file's embedded subtitle tracks are part of [subtitleLanguages]. */
+    val subtitlesVerified: Boolean = false,
 ) {
+    /**
+     * Fork (VERIFIED-LANGUAGES): nothing says which audio the file carries — the title names no
+     * language and no original-audio tag (VO, VOSTFR, MULTi…), and no track list was read. Unknown
+     * is not "original only" and not "another language": it may well hold the viewer's dub.
+     */
+    val audioLanguageUnknown: Boolean
+        get() = !audioVerified && audioLanguages.isEmpty() && originalAudioConfidence == null
+
     val isLowQuality: Boolean
         get() = source.isLowQuality
 

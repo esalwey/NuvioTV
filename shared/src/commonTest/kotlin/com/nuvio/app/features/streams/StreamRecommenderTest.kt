@@ -243,7 +243,7 @@ class StreamRecommenderTest {
     }
 
     @Test
-    fun englishViewerKeepsUntaggedEnglishReleases() {
+    fun englishViewerRanksUntaggedReleasesBetweenConfirmedAndOtherLanguages() {
         val englishViewer = context.copy(playerAudioLanguage = "en", deviceLanguages = listOf("en-US"))
         val order = ranked(
             linkedMapOf(
@@ -254,7 +254,9 @@ class StreamRecommenderTest {
             prefs(),
             englishViewer,
         )
-        assertEquals("untagged", order.first(), "an untagged release of an English film is English")
+        // VERIFIED-LANGUAGES: an untagged release is unknown, not "English": a MULTi release states
+        // the original track, an iTALiAN one states another language.
+        assertEquals(listOf("vff", "untagged", "ita"), order)
     }
 
     @Test
@@ -419,6 +421,52 @@ class StreamRecommenderTest {
         )
         assertTrue(anime.insight.audioLanguages.none { it.language == "fr" })
         assertEquals(StreamReason(StreamReasonKind.SUBTITLED, "VOSTFR"), anime.reasons.first())
+    }
+
+    // endregion
+
+    // region VERIFIED-LANGUAGES
+
+    @Test
+    fun untaggedReleaseIsUnknownAndRanksBetweenConfirmedFrenchAndOtherLanguages() {
+        val prefsVff = prefs(audio = StreamRankingPreferences.AUDIO_FRENCH_FRANCE)
+        val order = ranked(
+            linkedMapOf(
+                "ita4k" to "Movie.2023.iTALiAN.2160p.WEB-DL.DV.HDR10",
+                "untagged4k" to "Movie.2023.2160p.WEB-DL.DV.HDR10.DDP5.1",
+                "vff720" to "Movie.2023.VFF.720p.WEB-DL",
+            ),
+            prefsVff,
+        )
+        assertEquals(listOf("vff720", "untagged4k", "ita4k"), order)
+        val unknown = StreamRecommender.recommend(insight("Movie.2023.2160p.WEB-DL.DV.HDR10.DDP5.1"), prefsVff, context)
+        assertTrue(unknown.reasons.any { it.kind == StreamReasonKind.LANGUAGE_UNKNOWN })
+        assertFalse(unknown.reasons.any { it.kind == StreamReasonKind.LANGUAGE_MISSING })
+        assertFalse(unknown.isExcluded)
+    }
+
+    @Test
+    fun untaggedReleaseIsNeitherOriginalNorSubtitled() {
+        val untagged = insight("Movie.2023.1080p.WEB-DL")
+        assertTrue(untagged.audioLanguageUnknown)
+        assertTrue(untagged.audioLanguages.isEmpty())
+        assertFalse(untagged.includesOriginalAudio)
+        val recommendation = StreamRecommender.recommend(untagged, prefs(), context)
+        assertTrue(recommendation.reasons.none { it.kind == StreamReasonKind.SUBTITLED || it.kind == StreamReasonKind.ORIGINAL_LANGUAGE })
+    }
+
+    @Test
+    fun explicitEvidenceIsNotUnknown() {
+        listOf(
+            "Movie.2023.VOSTFR.1080p.WEB",
+            "Movie.2023.SUBFRENCH.1080p.WEB",
+            "Movie.2023.1080p.WEB [VO]",
+            "Movie 2023 1080p WEB Original Audio",
+            "Movie.2023.FRENCH.1080p.WEB",
+            "Movie.2023.MULTi.1080p.WEB",
+        ).forEach { title ->
+            assertFalse(insight(title).audioLanguageUnknown, title)
+        }
     }
 
     // endregion

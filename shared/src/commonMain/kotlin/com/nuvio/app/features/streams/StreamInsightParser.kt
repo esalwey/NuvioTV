@@ -889,6 +889,14 @@ object StreamInsightParser {
                 i += 2
                 continue
             }
+            // Fork (VERIFIED-LANGUAGES): "Original Audio" / "Original Language" states the track.
+            if (folded == "original" && (nextFolded == "audio" || nextFolded == "language" || nextFolded == "lang")) {
+                acc.addOriginal(HIGH)
+                consumed[i] = true
+                consumed[i + 1] = true
+                i += 2
+                continue
+            }
             // "Multi-Subs", "Multiple Subtitle": the subtitle word itself is read next (it may
             // head a list: "[Multiple Subtitle] [ENG][POR-BR]").
             if ((folded == "multi" || folded == "multiple") && nextFolded != null && nextFolded in SUBTITLE_WORDS) {

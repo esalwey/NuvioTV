@@ -37,6 +37,11 @@ enum class StreamReasonKind {
     OTHER_VARIANT,
     /** None of the wanted languages. (negative) */
     LANGUAGE_MISSING,
+    /**
+     * Fork (VERIFIED-LANGUAGES): the stream names no audio language and none was verified — it may
+     * hold a wanted dub. Ranks under every confirmed wanted language, above confirmed other ones.
+     */
+    LANGUAGE_UNKNOWN,
     /** label = "4K DV", "1080p HDR10". */
     QUALITY,
     /** label = "Atmos", "TrueHD 7.1", "DTS-HD MA". */
@@ -99,6 +104,12 @@ object StreamRecommender {
 
     /** A tagged audio track in the title's own language, whatever the tag's version or confidence. */
     private const val ORIGINAL_LANGUAGE_MATCH = 0.95
+
+    /** Fork (VERIFIED-LANGUAGES): language points of a stream whose audio nothing names. */
+    internal const val UNKNOWN_LANGUAGE_POINTS = 350.0
+
+    /** Same, when the title's own language is wanted (its original track is very likely there). */
+    internal const val UNKNOWN_OWN_LANGUAGE_POINTS = 400.0
 
     /** Builds the context from the shared player settings and the device languages. */
     fun contextFromSettings(
@@ -386,6 +397,17 @@ object StreamRecommender {
         context: StreamRankingContext,
     ): LanguageScore {
         if (wishes.isEmpty()) return LanguageScore(0.0, null)
+        // Fork (VERIFIED-LANGUAGES): nothing names the audio. Not "original only", not "another
+        // language": below every confirmed wanted language, above the confirmed other ones — a
+        // little higher when the title's own language is wanted (a French film for a French viewer).
+        if (insight.audioLanguageUnknown) {
+            val original = context.originalLanguage
+            val ownLanguageWanted = wishes.any { wish ->
+                wish is AudioWish.Original || (wish is AudioWish.Language && wish.language == original)
+            }
+            val points = if (ownLanguageWanted && !insight.isDubbed) UNKNOWN_OWN_LANGUAGE_POINTS else UNKNOWN_LANGUAGE_POINTS
+            return LanguageScore(points, StreamReason(StreamReasonKind.LANGUAGE_UNKNOWN, positive = false))
+        }
         var best = 0.0
         var bestReason: StreamReason? = null
         wishes.forEachIndexed { index, wish ->
@@ -404,8 +426,7 @@ object StreamRecommender {
         val subtitles = subtitleLanguage?.let { wanted -> insight.subtitleLanguages.firstOrNull { it.language == wanted } }
         val original = context.originalLanguage
         val hasOriginalAudio = insight.includesOriginalAudio ||
-            (original != null && insight.hasAudioLanguage(original)) ||
-            insight.audioLanguages.isEmpty()
+            (original != null && insight.hasAudioLanguage(original))
         if (subtitles != null && hasOriginalAudio && primaryWish != null && !insight.hasAudioLanguage(primaryWish.language)) {
             val label = if (subtitles.language == "fr") "VOSTFR" else "VOST ${subtitles.language.uppercase()}"
             if (preferences.acceptSubtitledOriginal) {
@@ -444,9 +465,6 @@ object StreamRecommender {
                 insight.originalAudioConfidence?.let {
                     return 0.9 * it.weight to StreamReason(StreamReasonKind.ORIGINAL_LANGUAGE, "VO")
                 }
-                if (insight.audioLanguages.isEmpty()) {
-                    return 0.6 to StreamReason(StreamReasonKind.ORIGINAL_LANGUAGE, "VO")
-                }
                 if (original == null && insight.hasAudioLanguage("en")) {
                     return 0.5 to StreamReason(StreamReasonKind.ORIGINAL_LANGUAGE, "EN")
                 }
@@ -458,10 +476,6 @@ object StreamRecommender {
                     if (original == wish.language && !insight.isDubbed) {
                         insight.originalAudioConfidence?.let {
                             return 0.85 * it.weight to StreamReason(StreamReasonKind.LANGUAGE, wish.language.uppercase())
-                        }
-                        if (insight.audioLanguages.isEmpty()) {
-                            // Untagged releases are, in practice, the original version.
-                            return 0.75 to StreamReason(StreamReasonKind.LANGUAGE, wish.language.uppercase())
                         }
                     }
                     return 0.0 to null
