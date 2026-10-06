@@ -191,6 +191,13 @@ struct MPVPlayerScreen: View {
                     // Clear the transport bar while it's showing.
                     .padding(.bottom, promptBottomInset)
                     .transition(.opacity)
+            } else if let jump = upNext.episodeJumpInFlight {
+                // An episode picked in the Episodes tab is finding its stream.
+                EpisodeJumpStatus(video: jump)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+                    .padding(.trailing, PlayerChipStyle.edgePadding)
+                    .padding(.bottom, promptBottomInset)
+                    .transition(.opacity)
             } else if let prompt = state.skipPrompt {
                 PlayerActionChip(label: prompt.label, symbol: PlayerChipStyle.skipSymbol, showsPressHint: !state.isPaused)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)

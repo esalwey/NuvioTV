@@ -30658,6 +30658,24 @@
         }
       }
     },
+    "player.jump.loading": {
+      "comment": "Player: an episode picked in the Episodes tab is finding its stream. The argument is the episode, e.g. \"S1 · E5\".",
+      "extractionState": "extracted_with_value",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Loading %@…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chargement de %@…"
+          }
+        }
+      }
+    },
     "profile.primary.caption": {
       "extractionState": "extracted_with_value",
       "localizations": {
@@ -30876,6 +30894,114 @@
           "stringUnit": {
             "state": "translated",
             "value": "Recommandé"
+          }
+        }
+      }
+    },
+    "streams.tier.yourLanguage": {
+      "comment": "Source picker section header: streams with audio in the viewer's language (e.g. VFF).",
+      "extractionState": "extracted_with_value",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "In Your Language"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dans votre langue"
+          }
+        }
+      }
+    },
+    "streams.tier.otherVersion": {
+      "comment": "Source picker section header: right language, other version (e.g. VFQ for a viewer who wants VFF).",
+      "extractionState": "extracted_with_value",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Other Version"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Autre version"
+          }
+        }
+      }
+    },
+    "streams.tier.subtitled": {
+      "comment": "Source picker section header: original-language audio with subtitles in the viewer's language (VOSTFR).",
+      "extractionState": "extracted_with_value",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Original with Subtitles"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VO sous-titrée"
+          }
+        }
+      }
+    },
+    "streams.tier.otherLanguages": {
+      "comment": "Source picker section header: none of the viewer's languages, or nothing stated.",
+      "extractionState": "extracted_with_value",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Other Languages"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Autres langues"
+          }
+        }
+      }
+    },
+    "streams.tier.outsideLimits": {
+      "comment": "Source picker section header: streams filtered by the viewer's settings (CAM, max size, max resolution). Still playable.",
+      "extractionState": "extracted_with_value",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Outside Your Limits"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hors de vos critères"
+          }
+        }
+      }
+    },
+    "streams.a11y.frenchUnknownVersion": {
+      "comment": "VoiceOver, source picker: French audio whose version (France/Québec) the release does not state; the chip shows 'VF ?'. %@ is the language name.",
+      "extractionState": "extracted_with_value",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "%@, version not stated"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@, version non précisée"
           }
         }
       }

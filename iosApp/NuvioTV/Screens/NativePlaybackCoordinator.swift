@@ -3,6 +3,7 @@ import AVKit
 import Combine
 import Foundation
 import SharedCore
+import UIKit
 
 // Phase 3 of the hybrid player: ties Phase 2's remux + loopback server to an AVPlayer for one
 // PlaybackContext. Starts the remux, begins playback progressively as soon as the first segment is
@@ -254,12 +255,25 @@ final class NativePlaybackCoordinator: ObservableObject {
     var didRelayInitialAudio = false
     /// Stream index last saved, so the panel pick and the relay that follows it save once.
     var lastSavedAudioStream: Int?
+    /// When the audible selection last changed: a legible change right after it is AVPlayer
+    /// re-picking subtitles for the new audio, not the viewer, and is undone (track handling).
+    var lastAudioSwitchAt: Date?
 
     // MARK: Now Playing metadata (PLY-A7 native half)
 
     /// Artwork bytes for `externalMetadata`, fetched once per session (the retry item reuses them).
     private var artworkData: Data?
     private var artworkTask: Task<Void, Never>?
+
+    // MARK: Leaving the app (PLY-A8 parity with mpv, build 138 feedback)
+
+    /// App-lifecycle and audio-route observers: leaving the app (the TV button, sleep — HDMI-CEC
+    /// included) or losing the audio output (the TV or receiver switched off) pauses playback, and
+    /// only the viewer resumes it.
+    private var systemObservers: [NSObjectProtocol] = []
+    /// An item that never becomes ready (a playlist or codec AVPlayer silently rejects, a source that
+    /// stopped before the first segment) hands over to mpv after this long instead of spinning on.
+    private static let itemReadyTimeoutSec: Double = 45
 
     init(context: PlaybackContext, engineNote: String? = nil) {
         self.context = context
@@ -277,6 +291,7 @@ final class NativePlaybackCoordinator: ObservableObject {
         guard remux == nil else { return }
         launchStartedAt = Date()
         loggedFirstFrame = false
+        observeSystemPauses()
         // Addon-subtitle results. The completion signal is polled from `completedRequest` in
         // pollForFirstSegment — no watcher races; this watcher only mirrors the list (its
         // StateFlow replay also delivers results prefetched before this coordinator existed).
@@ -320,8 +335,7 @@ final class NativePlaybackCoordinator: ObservableObject {
         // Initial track: let the worker start on the first playable track in a preferred language
         // (Settings → Playback → Preferred Audio Language). Only the active track's rendition is
         // produced, so starting on the right one avoids an immediate switch (the master marks it
-        // DEFAULT and the audible criteria agree).
-        let audioTargets = languagePlan.audioTargets
+        // DEFAULT and the audible criteria agree). The show's saved choice first (LANG-09/10).
         var config = RemuxSession.Config(url: context.url, segmentDurationSec: 6,
                                          requestHeaders: context.requestHeaders)
         // SDH stripping, native path — the mpv path sets `sub-filter-sdh` and reapplies it live in
@@ -329,9 +343,7 @@ final class NativePlaybackCoordinator: ObservableObject {
         // write, addon files at VTT conversion), so a mid-playback toggle flip deliberately applies
         // from the next playback session — no invalidation machinery.
         config.stripSdh = playerSettings?.subtitleStyle.stripSdh ?? false
-        if !audioTargets.isEmpty {
-            config.preferredAudioPicker = { tracks in Self.preferredAudioStream(in: tracks, targets: audioTargets) }
-        }
+        config.preferredAudioPicker = preferredAudioPicker()
         let remux = RemuxSession(config: config)
         self.remux = remux
         remux.start { state in
@@ -342,6 +354,8 @@ final class NativePlaybackCoordinator: ObservableObject {
     }
 
     func stop() {
+        for observer in systemObservers { NotificationCenter.default.removeObserver(observer) }
+        systemObservers.removeAll()
         pollTask?.cancel(); pollTask = nil
         observeTask?.cancel(); observeTask = nil
         positionTask?.cancel(); positionTask = nil
@@ -548,7 +562,10 @@ final class NativePlaybackCoordinator: ObservableObject {
             // LANGUAGE in BCP 47 form (LANG-07): "fre" → "fr", so AVPlayer's criteria and the
             // system Audio popover read it.
             return AudioRendition(streamIndex: track.streamIndex, name: name,
-                                  language: TrackLabelFormatter.normalizedTag(track.language) ?? track.language,
+                                  // With the variant the title states (LANG-10): a "fre" track
+                                  // titled "VFQ" is "fr-CA", so the criteria tell the dubs apart.
+                                  language: TrackLabelFormatter.trackLanguageTag(language: track.language,
+                                                                                 title: track.title) ?? track.language,
                                   channels: track.channels,
                                   codecToken: track.codecToken, isDefault: track.selected)
         }
@@ -587,7 +604,9 @@ final class NativePlaybackCoordinator: ObservableObject {
         }
         if subtitleDelayMs != 0 { server.setSubtitleDelay(ms: subtitleDelayMs) }
         server.start(masterName: remux.masterPlaylistName) { [weak self] url in
-            guard let self else { return }
+            // The bind completes a main-queue turn later: the viewer may have left meanwhile
+            // (`stop()` dropped this server). No player may start for a screen that is gone.
+            guard let self, self.server === server else { return }
             guard let url else { self.failIfPreplayback("server bind failed"); return }
             print("[NativePlayer] serving \(url.absoluteString)")
             self.servedURL = url
@@ -947,7 +966,7 @@ final class NativePlaybackCoordinator: ObservableObject {
                         guard !Task.isCancelled, self.player === player else { return }
                         self.lastPositionSec = resume
                     }
-                    player.play()
+                    self.startPlaybackIfForeground(player)
                     if !self.traktStarted {
                         self.traktStarted = true
                         self.recorder.startTrakt(positionSec: self.lastPositionSec, durationSec: duration.isFinite ? duration : 0)
@@ -976,6 +995,12 @@ final class NativePlaybackCoordinator: ObservableObject {
                     if notReadyTicks % 50 == 0 {          // 50 ticks × 200ms ≈ 10s
                         print("[NativePlayer] item still not ready after ~\(notReadyTicks / 5)s (status=\(item.status.rawValue))")
                         Self.dumpItemLogs(item)
+                    }
+                    // Never an endless spinner: an item still not ready this long after it was
+                    // created goes to mpv (the native loading path had no ceiling past this point).
+                    if Double(notReadyTicks) * 0.2 >= Self.itemReadyTimeoutSec {
+                        self.fallbackMidPlay("item not ready after \(Int(Self.itemReadyTimeoutSec)) s")
+                        return
                     }
                 }
 
@@ -1327,6 +1352,43 @@ final class NativePlaybackCoordinator: ObservableObject {
         if case .failed = phase { return }
         print("[NativePlayer] pre-playback failure: \(stage) — falling back to mpv")
         phase = .failed(stage)
+    }
+
+    deinit {
+        // Normally already removed by `stop()` (the screen's disappearance).
+        for observer in systemObservers { NotificationCenter.default.removeObserver(observer) }
+    }
+
+    /// See `systemObservers`. AVPlayer has no "resume on return" of its own, so nothing restarts the
+    /// episode behind a sleeping Apple TV or a switched-off TV.
+    private func observeSystemPauses() {
+        guard systemObservers.isEmpty else { return }
+        let center = NotificationCenter.default
+        systemObservers = [
+            center.addObserver(forName: UIApplication.willResignActiveNotification, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.pauseForSystem("app left the foreground") }
+            },
+            center.addObserver(forName: AVAudioSession.routeChangeNotification, object: nil, queue: .main) { [weak self] note in
+                AudioOutputLoss.handle(note) { [weak self] in self?.pauseForSystem("audio output lost") }
+            },
+        ]
+    }
+
+    private func pauseForSystem(_ why: String) {
+        guard let player, player.timeControlStatus != .paused else { return }
+        print("[NativePlayer] paused: \(why)")
+        player.pause()
+    }
+
+    /// The first `play()` of an item: only with the app in the foreground. An item that becomes ready
+    /// behind a sleeping Apple TV (a hand-off that landed as it went to sleep) waits, paused, for
+    /// the viewer's Play.
+    private func startPlaybackIfForeground(_ player: AVPlayer) {
+        guard UIApplication.shared.applicationState == .active else {
+            print("[NativePlayer] ready while the app is not in the foreground — waiting for Play")
+            return
+        }
+        player.play()
     }
 
     /// Mid-play escalation to mpv: the native path started but can no longer make progress (a seek past

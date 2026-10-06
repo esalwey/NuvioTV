@@ -1,6 +1,8 @@
+import AVFAudio
 import Combine
 import Foundation
 import SwiftUI
+import UIKit
 import SharedCore
 
 // MARK: - Up Next preferences
@@ -27,17 +29,25 @@ enum UpNextThreshold: Equatable {
 ///    on the phone) is honoured as-is — including a percentage, without the old 97 % clamp — and a
 ///    profile that never stored one uses 30 s.
 enum UpNextPreferences {
-    static let countdownOptions = [5, 10, 15, 20]
+    /// Countdown lengths offered (build 138 feedback: 10 s felt too long — 5 s is the default, and
+    /// "Off" is the "Autoplay Next Episode" switch above the row).
+    static let countdownOptions = [5, 10, 15]
     static let secondsBeforeEndOptions = [15, 30, 45, 60]
-    static let defaultCountdownSec = 10
+    static let defaultCountdownSec = 5
     static let defaultSecondsBeforeEnd = 30
 
     static var autoplayEnabled: Bool { bool(PlayerTuning.upNextAutoplayKey, fallback: true) }
     static var useCredits: Bool { bool(PlayerTuning.upNextUseCreditsKey, fallback: true) }
-    static var askStillWatching: Bool { bool(PlayerTuning.upNextStillWatchingKey, fallback: false) }
+    /// ON by default (build 138 feedback: with the TV switched off, the Apple TV kept playing
+    /// episode after episode on its own).
+    static var askStillWatching: Bool { bool(PlayerTuning.upNextStillWatchingKey, fallback: true) }
+    /// The stored countdown, snapped to the offered lengths (a 20 s picked before they changed reads
+    /// as 15 s); never picked = the 5 s default.
     static var countdownSec: Int {
         let stored = UserDefaults.standard.integer(forKey: PlayerTuning.upNextCountdownKey)
-        return countdownOptions.contains(stored) ? stored : defaultCountdownSec
+        guard stored > 0 else { return defaultCountdownSec }
+        if countdownOptions.contains(stored) { return stored }
+        return countdownOptions.last(where: { $0 <= stored }) ?? defaultCountdownSec
     }
     /// "Before the End" as picked on this Apple TV (nil = never picked here).
     static var localSecondsBeforeEnd: Int? {
@@ -91,6 +101,32 @@ enum UpNextPreferences {
 
     private static func bool(_ key: String, fallback: Bool) -> Bool {
         (UserDefaults.standard.object(forKey: key) as? Bool) ?? fallback
+    }
+}
+
+// MARK: - Audio output lost (the TV or the receiver switched off)
+
+/// `AVAudioSession.routeChangeNotification` with `.oldDeviceUnavailable` is how the app learns that
+/// the TV or the receiver went away while the Apple TV stays awake (build 138 feedback: playback ran
+/// on, episode after episode, in front of a switched-off TV). The same reason can also come with a
+/// momentary HDMI re-sync — the TV switching display mode for frame-rate matching — so the loss only
+/// counts if, a moment later, the route still has none of the outputs it lost. Used by both engines
+/// (pause) and by `NextEpisodeEngine` (no automatic next episode without a press).
+nonisolated enum AudioOutputLoss {
+    static let settleDelaySec: TimeInterval = 2
+
+    /// Call from a route-change observer, any queue. `onLost` runs on the main actor.
+    static func handle(_ note: Notification, onLost: @escaping @MainActor @Sendable () -> Void) {
+        let reason = (note.userInfo?[AVAudioSessionRouteChangeReasonKey] as? NSNumber)?.uintValue
+        guard reason == AVAudioSession.RouteChangeReason.oldDeviceUnavailable.rawValue else { return }
+        let previous = note.userInfo?[AVAudioSessionRouteChangePreviousRouteKey] as? AVAudioSessionRouteDescription
+        let lostPorts = Set((previous?.outputs ?? []).map(\.portType))
+        DispatchQueue.main.asyncAfter(deadline: .now() + settleDelaySec) {
+            let current = Set(AVAudioSession.sharedInstance().currentRoute.outputs.map(\.portType))
+            // Back on the same kind of output: a re-sync, not a switched-off TV.
+            if !lostPorts.isEmpty, !current.isDisjoint(with: lostPorts) { return }
+            MainActor.assumeIsolated { onLost() }
+        }
     }
 }
 
@@ -249,8 +285,19 @@ final class NextEpisodeEngine: ObservableObject {
     /// (mpv `pressesBegan`, the native host's interaction recognizer), as does a manual stream pick
     /// in `StreamPickerView`. With "Ask Still watching?" on, the countdown that would start the
     /// `stillWatchingThreshold`-th unattended episode ends in a prompt instead.
-    static var consecutiveAutoPlays = 0
+    static var consecutiveAutoPlays = 0 {
+        // Someone touched the remote (or picked a stream): the confirmation the system asked for
+        // after the app left the foreground is answered too.
+        didSet { if consecutiveAutoPlays == 0 { autoplayNeedsConfirmation = false } }
+    }
     static let stillWatchingThreshold = 3
+    /// The app left the foreground (sleep, the TV button, HDMI-CEC power off putting the Apple TV to
+    /// sleep) or the TV's audio output went away: the next automatic hand-off asks "Still
+    /// watching?" whatever the setting, until a remote press shows someone is there.
+    private static var autoplayNeedsConfirmation = false
+    /// The context the last automatic hand-off created. A session that starts with any other context
+    /// was started by the viewer (stream picker, Continue Watching, a deep link): a new run.
+    private static var lastAutomaticHandOffContextId: String?
     /// A position jump backwards larger than this while the card is up is a seek back.
     private static let backSeekToleranceSec: Double = 3
 
@@ -336,6 +383,11 @@ final class NextEpisodeEngine: ObservableObject {
     private var handedOff = false
     private var handOffIsAutomatic = false
     private var countdownTask: Task<Void, Never>?
+    /// The app is not active (between `willResignActive` and `didBecomeActive`): the countdown
+    /// stands still and no hand-off replaces the player — nothing starts an episode off screen.
+    private var systemSuspended = false
+    /// App-lifecycle and audio-route observers (`observeSystemLifecycle`).
+    private var lifecycleObservers: [NSObjectProtocol] = []
 
     private struct SearchTarget {
         let video: MetaVideo
@@ -369,6 +421,12 @@ final class NextEpisodeEngine: ObservableObject {
     var isWaitingForSource: Bool { playWhenReady && !isStreamReady && phase == .upNext }
     /// The engine is done with this player: it cancelled (exit, choose a source) or handed off.
     var isFinished: Bool { cancelled || handedOff }
+    /// The episode a manual jump (Episodes tab) is finding a stream for, while it searches — the
+    /// players show it, so the jump is never silent.
+    var episodeJumpInFlight: MetaVideo? {
+        guard isSearching, let target = searchTarget, target.isJump else { return nil }
+        return target.video
+    }
 
     /// A file this long is a short error/placeholder clip, not the playing episode — unless its
     /// metadata runtime says the episode really is that short (mpv's error card, PLY-1).
@@ -392,6 +450,7 @@ final class NextEpisodeEngine: ObservableObject {
         streamsWatcher?.cancel()
         countdownTask?.cancel()
         timeoutTask?.cancel()
+        for observer in lifecycleObservers { NotificationCenter.default.removeObserver(observer) }
     }
 
     // MARK: - Lifecycle
@@ -402,6 +461,11 @@ final class NextEpisodeEngine: ObservableObject {
         guard !cancelled, !handedOff else { return }
         if !started {
             started = true
+            // Started by the viewer rather than by the previous episode's automatic hand-off: the
+            // "Still watching?" run starts over (whatever the launch path — the stream picker resets
+            // it too, Continue Watching and deep links did not).
+            if Self.lastAutomaticHandOffContextId != context.id { Self.consecutiveAutoPlays = 0 }
+            Self.lastAutomaticHandOffContextId = nil
             autoplayEnabled = UpNextPreferences.autoplayEnabled
             useCredits = UpNextPreferences.useCredits
             countdownSeconds = UpNextPreferences.countdownSec
@@ -422,6 +486,11 @@ final class NextEpisodeEngine: ObservableObject {
                 self.threshold = UpNextPreferences.threshold(settings: value)
             }
         }
+        if lifecycleObservers.isEmpty {
+            observeSystemLifecycle()
+            // Whatever happened while nothing was observing (`stop()` removed the observers).
+            systemSuspended = UIApplication.shared.applicationState == .background
+        }
         // Resume what `stop()` interrupted.
         if phase == .upNext, !cancelled, !handedOff {
             if countdownRemaining > 0, countdownTask == nil {
@@ -434,6 +503,7 @@ final class NextEpisodeEngine: ObservableObject {
     /// Stop watching and searching. The session state survives (see `start()`): an in-flight
     /// next-episode search is simply started again when it's next needed.
     func stop() {
+        removeLifecycleObservers()
         settingsWatcher?.cancel()
         settingsWatcher = nil
         sourcesWatcher?.cancel()
@@ -459,11 +529,79 @@ final class NextEpisodeEngine: ObservableObject {
     /// `stop()` normally does it when the player disappears, but a player that was already covered
     /// (the end screen) as it went away never reports a second disappearance.
     private func releaseObservers() {
+        removeLifecycleObservers()
         settingsWatcher?.cancel()
         settingsWatcher = nil
         sourcesWatcher?.cancel()
         sourcesWatcher = nil
         if sourcesLoading { sourcesLoading = false }
+    }
+
+    // MARK: - Leaving the app, the TV switched off (build 138 feedback)
+
+    /// The engine guards the hand-off itself, whichever engine plays (each also pauses its video):
+    ///  - `willResignActive` → `didBecomeActive`: the countdown stands still and no hand-off runs;
+    ///  - `didEnterBackground` (sleep — including HDMI-CEC switching the Apple TV off with the TV —
+    ///    the TV button's app switch, the screensaver) and the audio output going away (the TV or
+    ///    receiver switched off): a countdown on screen turns into "Still watching?", and the next
+    ///    automatic hand-off asks first, until a remote press shows someone is there.
+    private func observeSystemLifecycle() {
+        let center = NotificationCenter.default
+        lifecycleObservers = [
+            center.addObserver(forName: UIApplication.willResignActiveNotification, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.systemSuspended = true }
+            },
+            center.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    self?.systemSuspended = true
+                    self?.requireConfirmationBeforeAutoplay(reason: "app in the background")
+                }
+            },
+            center.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.systemDidBecomeActive() }
+            },
+            center.addObserver(forName: AVAudioSession.routeChangeNotification, object: nil, queue: .main) { [weak self] note in
+                AudioOutputLoss.handle(note) { [weak self] in
+                    self?.requireConfirmationBeforeAutoplay(reason: "audio output lost")
+                }
+            },
+        ]
+    }
+
+    private func removeLifecycleObservers() {
+        for observer in lifecycleObservers { NotificationCenter.default.removeObserver(observer) }
+        lifecycleObservers.removeAll()
+    }
+
+    private func systemDidBecomeActive() {
+        guard systemSuspended else { return }
+        systemSuspended = false
+        // A hand-off the viewer asked for (Play Now, a jump) that fell due meanwhile runs now.
+        evaluateHandOff()
+    }
+
+    /// Nobody may be watching any more: an automatic countdown on screen becomes "Still watching?"
+    /// (a hand-off the viewer asked for stays theirs), and the next automatic one asks first.
+    private func requireConfirmationBeforeAutoplay(reason: String) {
+        Self.autoplayNeedsConfirmation = true
+        guard started, !cancelled, !handedOff, phase == .upNext,
+              countdownTask != nil || (playWhenReady && handOffIsAutomatic) else { return }
+        print("[UpNext] \(reason) — the countdown waits for \u{201C}Still watching?\u{201D}")
+        countdownTask?.cancel()
+        countdownTask = nil
+        countdownRemaining = 0
+        playWhenReady = false
+        handOffIsAutomatic = false
+        phase = .stillWatching
+    }
+
+    /// The countdown ran out (or the file ended under the card) without a press: the automatic
+    /// hand-off asks "Still watching?" first — the Nth unattended episode with the setting on
+    /// (Android TV parity), or always after the app left the foreground or lost its audio output.
+    private var mustConfirmAutoplay: Bool {
+        if Self.autoplayNeedsConfirmation || systemSuspended { return true }
+        if UIApplication.shared.applicationState == .background { return true }
+        return askStillWatching && Self.consecutiveAutoPlays >= Self.stillWatchingThreshold - 1
     }
 
     /// A player engine (re)attached (native → mpv fallback): forget the last position so the new
@@ -520,9 +658,12 @@ final class NextEpisodeEngine: ObservableObject {
 
     /// The video paused/resumed: the countdown pauses with it (never after the end of the file).
     func setPaused(_ paused: Bool) {
+        let resumed = isPaused && !paused
         isPaused = paused
         let frozen = paused && !ended
         if countdownPaused != frozen { countdownPaused = frozen }
+        // An automatic hand-off held by the pause (`evaluateHandOff`) runs once playback resumes.
+        if resumed { evaluateHandOff() }
     }
 
     /// The top panel opened/closed. While it is up the countdown waits, and an automatic hand-off
@@ -603,7 +744,7 @@ final class NextEpisodeEngine: ObservableObject {
             if !playWhenReady {
                 // The file outran the countdown — the countdown running out all the same, "Still
                 // watching?" included. (After Play Now the hand-off is the viewer's, not automatic.)
-                if askStillWatching, Self.consecutiveAutoPlays >= Self.stillWatchingThreshold - 1 {
+                if mustConfirmAutoplay {
                     phase = .stillWatching
                     return .handled
                 }
@@ -628,7 +769,7 @@ final class NextEpisodeEngine: ObservableObject {
             ensureSearch(for: next, retryFailed: true)
             countdownTotal = countdownSeconds
             countdownRemaining = 0
-            if askStillWatching, Self.consecutiveAutoPlays >= Self.stillWatchingThreshold - 1 {
+            if mustConfirmAutoplay {
                 phase = .stillWatching
                 return .handled
             }
@@ -807,6 +948,12 @@ final class NextEpisodeEngine: ObservableObject {
     /// "Choose a Source": open the stream picker for the next episode.
     func pickSource() {
         guard !cancelled, !handedOff, let next = nextVideo else { return }
+        openStreamPicker(for: next)
+    }
+
+    /// Leave the player for `video`'s stream list (else for the details page).
+    private func openStreamPicker(for video: MetaVideo) {
+        guard !cancelled, !handedOff else { return }
         cancelled = true
         userActionSerial &+= 1
         Self.consecutiveAutoPlays = 0
@@ -816,7 +963,7 @@ final class NextEpisodeEngine: ObservableObject {
         tearDownSearch()
         releaseObservers()
         if let onPickSourceRequested {
-            onPickSourceRequested(next)
+            onPickSourceRequested(video)
         } else {
             onExitRequested?()
         }
@@ -1012,8 +1159,9 @@ final class NextEpisodeEngine: ObservableObject {
                 try? await Task.sleep(nanoseconds: 1_000_000_000)
                 guard let self, !Task.isCancelled else { return }
                 guard self.phase == .upNext, !self.cancelled, !self.handedOff else { return }
-                // Frozen while the video is paused, and while the top panel is open.
-                if self.countdownPaused || self.isPanelOpen { continue }
+                // Frozen while the video is paused, while the top panel is open, and while the app
+                // is not in the foreground.
+                if self.countdownPaused || self.isPanelOpen || self.systemSuspended { continue }
                 if self.countdownRemaining <= 1 {
                     self.countdownFinished()
                     return
@@ -1028,8 +1176,9 @@ final class NextEpisodeEngine: ObservableObject {
         countdownTask = nil
         countdownRemaining = 0
         // The countdown ran out untouched. With "Ask Still watching?" on, the Nth unattended
-        // autoplay in a row asks first (Android TV parity) — OK / Down continue.
-        if askStillWatching, Self.consecutiveAutoPlays >= Self.stillWatchingThreshold - 1 {
+        // autoplay in a row asks first (Android TV parity) — OK / Down continue. So does any
+        // autoplay after the app left the foreground or lost its audio output.
+        if mustConfirmAutoplay {
             phase = .stillWatching
             return
         }
@@ -1044,6 +1193,9 @@ final class NextEpisodeEngine: ObservableObject {
     private func evaluateHandOff() {
         guard !cancelled, !handedOff, isStreamReady, let target = searchTarget,
               let url = readyURL, let stream = readyStream else { return }
+        // Never start an episode while the app is not in the foreground: the hand-off that fell
+        // due runs on `didBecomeActive` (an automatic one has turned into "Still watching?").
+        guard !systemSuspended else { return }
         if target.isJump {
             handOff(stream: stream, url: url, video: target.video, isNextEpisode: false)
             return
@@ -1052,6 +1204,9 @@ final class NextEpisodeEngine: ObservableObject {
         // Never swap the player out from under the open top panel on its own: an automatic
         // hand-off that fell due (end of file) runs when the panel closes (`setPanelOpen`).
         if handOffIsAutomatic && isPanelOpen { return }
+        // Nor from under a video the viewer paused mid-file (the countdown ran out during the
+        // credits and the source came in after the pause): it runs when playback resumes.
+        if handOffIsAutomatic && isPaused && !ended { return }
         handOff(stream: stream, url: url, video: target.video, isNextEpisode: true)
     }
 
@@ -1068,6 +1223,8 @@ final class NextEpisodeEngine: ObservableObject {
         if isNextEpisode {
             if handOffIsAutomatic {
                 Self.consecutiveAutoPlays += 1
+                // The next engine keeps the run going only for the context handed to it here.
+                Self.lastAutomaticHandOffContextId = nextContext.id
             } else {
                 Self.consecutiveAutoPlays = 0
             }
@@ -1350,7 +1507,7 @@ final class NextEpisodeEngine: ObservableObject {
         streamsWatcher = nil
         if isSearching { isSearching = false }
         playWhenReady = false
-        if searchTarget?.isJump == true {
+        if let jump = searchTarget, jump.isJump {
             // A failed panel jump leaves the current episode playing, with Up Next as the jump
             // found it (the next episode itself was never searched: its prefetch runs again).
             searchTarget = nil
@@ -1360,6 +1517,14 @@ final class NextEpisodeEngine: ObservableObject {
             sessionDismissedBeforeJump = nil
             cardShown = false
             retriedAtCard = false
+            // The viewer asked for that episode: no stream could be picked for it automatically,
+            // so its stream list opens (a source chosen by hand) — never a jump that silently does
+            // nothing (build 138 feedback).
+            if onPickSourceRequested != nil {
+                print("[UpNext] jump found no stream — opening the stream list for it")
+                openStreamPicker(for: jump.video)
+                return
+            }
             if ended {
                 // The file ran out while the jump was resolving: land where an ended file lands —
                 // the end screen (the next episode, never a replay), or the details page.

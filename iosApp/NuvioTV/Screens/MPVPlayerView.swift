@@ -133,7 +133,9 @@ final class MPVTVPlayerViewController: UIViewController {
     private var lifecycleObservers: [NSObjectProtocol] = []
     /// Why playback was paused by the system rather than the viewer. Only an audio interruption that
     /// ends with `.shouldResume` resumes by itself; leaving the app (TV button, sleep) stays paused.
-    private enum SystemPauseReason { case interruption, resignedActive }
+    /// `outputLost`: the audio route went away (the TV or receiver switched off) — never resumed by
+    /// the player either.
+    private enum SystemPauseReason { case interruption, resignedActive, outputLost }
     private var systemPauseReason: SystemPauseReason?
     /// Uptime of the last pause/play flip `refreshState` saw — a Now Playing toggle that lands right
     /// after a local press is the same press, not a second one.
@@ -303,6 +305,15 @@ final class MPVTVPlayerViewController: UIViewController {
             // Re-assert the audio-language preference on the live handle right before the load —
             // the fallback for a `setupMpv()` that ran before the settings store had hydrated.
             applyAudioLanguagePreferences()
+            // A player that appears while the app is not in the foreground (a hand-off or a native
+            // fallback landing as the Apple TV goes to sleep) opens its file paused: nothing plays
+            // behind a sleeping box, and the viewer's Play starts it on return (build 138 feedback).
+            if UIApplication.shared.applicationState != .active {
+                print("[MPV] opening paused: the app is not in the foreground")
+                setFlag("pause", true)
+                updateProps { $0.paused = true }
+                systemPauseReason = .resignedActive
+            }
             command("loadfile", args: [context.url.absoluteString, "replace"])
             armLoadWatchdog()
             startPolling()
@@ -362,6 +373,14 @@ final class MPVTVPlayerViewController: UIViewController {
         pollTimer?.invalidate()
         pollTimer = nil
         endSeek()
+        // Off screen, the core stops playing: a player on its way out (an Up Next hand-off or a
+        // jump rebuilding the player, the cover closing) used to play on, unseen and heard, until it
+        // deallocated. Under the end screen's cover the file has ended — already paused there — and
+        // "Play Again" resumes it (`replay()`).
+        if mpv != nil, !cachedProps().paused {
+            updateProps { $0.paused = true }
+            eventQueue.async { [weak self] in self?.setFlag("pause", true) }
+        }
         saveProgress(flush: true)
         stopTraktScrobble()
         displaySwitchHoldActive = false
@@ -688,6 +707,15 @@ final class MPVTVPlayerViewController: UIViewController {
             let optionsRaw = (note.userInfo?[AVAudioSessionInterruptionOptionKey] as? NSNumber)?.uintValue
             MainActor.assumeIsolated { self?.handleAudioInterruption(typeRaw: typeRaw, optionsRaw: optionsRaw) }
         })
+        // The TV (or the receiver) switched off while the Apple TV stays awake — HDMI-CEC without
+        // sleep, or a TV whose remote never reaches the box: the HDMI audio route goes away, and
+        // playback must not run on to the next episodes in front of nobody (build 138 feedback).
+        lifecycleObservers.append(center.addObserver(
+            forName: AVAudioSession.routeChangeNotification, object: nil, queue: .main
+        ) { [weak self] note in
+            // Confirmed after a moment: an HDMI re-sync (display mode switch) is not a lost TV.
+            AudioOutputLoss.handle(note) { [weak self] in self?.pauseForSystem(.outputLost) }
+        })
     }
 
     private func pauseForSystem(_ reason: SystemPauseReason) {
@@ -695,12 +723,16 @@ final class MPVTVPlayerViewController: UIViewController {
         // A display-switch hold must not undo this pause when it ends.
         displaySwitchHoldActive = false
         if cachedProps().paused {
-            // Already paused by the viewer: nothing to resume later. Leaving the app outranks an
-            // interruption that paused first (back in the app, the viewer presses Play).
-            if reason == .resignedActive, systemPauseReason != nil { systemPauseReason = .resignedActive }
+            // Already paused by the viewer: nothing to resume later. Leaving the app (or losing the
+            // audio output) outranks an interruption that paused first (the viewer presses Play).
+            if reason != .interruption, systemPauseReason != nil { systemPauseReason = reason }
             return
         }
-        print("[MPV] paused: \(reason == .interruption ? "audio interruption" : "app left the foreground")")
+        switch reason {
+        case .interruption: print("[MPV] paused: audio interruption")
+        case .resignedActive: print("[MPV] paused: app left the foreground")
+        case .outputLost: print("[MPV] paused: audio output lost")
+        }
         systemPauseReason = reason
         setPaused(true)
         state.controlsVisible = true
@@ -760,7 +792,10 @@ final class MPVTVPlayerViewController: UIViewController {
     private static let nowPlayingToggleDebounceSec: TimeInterval = 0.4
 
     func nowPlayingPlay() {
-        guard fileLoaded, playbackError == nil, !state.isEnded else { return }
+        // Never resumed from outside while the app is not in the foreground (a TV's HDMI-CEC
+        // "play" as it switches inputs, a command behind a sleeping box): that is no viewer.
+        guard fileLoaded, playbackError == nil, !state.isEnded,
+              UIApplication.shared.applicationState == .active else { return }
         NextEpisodeEngine.consecutiveAutoPlays = 0
         setPaused(false)
         flashControls()
@@ -768,7 +803,8 @@ final class MPVTVPlayerViewController: UIViewController {
 
     func nowPlayingPause() {
         guard mpv != nil else { return }
-        NextEpisodeEngine.consecutiveAutoPlays = 0
+        // No "Still watching?" reset here: the system pauses too (sleep, HDMI-CEC), and a pause
+        // never starts an episode anyway.
         setPaused(true)
         flashControls()
     }
@@ -1052,6 +1088,15 @@ final class MPVTVPlayerViewController: UIViewController {
         state.isPaused = snap.paused
         // A failed load leaves the core idle and unpaused — which reads as buffering forever (PLY-1).
         state.isBuffering = playbackError == nil && (snap.cacheWait || (snap.coreIdle && !snap.paused))
+        // The idle timer follows the player on screen. The screen's own toggles run on SwiftUI's
+        // appear/disappear, whose order across an Up Next rebuild is not guaranteed: the outgoing
+        // player's `onDisappear` could re-enable the screensaver under the incoming episode.
+        if pollTimer != nil, view.window != nil {
+            let holdIdle = !snap.paused && !state.isEnded && playbackError == nil
+            if UIApplication.shared.isIdleTimerDisabled != holdIdle {
+                UIApplication.shared.isIdleTimerDisabled = holdIdle
+            }
+        }
 
         // PLY-6: the first tick that knows the duration opens the Trakt session.
         if traktStartPending, snap.duration > 0 {
@@ -1395,7 +1440,18 @@ final class MPVTVPlayerViewController: UIViewController {
     private func destroyPlayer() {
         guard let ctx = mpv else { return }
         mpv = nil
-        mpv_terminate_destroy(ctx)
+        // No wakeup may call back into this controller while (and after) it deallocates: the
+        // callback holds it unretained.
+        mpv_set_wakeup_callback(ctx, nil, nil)
+        // The teardown joins the core's threads, which can sit in network I/O (a debrid stream
+        // reconnecting) for seconds: off the main thread, so the next episode's player is not
+        // frozen while the previous one shuts down. The VO renders into the metal layer until the
+        // core is gone — it is kept alive until then, and released back on the main thread.
+        let layer = metalLayer
+        DispatchQueue.global(qos: .userInitiated).async {
+            mpv_terminate_destroy(ctx)
+            DispatchQueue.main.async { withExtendedLifetime(layer) {} }
+        }
     }
 
     // MARK: - Event loop

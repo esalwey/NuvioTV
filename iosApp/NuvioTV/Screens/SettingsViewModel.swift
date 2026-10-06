@@ -323,9 +323,9 @@ final class SettingsViewModel: ObservableObject {
     @Published var upNextAutoplay: Bool = UpNextPreferences.autoplayEnabled
     /// Show Up Next when the credits start, when their timing is known (default ON).
     @Published var upNextUseCredits: Bool = UpNextPreferences.useCredits
-    /// Countdown length in seconds (5/10/15/20, default 10).
+    /// Countdown length in seconds (5/10/15, default 5).
     @Published var upNextCountdown: Int = UpNextPreferences.countdownSec
-    /// "Still watching?" gate (default OFF).
+    /// "Still watching?" gate (default ON).
     @Published var upNextAskStillWatching: Bool = UpNextPreferences.askStillWatching
     /// Effective threshold: this TV's pick, else the profile's synced one, else 30 s.
     @Published private(set) var upNextThreshold: UpNextThreshold =

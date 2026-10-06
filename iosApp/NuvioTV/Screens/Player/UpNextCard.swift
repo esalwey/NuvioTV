@@ -177,3 +177,26 @@ struct UpNextCard: View {
         }
     }
 }
+
+/// "Loading S1 · E5…" while a jump from the Episodes tab finds the episode's stream (both engines,
+/// where the Up Next card sits). The jump used to run silently for seconds once the tab had closed,
+/// and read as a selection that did nothing. Never focusable.
+struct EpisodeJumpStatus: View {
+    let video: MetaVideo
+
+    var body: some View {
+        PlayerChipCaption(text: Self.text(for: video), showsProgress: true)
+    }
+
+    static func text(for video: MetaVideo) -> String {
+        let name: String
+        if let season = video.season?.value, let episode = video.episode?.value {
+            name = PlaybackTitleParts.episodeCode(season: season, episode: episode)
+        } else {
+            name = video.title
+        }
+        return String(localized: "player.jump.loading",
+                      defaultValue: "Loading \(name)\u{2026}",
+                      comment: "Player: an episode picked in the Episodes tab is finding its stream. The argument is the episode, e.g. \"S1 · E5\".")
+    }
+}

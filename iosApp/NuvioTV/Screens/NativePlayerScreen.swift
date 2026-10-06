@@ -150,6 +150,14 @@ struct NativePlayerScreen: View {
                     .padding(.trailing, PlayerChipStyle.edgePadding)
                     .padding(.bottom, PlayerChipStyle.edgePadding + Self.contextualActionClearance)
                     .transition(.opacity)
+            } else if let jump = upNext.episodeJumpInFlight {
+                // An episode picked in the Episodes tab is finding its stream.
+                EpisodeJumpStatus(video: jump)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+                    .padding(.trailing, PlayerChipStyle.edgePadding)
+                    .padding(.bottom, PlayerChipStyle.edgePadding + Self.contextualActionClearance)
+                    .transition(.opacity)
+                    .allowsHitTesting(false)
             }
         }
         .animation(PlayerChipStyle.animation, value: upNext.phase)

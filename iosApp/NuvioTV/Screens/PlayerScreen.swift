@@ -127,10 +127,14 @@ struct PlayerScreen: View {
         let requestHeaders = context.requestHeaders
         let felToMpv = UserDefaults.standard.bool(forKey: PlayerTuning.dvP7FelMpvKey)
         let timeoutSec = PlayerTuning.probeTimeoutSec
-        let result = await Task.detached(priority: .utility) {
+        // `.userInitiated`: the viewer is staring at the loading view while this runs.
+        let result = await Task.detached(priority: .userInitiated) {
             let probe = MediaProbe.probe(url: url, timeoutSec: timeoutSec, requestHeaders: requestHeaders)
             return PlayerEngineRouter.route(probe: probe, nativeDVEnabled: true, dvP7FelToMpv: felToMpv)
         }.value
+        // The detached probe runs to its deadline whatever happens here: a viewer who left meanwhile
+        // (the `.task` was cancelled) gets no decision for a stream no longer asked for.
+        guard !Task.isCancelled else { return }
         print("[PlayerRouter] \(result.engine.rawValue) — \(result.reason) — \(context.title)")
         decision = result
     }

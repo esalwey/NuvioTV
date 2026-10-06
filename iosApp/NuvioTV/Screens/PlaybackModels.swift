@@ -29,16 +29,17 @@ enum PlayerTuning {
     static let upNextAutoplayKey = "player.upNext.autoplay"
     /// Show the card when the credits start, when their timing is known (default ON).
     static let upNextUseCreditsKey = "player.upNext.useCredits"
-    /// Countdown length in seconds (5/10/15/20, default 10).
+    /// Countdown length in seconds (5/10/15, default 5).
     static let upNextCountdownKey = "player.upNext.countdownSec"
     /// "Before the End" lead in seconds (15/30/45/60). Absent = the profile's synced threshold, else 30.
     static let upNextSecondsBeforeEndKey = "player.upNext.secondsBeforeEnd"
-    /// "Still watching?" gate after unattended episodes (default OFF).
+    /// "Still watching?" gate after unattended episodes (default ON).
     static let upNextStillWatchingKey = "player.upNext.askStillWatching"
     /// PLY-A12: how long the engine router waits on the stream probe before it gives up and plays
-    /// on mpv. Was 4 s: on a slow source the viewer stared at a black screen for that long before
-    /// the engine even began to load.
-    static let probeTimeoutSec: Double = 2.5
+    /// on mpv. Back to 4 s (build 138 feedback, "video loading is buggy"): 2.5 s did not cover a
+    /// debrid redirect plus TLS plus the Matroska header on a cold link, so Dolby Vision files fell
+    /// back to mpv (no true DV) for no reason. The loading view's spinner shows from 2 s either way.
+    static let probeTimeoutSec: Double = 4
 }
 
 /// Everything the player needs to render a stream and record watch progress for it.
