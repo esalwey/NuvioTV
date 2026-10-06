@@ -1,0 +1,105 @@
+name: tvOS Simulator Build
+
+# beta.14 §8 gate 2 ("sim app build succeeds"), runnable off-Mac. Build-only:
+# the UI test suite needs the FA87 fixture's sign-in state and stays a local gate.
+on:
+  workflow_dispatch:
+  push:
+    # Every push to main and to feature branches; device IPA builds run in tvos-device-ipa.yml.
+    branches: ["main", "feature/**", "fix/**"]
+    paths:
+      - "iosApp/**"
+      - "shared/**"
+      - "gradle/**"
+      - "build.gradle.kts"
+      - "settings.gradle.kts"
+      - ".github/workflows/tvos-sim-build.yml"
+
+concurrency:
+  group: tvos-sim-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # The Xcode build phase defaults GRADLE_OPTS to -Xmx12288M when unset — sized for
+  # Christian's Mac, not a CI runner. Pre-set both so that branch never fires here.
+  GRADLE_OPTS: -Xmx4g -Dfile.encoding=UTF-8 -XX:MaxMetaspaceSize=1g
+  KOTLIN_DAEMON_JVMARGS: -Xmx3g
+
+jobs:
+  sim-build:
+    runs-on: macos-26
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      # Only MPVKit — the repo carries four other gitlinks with no .gitmodules URL
+      # (libass-android, enginefs, TorrServer, quickjs-kt), so `submodules: true`
+      # on the checkout step would fail on them. MPVKit is the one local Swift
+      # package the iosApp SPM graph resolves.
+      - name: Init MPVKit submodule
+        run: git submodule update --init MPVKit
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+            ~/.konan
+          key: gradle-konan-${{ runner.os }}-${{ hashFiles('gradle/libs.versions.toml', 'gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: gradle-konan-${{ runner.os }}-
+
+      - name: Toolchain versions
+        run: |
+          xcodebuild -version
+          xcrun --sdk appletvsimulator --show-sdk-version
+          java -version
+
+      # :shared's tvOS cinterop needs io.github.dokar3:quickjs-kt:1.0.5-tvos, a patched
+      # fork published only to mavenLocal (see the outer NuvioTV repo's
+      # scaffolding/build-quickjs-tvos.sh). Build it here the same way, cached on the
+      # patch hash so it compiles once, not per run.
+      # Pinned to a reviewed outer-repo commit: this checkout's script is executed
+      # below, so an unpinned ref would let any future push to the outer repo's
+      # default branch run arbitrary code (and poison caches) in this CI.
+      - uses: actions/checkout@v4
+        with:
+          repository: youngchris29-art/NuvioTV
+          ref: 6265f00ec0b19b8a1301488f2ede523c8768de84
+          path: outer-scaffolding
+          sparse-checkout: scaffolding
+
+      - uses: actions/cache@v4
+        with:
+          path: ~/.m2/repository/io/github/dokar3
+          key: quickjs-tvos-${{ hashFiles('outer-scaffolding/scaffolding/quickjs-kt-tvos.patch', 'outer-scaffolding/scaffolding/build-quickjs-tvos.sh') }}
+
+      - name: Publish quickjs-kt 1.0.5-tvos to mavenLocal
+        run: |
+          if [ -d "$HOME/.m2/repository/io/github/dokar3/quickjs-kt/1.0.5-tvos" ]; then
+            echo "quickjs-kt 1.0.5-tvos already in mavenLocal (cache hit)"
+            exit 0
+          fi
+          bash outer-scaffolding/scaffolding/build-quickjs-tvos.sh "$HOME/quickjs-kt-tvos"
+
+      # Same Gradle task the Xcode 'Compile Kotlin Framework' phase runs, isolated so
+      # its real error surfaces in this step's log instead of being buried mid-xcodebuild.
+      # Warms the Konan/Gradle caches for the xcodebuild step either way.
+      - name: Link shared Kotlin framework (tvOS Simulator)
+        run: ./gradlew :shared:linkDebugFrameworkTvosSimulatorArm64 --no-daemon --stacktrace
+
+      - name: Build NuvioTV for tvOS Simulator
+        run: |
+          set -o pipefail
+          xcodebuild build \
+            -project iosApp/iosApp.xcodeproj \
+            -scheme NuvioTV \
+            -configuration Debug \
+            -destination "generic/platform=tvOS Simulator" \
+            ARCHS=arm64 \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO

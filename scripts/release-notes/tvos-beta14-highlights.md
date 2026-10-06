@@ -1,0 +1,11 @@
+## Highlights
+
+Built from the beta.13 / beta.13.5 review round, the GitHub issues, and u/mrStevenx3's Collections JSON (which finally settled the oldest open row on the board). Settings → About should read **beta.14 (build 111)**.
+
+- **Trailer Location: Poster / Hero** (Settings → Home Screen, under Trailers on Focus) — the original hero-or-thumbnail ask, round one. With **Hero** selected and the Nuvio-Style hero on, a focused poster no longer morphs into an inline trailer tile: the trailer plays in the hero backdrop, which already follows your focus. Play/pause on the focused poster toggles the sound. Search keeps the poster morph; the classic (non-Nuvio-Style) layout falls back to it too, and the Settings summary tells you which surface is actually in use.
+- **Autoplay Hero Trailer** (Settings → Home Screen, off by default) — round two of the same ask: the hero carousel's featured title plays its trailer with no focus required, muted, and hands over cleanly when you focus a poster and back again. Anything covering Home (a detail page, a tab switch, the Continue Watching stream picker) silences it; returning re-dwells.
+- **Collection folders open with their configured artwork** — a folder's hero backdrop and title logo (the fields Fusion community collections carry, which no Nuvio client rendered before) now draw as the folder page's hero: backdrop behind the grid, logo as the title, collection name as the eyebrow. The tiles on Home were already showing your covers exactly as configured — this is the half that was missing.
+- **Bigger season posters** on the series detail page — 180×270, the same size as More Like This, with the same card depth as every other tile, so the season row no longer reads as the smallest thing on the screen.
+- **Tab bar and focus diagnostics** — Settings → About gains the tab-bar scroll-geometry probe and a readout of the resolved card focus mode plus both raw toggle values, for the "accent ring re-enables zoom" (BUG-64) and tab-bar (BUG-30 / BUG-66) investigations. If you hit either, a photo of that pane is the evidence we need.
+- **Search Sources + chip contrast** — the mid-grey focused label on Search's source chips is readable again in every theme.
+- **Under the hood** — the shared module gained an off-Mac JVM test target, and every beta now builds for the tvOS Simulator in CI before it's cut.

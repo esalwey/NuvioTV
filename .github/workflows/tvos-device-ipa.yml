@@ -1,0 +1,233 @@
+name: tvOS Device IPA (unsigned)
+
+# Builds an unsigned, sideloadable NuvioTV.ipa (appletvos / arm64) off-Mac.
+# Build + Payload packaging mirror scripts/release-beta.sh; the environment setup
+# (MPVKit-only submodule, quickjs-kt in mavenLocal) mirrors tvos-sim-build.yml.
+#
+# Output:
+#   - always: the IPA as a workflow artifact (14 days)
+#   - on push to main, or "Run workflow" with publish=true:
+#     a GitHub prerelease tagged custom-b<build>-<sha8> carrying NuvioTV.ipa.
+#     tvsign picks it up with source = <owner>/NuvioTV,
+#     tag prefix = "custom-", signs it and installs it on the Apple TV.
+on:
+  workflow_dispatch:
+    inputs:
+      configuration:
+        description: "Xcode configuration"
+        type: choice
+        options: [Release, Debug]
+        default: Release
+      publish:
+        description: "Publish a GitHub prerelease with the IPA (for tvsign)"
+        type: boolean
+        default: true
+      include_top_shelf:
+        description: "Keep the Top Shelf extension (PlugIns/). Leave OFF for free-Apple-ID sideloading."
+        type: boolean
+        default: false
+  push:
+    branches: ["main", "ipa/**"]
+    paths:
+      - "iosApp/**"
+      - "shared/**"
+      - "gradle/**"
+      - "build.gradle.kts"
+      - "settings.gradle.kts"
+      - ".github/workflows/tvos-device-ipa.yml"
+
+concurrency:
+  group: tvos-ipa-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+env:
+  # The Xcode 'Compile Kotlin Framework' phase sets GRADLE_OPTS=-Xmx12288M when it is
+  # empty, so keep it set. This only sizes the Gradle *client*; the real build heap is
+  # capped in ~/.gradle/gradle.properties below (it overrides the repo's 12 GB value).
+  GRADLE_OPTS: -Xmx1g -Dfile.encoding=UTF-8
+  KOTLIN_DAEMON_JVMARGS: -Xmx2g
+
+jobs:
+  device-ipa:
+    runs-on: macos-26
+    timeout-minutes: 120
+    env:
+      CONFIG: ${{ inputs.configuration || 'Release' }}
+      KEEP_TOPSHELF: ${{ inputs.include_top_shelf && '1' || '0' }}
+      PUBLISH: ${{ (github.event_name == 'workflow_dispatch' && inputs.publish) || (github.event_name == 'push' && github.ref == 'refs/heads/main') }}
+      DD: ${{ github.workspace }}/iosApp/build/tvos-ipa
+      # Runtime config baked into SharedCore by :shared:generateSharedRuntimeConfigs
+      # (read from env when local.properties is absent). Without these the app falls back
+      # to https://localhost and sign-in/sync break.
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+      TRAKT_CLIENT_ID: ${{ secrets.TRAKT_CLIENT_ID }}
+      TRAKT_CLIENT_SECRET: ${{ secrets.TRAKT_CLIENT_SECRET }}
+      SIMKL_CLIENT_ID: ${{ secrets.SIMKL_CLIENT_ID }}
+      INTRODB_API_URL: ${{ secrets.INTRODB_API_URL }}
+    steps:
+      - name: Check runtime config secrets
+        run: |
+          missing=0
+          for k in SUPABASE_URL SUPABASE_ANON_KEY TRAKT_CLIENT_ID TRAKT_CLIENT_SECRET SIMKL_CLIENT_ID; do
+            if [ -z "${!k}" ]; then echo "::error::secret $k is not set"; missing=1; fi
+          done
+          exit $missing
+
+      - uses: actions/checkout@v4
+
+      # Only MPVKit: libass-android, enginefs, TorrServer and quickjs-kt are gitlinks
+      # without a .gitmodules URL, so a recursive submodule init fails.
+      - name: Init MPVKit submodule
+        run: git submodule update --init MPVKit
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      # gradle.properties asks for -Xmx12288M / Kotlin daemon 8 GB / K/N 16 GB, sized for
+      # a big Mac. The user-home file wins over the project file, and it also applies to
+      # the gradlew call made from inside the Xcode build phase.
+      - name: Cap Gradle heap for the runner
+        run: |
+          mkdir -p ~/.gradle
+          printf '%s\n' \
+            'org.gradle.jvmargs=-Xmx6g -XX:MaxMetaspaceSize=1g -Dfile.encoding=UTF-8' \
+            'kotlin.daemon.jvmargs=-Xmx3g' \
+            'kotlin.native.jvmArgs=-Xmx6g' >> ~/.gradle/gradle.properties
+          cat ~/.gradle/gradle.properties
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+            ~/.konan
+          key: gradle-konan-${{ runner.os }}-${{ hashFiles('gradle/libs.versions.toml', 'gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: gradle-konan-${{ runner.os }}-
+
+      - name: Toolchain versions
+        run: |
+          chmod +x gradlew
+          xcodebuild -version
+          xcrun --sdk appletvos --show-sdk-version
+          java -version
+
+      # quickjs-kt 1.0.5-tvos (patched fork) only exists in mavenLocal. Script pinned to a
+      # reviewed outer-repo commit, same as tvos-sim-build.yml.
+      - uses: actions/checkout@v4
+        with:
+          repository: youngchris29-art/NuvioTV
+          ref: 6265f00ec0b19b8a1301488f2ede523c8768de84
+          path: outer-scaffolding
+          sparse-checkout: scaffolding
+
+      - uses: actions/cache@v4
+        with:
+          path: ~/.m2/repository/io/github/dokar3
+          key: quickjs-tvos-${{ hashFiles('outer-scaffolding/scaffolding/quickjs-kt-tvos.patch', 'outer-scaffolding/scaffolding/build-quickjs-tvos.sh') }}
+
+      - name: Publish quickjs-kt 1.0.5-tvos to mavenLocal
+        run: |
+          if [ -d "$HOME/.m2/repository/io/github/dokar3/quickjs-kt/1.0.5-tvos" ]; then
+            echo "quickjs-kt 1.0.5-tvos already in mavenLocal (cache hit)"; exit 0
+          fi
+          bash outer-scaffolding/scaffolding/build-quickjs-tvos.sh "$HOME/quickjs-kt-tvos"
+
+      # Same task the Xcode phase runs for appletvos, isolated so a Kotlin error surfaces
+      # here instead of deep inside the xcodebuild log.
+      - name: Link shared Kotlin framework (tvosArm64, ${{ env.CONFIG }})
+        run: ./gradlew ":shared:link${CONFIG}FrameworkTvosArm64" --no-daemon --stacktrace
+
+      - name: Resolve Swift packages (MPVKit binaries)
+        run: |
+          xcodebuild -resolvePackageDependencies \
+            -project iosApp/iosApp.xcodeproj -scheme NuvioTV -derivedDataPath "$DD"
+
+      - name: Build NuvioTV for tvOS device (unsigned)
+        run: |
+          LOG="$RUNNER_TEMP/xcodebuild.log"
+          if ! xcodebuild build \
+              -project iosApp/iosApp.xcodeproj \
+              -scheme NuvioTV \
+              -configuration "$CONFIG" \
+              -destination "generic/platform=tvOS" \
+              -derivedDataPath "$DD" \
+              ARCHS=arm64 \
+              CODE_SIGNING_ALLOWED=NO \
+              CODE_SIGNING_REQUIRED=NO \
+              CODE_SIGN_IDENTITY="" \
+              NUVIO_BETA_TAG="custom-${GITHUB_SHA::8}" > "$LOG" 2>&1; then
+            echo "::group::errors"
+            grep -nE "(error:|\*\* BUILD FAILED)" "$LOG" | head -150 || true
+            echo "::endgroup::"
+            tail -150 "$LOG"
+            exit 1
+          fi
+          tail -5 "$LOG"
+
+      - name: Package NuvioTV.ipa
+        run: |
+          set -euo pipefail
+          APP="$DD/Build/Products/${CONFIG}-appletvos/NuvioTV.app"
+          [ -d "$APP" ] || { echo "::error::$APP not found"; exit 1; }
+          VER=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Info.plist")
+          BUILD=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP/Info.plist")
+          echo "Version: $VER ($BUILD)"
+          echo "Commit : $(/usr/libexec/PlistBuddy -c 'Print :NuvioCommitSHA' "$APP/Info.plist" 2>/dev/null || echo '?')"
+          echo "Archs  : $(lipo -archs "$APP/NuvioTV")"
+          # Guard: the backend key must be compiled into SharedCore (without it the app signs
+          # in against https://localhost). Kotlin/Native stores string literals as UTF-16.
+          python3 - "$APP/NuvioTV" <<'PY'
+          import os, sys
+          data = open(sys.argv[1], "rb").read()
+          key = os.environ["SUPABASE_ANON_KEY"]
+          if key.encode("utf-16-le") not in data and key.encode() not in data:
+              print("::error::SUPABASE_ANON_KEY not found in the binary"); sys.exit(1)
+          print("Backend config: present")
+          PY
+          OUT="$RUNNER_TEMP/ipa"; rm -rf "$OUT"; mkdir -p "$OUT/Payload"
+          cp -R "$APP" "$OUT/Payload/"
+          if [ "$KEEP_TOPSHELF" != "1" ]; then
+            # Same as release-beta.sh: free-Apple-ID re-signing breaks appex signatures.
+            rm -rf "$OUT/Payload/NuvioTV.app/PlugIns"
+          fi
+          (cd "$OUT" && zip -qry NuvioTV.ipa Payload)
+          ls -lh "$OUT/NuvioTV.ipa"
+          {
+            echo "IPA_PATH=$OUT/NuvioTV.ipa"
+            echo "APP_VERSION=$VER"
+            echo "APP_BUILD=$BUILD"
+          } >> "$GITHUB_ENV"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: NuvioTV-ipa-${{ env.CONFIG }}-${{ github.sha }}
+          path: ${{ env.IPA_PATH }}
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+
+      - name: Publish prerelease (for tvsign)
+        if: env.PUBLISH == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="custom-b${APP_BUILD}-${GITHUB_SHA::8}"
+          gh release create "$TAG" "$IPA_PATH" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --prerelease \
+            --title "NuvioTV ${APP_VERSION} (${APP_BUILD}) custom ${GITHUB_SHA::8}" \
+            --notes "Build non signé depuis ${GITHUB_REF_NAME} @ ${GITHUB_SHA::8}. Signé et installé par tvsign."
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: xcodebuild-log-${{ github.sha }}
+          path: ${{ runner.temp }}/xcodebuild.log
+          if-no-files-found: ignore

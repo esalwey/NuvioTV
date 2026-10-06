@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<!-- Plugin repos / addon manifests / scraper fetch() calls can be plain http
+		     (e.g. a LAN test repo); mpv already bypasses ATS for playback. -->
+		<key>NSAllowsArbitraryLoads</key>
+		<true/>
+	</dict>
+	<!-- External-player handoff (FEAT-5): canOpenURL() silently returns false for any scheme
+	     not declared here, and the shared ExternalPlayerPlatform gates its player list on that
+	     probe — so this list IS the tvOS player allowlist. Every declared player automatically
+	     appears in the stream-row long-press menu AND as a Default Player chip in Settings →
+	     Playback (the Swift side iterates availablePlayers(), no per-player code).
+	     Infuse's x-callback-url API is documented on Apple TV (Infuse 7.6.2+). VLC and
+	     Outplayer use their iOS-documented schemes — unverified on tvOS hardware, but a failed
+	     handoff on the default-player route falls back to the built-in player, so the worst
+	     case is a toast, not stranded playback. VidHub (FEAT-21, beta.12): its modern
+	     /play x-callback API explicitly lists Apple TV as a supported platform
+	     (vidhub.okaapps.com/3rd-party-app-integration) — the earlier "no known tvOS build"
+	     reason to keep it off is obsolete. -->
+	<key>LSApplicationQueriesSchemes</key>
+	<array>
+		<string>infuse</string>
+		<string>vlc-x-callback</string>
+		<string>outplayer</string>
+		<string>open-vidhub</string>
+		<string>vidhub</string>
+	</array>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.nuvio.media.NuvioTV.deeplink</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>nuviotv</string>
+			</array>
+		</dict>
+	</array>
+	<!-- FEAT-31: bundled Open Sans faces for the optional custom UI font (Theme.Font). Filenames
+	     only — CTFontManagerRegisterFontsForURL resolves the actual bundle path at launch, with a
+	     subdirectory fallback (AppFontRegistrar) since the file-system-synced Resources group can
+	     flatten into the bundle root. -->
+	<key>UIAppFonts</key>
+	<array>
+		<string>OpenSans-Regular.ttf</string>
+		<string>OpenSans-SemiBold.ttf</string>
+		<string>OpenSans-Bold.ttf</string>
+	</array>
+</dict>
+</plist>
