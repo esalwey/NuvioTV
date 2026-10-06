@@ -1373,11 +1373,10 @@ object StreamInsightParser {
 
         // Portuguese from a Brazilian site (Comando, BluDV) is Brazilian Portuguese.
         if (provider?.lowercase()?.filter { it.isLetter() } in BRAZILIAN_PROVIDERS) {
-            audio.replaceAll { hit ->
+            for (i in audio.indices) {
+                val hit = audio[i]
                 if (hit.language == "pt" && hit.variant == StreamLanguageVariant.UNSPECIFIED) {
-                    LangHit("pt", StreamLanguageVariant.BRAZIL, LOW, hit.evidence, indirect = true)
-                } else {
-                    hit
+                    audio[i] = LangHit("pt", StreamLanguageVariant.BRAZIL, LOW, hit.evidence, indirect = true)
                 }
             }
         }
