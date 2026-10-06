@@ -79,6 +79,21 @@ jobs:
 
       - uses: actions/checkout@v4
 
+      # CFBundleVersion must grow on every published build without manual bumps.
+      # Version.xcconfig holds the base (last hand-set value); each run of this workflow
+      # adds its run_number, which GitHub keeps monotonic per workflow. Re-runs of the
+      # same run keep the same number, which is fine: same commit, same build.
+      - name: Stamp build number
+        run: |
+          set -euo pipefail
+          XC=iosApp/Configuration/Version.xcconfig
+          BASE=$(grep -E '^CURRENT_PROJECT_VERSION=[0-9]+$' "$XC" | cut -d= -f2)
+          [ -n "$BASE" ] || { echo "::error::CURRENT_PROJECT_VERSION not found in $XC"; exit 1; }
+          BUILD=$((BASE + GITHUB_RUN_NUMBER))
+          sed -i '' "s/^CURRENT_PROJECT_VERSION=.*/CURRENT_PROJECT_VERSION=${BUILD}/" "$XC"
+          cat "$XC"
+          echo "EXPECTED_BUILD=$BUILD" >> "$GITHUB_ENV"
+
       # Only MPVKit: libass-android, enginefs, TorrServer and quickjs-kt are gitlinks
       # without a .gitmodules URL, so a recursive submodule init fails.
       - name: Init MPVKit submodule
@@ -178,6 +193,9 @@ jobs:
           VER=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Info.plist")
           BUILD=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP/Info.plist")
           echo "Version: $VER ($BUILD)"
+          if [ "$BUILD" != "$EXPECTED_BUILD" ]; then
+            echo "::error::CFBundleVersion is $BUILD, expected $EXPECTED_BUILD (Version.xcconfig stamp not applied)"; exit 1
+          fi
           echo "Commit : $(/usr/libexec/PlistBuddy -c 'Print :NuvioCommitSHA' "$APP/Info.plist" 2>/dev/null || echo '?')"
           echo "Archs  : $(lipo -archs "$APP/NuvioTV")"
           # Guard: the backend key must be compiled into SharedCore (without it the app signs
