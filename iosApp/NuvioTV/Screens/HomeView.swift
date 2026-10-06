@@ -1012,7 +1012,7 @@ struct HomeView: View {
                     // STAB-07: a direct resume's Up Next asked for a source for the next episode.
                     nextEpisodePicker(entry: target.entry, video: next)
                 } else {
-                    resumePicker(entry: target.entry)
+                    resumePicker(entry: target.entry, startOver: target.startOver)
                 }
             }
         }
@@ -1081,7 +1081,7 @@ struct HomeView: View {
     }
 
     /// The Continue Watching stream picker for `entry`'s own video (the original resume path).
-    private func resumePicker(entry: WatchProgressEntry) -> some View {
+    private func resumePicker(entry: WatchProgressEntry, startOver: Bool = false) -> some View {
         StreamPickerView(
             type: entry.parentMetaType,
             videoId: entry.videoId,
@@ -1105,6 +1105,7 @@ struct HomeView: View {
             episodeTitle: entry.episodeTitle,
             background: entry.background,
             logo: entry.logo,
+            startFromBeginning: startOver,
             onLeaveToDetails: { detailAfterResume = previewFromEntry(entry) }
         )
     }
@@ -1156,7 +1157,8 @@ struct HomeView: View {
                 // on, the details page, as the picker's own player does).
                 directResumeFailedVideoIds.insert(ctx.videoId)
                 if let entry = directResumeEntry(for: ctx), entry.videoId == ctx.videoId {
-                    pickerAfterDirectResume = ResumeTarget(entry: entry)
+                    // PLY-A13: a Start Over launch stays one in the picker.
+                    pickerAfterDirectResume = ResumeTarget(entry: entry, startOver: ctx.resumeFromStart)
                 } else {
                     detailAfterResume = directResumeDetailsPreview(ctx)
                 }
@@ -1211,6 +1213,20 @@ struct HomeView: View {
             return
         }
         resume = ResumeTarget(entry: entry)
+    }
+
+    /// PLY-A13: "Start from Beginning" on a Continue Watching card — Select's paths (the last source
+    /// directly when still usable, else the picker), with the launch playing from 0:00.
+    private func startOverFromContinueWatching(_ entry: WatchProgressEntry) {
+        noteResumedCard(entry)
+        if directResumeEnabled,
+           !directResumeFailedVideoIds.contains(entry.videoId),
+           let context = ContinueWatchingDirectPlay.context(for: entry) {
+            SubtitleRepository.shared.fetchAddonSubtitles(type: entry.parentMetaType, videoId: entry.videoId)
+            directResume = context.startingOver()
+            return
+        }
+        resume = ResumeTarget(entry: entry, startOver: true)
     }
 
     /// F9: remembers which card a resume started from.
@@ -1425,6 +1441,8 @@ struct HomeView: View {
                             noteResumedCard(entry)
                             resume = ResumeTarget(entry: entry)
                         },
+                        // PLY-A13: the same paths as Select, from 0:00.
+                        onStartOver: { startOverFromContinueWatching($0) },
                         // UX-7 (see reportRowFocus for the gating rationale).
                         onItemFocusChange: { entry in
                             reportRowFocus(entry.map(previewFromEntry), source: "continue-watching",
@@ -4007,6 +4025,9 @@ struct ContinueWatchingRow: View {
     /// STAB-07 / D8: the long-press menu's "Choose Source" — always the stream picker, even when
     /// Select would replay the title's last source directly. nil hides the item.
     var onChooseSource: ((WatchProgressEntry) -> Void)? = nil
+    /// PLY-A13: the long-press menu's "Start from Beginning" — the card's video from 0:00. Offered
+    /// on in-progress cards only (an Up Next card already starts at the beginning). nil hides it.
+    var onStartOver: ((WatchProgressEntry) -> Void)? = nil
     /// UX-7: reports the focused card's entry (or nil) so Home can drive the hero from it.
     /// Defaulted — nil is a plain no-op. Gating and backdrop prefetch live in the callback
     /// (HomeView.reportRowFocus), not here.
@@ -4075,6 +4096,16 @@ struct ContinueWatchingRow: View {
                             .posterButtonShape()
                             .focused($focusedVideoId, equals: card.id)
                             .contextMenu {
+                                if let onStartOver, !ContinueWatchingNextUpModel.isNextUp(entry) {
+                                    Button {
+                                        onStartOver(entry)
+                                    } label: {
+                                        Label(String(localized: "home.continueWatching.startOver",
+                                                     defaultValue: "Start from Beginning",
+                                                     comment: "Continue Watching card long-press menu: play the title or episode from 0:00 instead of resuming."),
+                                              systemImage: "backward.end")
+                                    }
+                                }
                                 if let onChooseSource {
                                     Button {
                                         onChooseSource(entry)
@@ -4210,8 +4241,10 @@ struct ResumeTarget: Identifiable {
     /// STAB-07: a direct resume's player asked for a source for this NEXT episode (its Up Next
     /// could not auto-select one) — the picker opens on that episode instead of `entry`'s.
     var nextVideo: MetaVideo? = nil
+    /// PLY-A13: opened by the card's "Start from Beginning" — the picker's launches play from 0:00.
+    var startOver = false
     var id: String {
-        guard let nextVideo else { return entry.videoId }
+        guard let nextVideo else { return startOver ? "\(entry.videoId)|startOver" : entry.videoId }
         return NextEpisodeEngine.episodeVideoId(metaId: entry.parentMetaId, episode: nextVideo)
     }
 }

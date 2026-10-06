@@ -66,6 +66,8 @@ struct MPVChromeActions {
     let selectEpisode: (MetaVideo) -> Void
     /// A chapter picked in the Chapters tab (seconds).
     let seek: (Double) -> Void
+    /// Start Over (PLY-A13): back to 0:00.
+    let startOver: () -> Void
 }
 
 struct MPVTransportFocusView: View {
@@ -197,6 +199,13 @@ struct MPVTransportFocusView: View {
     @ViewBuilder
     private func button(for item: PlayerTransportItem) -> some View {
         switch item {
+        case .startOver:
+            Button {
+                actions.startOver()
+            } label: {
+                Text(verbatim: item.title)
+            }
+            .buttonStyle(PlayerTransportButtonStyle(item: item))
         case .sources:
             Button {
                 actions.chooseSource?()

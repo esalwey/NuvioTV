@@ -121,6 +121,7 @@ struct NativePlayerScreen: View {
                         },
                         onSetRate: { rate in setPlaybackRate(rate) },
                         onSetSubtitleDelay: { [weak coordinator] ms in coordinator?.setSubtitleDelay(ms: ms) },
+                        onStartOver: { [weak coordinator] in coordinator?.startOver() },
                         onChooseSource: { [weak upNext] in
                             upNext?.cancelForSourceSwitch()
                             onChooseAnotherSource?()
@@ -448,6 +449,8 @@ private struct AVPlayerContainer: UIViewControllerRepresentable {
     let onUpNextAction: (UpNextAction) -> Void
     let onSetRate: (Float) -> Void
     let onSetSubtitleDelay: (Int) -> Void
+    /// Start Over (PLY-A13): back to 0:00.
+    let onStartOver: () -> Void
     let onChooseSource: () -> Void
     /// Down press while the Up Next card is up → play now (returns true).
     let onDownPress: () -> Bool
@@ -518,6 +521,9 @@ private struct AVPlayerContainer: UIViewControllerRepresentable {
     private func menuElement(for item: PlayerTransportItem) -> UIMenuElement? {
         let image = UIImage(systemName: item.symbol)
         switch item {
+        case .startOver:
+            let startOver = onStartOver
+            return UIAction(title: item.title, image: image) { _ in startOver() }
         case .sources:
             let choose = onChooseSource
             return UIAction(title: item.title, image: image) { _ in choose() }

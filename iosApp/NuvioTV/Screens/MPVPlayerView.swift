@@ -255,6 +255,17 @@ final class MPVTVPlayerViewController: UIViewController {
             let target = self.state.durationSec > 0 ? min(seconds, max(self.state.durationSec - 1, 0)) : seconds
             self.seekAbsolute(target, exact: true)
         }
+        state.startOver = { [weak self] in
+            guard let self else { return }
+            // A resume that is still waiting (for the duration, or for the Trakt start) must not
+            // carry playback forward again, nor report the old position.
+            self.pendingResumeSec = nil
+            self.pendingResumeFraction = nil
+            self.resumeFractionAwaitsDuration = false
+            self.resumeTargetSec = nil
+            self.seekAbsolute(0, exact: true)
+            if self.state.isPaused { self.togglePause() }
+        }
         view.accessibilityIdentifier = "player.mpv"
 
         // Touch-surface swipes: down → the content tabs, up → the transport buttons (presses arrive

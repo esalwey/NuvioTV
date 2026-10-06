@@ -311,6 +311,10 @@ struct MPVPlayerScreen: View {
                 seek: { seconds in
                     closer.close()
                     state.seekTo?(seconds)
+                },
+                startOver: {
+                    closer.close()
+                    state.startOver?()
                 })
             return AnyView(MPVTransportFocusView(
                 state: state, panelModel: panelModel, chromeModel: chromeModel, upNext: upNext,

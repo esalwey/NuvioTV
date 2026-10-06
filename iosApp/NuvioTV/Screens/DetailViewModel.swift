@@ -36,6 +36,9 @@ final class DetailViewModel: ObservableObject {
     /// Series-level primary play action (Resume SxEy / Play SxEy, honoring behaviorHints
     /// defaultVideoId) from the shared resolver; nil for movies or while meta loads.
     @Published private(set) var seriesAction: SeriesPrimaryAction?
+    /// PLY-A13: the movie has a saved position its Play would resume from — Detail then offers
+    /// "Start from Beginning" beside it. Always false for a series (see `seriesAction`).
+    @Published private(set) var movieHasResumePoint = false
     /// Upstream 972109f9: false once it is certain no configured source (stream add-on, plugin,
     /// embedded stream) can stream the primary Play target — Detail greys Play out instead of
     /// opening a stream list that can only say so. True while that is not known.
@@ -576,6 +579,8 @@ final class DetailViewModel: ObservableObject {
         let progress = computeEpisodeProgress(excluding: watchedEpisodeKeys)
         if progress != episodeProgress { episodeProgress = progress }
         seriesAction = computeSeriesAction()
+        let movieResume = computeMovieHasResumePoint()
+        if movieResume != movieHasResumePoint { movieHasResumePoint = movieResume }
         let playable = computePlaybackAvailability()
         if playable != isPlaybackAvailable { isPlaybackAvailable = playable }
         reconcileSeriesWatchedStateIfNeeded()
@@ -661,6 +666,20 @@ final class DetailViewModel: ObservableObject {
         guard episodeProgressRequestedFor != target else { return }
         episodeProgressRequestedFor = target
         WatchProgressRepository.shared.refreshEpisodeProgress(contentId: target, forceRefresh: false)
+    }
+
+    /// PLY-A13: the player's own resume gate (`PlaybackProgressRecorder.resumePositionSec`): an
+    /// unfinished record under the meta's id, more than 10 s in (or a percentage-only row).
+    private func computeMovieHasResumePoint() -> Bool {
+        if let meta, EpisodesSection.isSeriesLike(meta) { return false }
+        guard let entry = WatchProgressRepository.shared.progressForVideo(
+            videoId: contentId,
+            parentMetaId: contentId,
+            seasonNumber: nil,
+            episodeNumber: nil
+        ), !entry.isCompleted, !entry.isEffectivelyCompleted else { return false }
+        if entry.lastPositionMs > 10_000 { return true }
+        return entry.lastPositionMs <= 0 && entry.durationMs <= 0 && Double(entry.progressFraction) > 0.01
     }
 
     /// Mirrors mobile's Detail screen: shared `seriesPrimaryAction` over the full progress +

@@ -301,6 +301,8 @@ struct DetailView: View {
 
     @StateObject private var model: DetailViewModel
     @State private var showStreams = false
+    /// PLY-A13: the movie stream picker was opened by "Start from Beginning", not by Play.
+    @State private var showStreamsFromBeginning = false
     @State private var seriesPlay: SeriesPlayRoute?
     /// Trakt comment ids the user has expanded (reveals spoilers / full text).
     @State private var expandedComments: Set<Int64> = []
@@ -953,7 +955,8 @@ struct DetailView: View {
             // are recorded with the progress entry for Continue Watching and its hero.
             StreamPickerView(type: preview.type, videoId: streamVideoId, title: title,
                              poster: posterUrl, synopsis: overview, meta: playbackMeta,
-                             background: model.meta?.background ?? preview.banner, logo: logoUrl)
+                             background: model.meta?.background ?? preview.banner, logo: logoUrl,
+                             startFromBeginning: showStreamsFromBeginning)
         }
         .fullScreenCover(item: $seriesPlay) { route in
             StreamPickerView(
@@ -972,7 +975,8 @@ struct DetailView: View {
                 seriesTitle: route.meta.name,
                 episodeTitle: route.episodeName,
                 background: route.meta.background,
-                logo: route.meta.logo
+                logo: route.meta.logo,
+                startFromBeginning: route.startOver
             )
         }
         // FEAT-32: presented from `presentedTrailer`, which `beginTrailerBridge` sets after the
@@ -1165,6 +1169,7 @@ struct DetailView: View {
     private func performPrimaryPlay() {
         switch primaryPlayState {
         case .movie:
+            showStreamsFromBeginning = false
             showStreams = true
         case .series(let meta, let action):
             seriesPlay = SeriesPlayRoute(meta: meta, action: action)
@@ -1173,6 +1178,39 @@ struct DetailView: View {
         case .unavailable:
             showingPlaybackUnavailable = true
         }
+    }
+
+    /// PLY-A13: the primary target has a saved position Play resumes from — the movie's own, or
+    /// the series action's episode ("Resume S1E2").
+    private var canStartOver: Bool {
+        switch primaryPlayState {
+        case .movie:
+            return model.movieHasResumePoint
+        case .series(_, let action):
+            let resumeMs: KotlinLong? = action.resumePositionMs
+            return (resumeMs?.int64Value ?? 0) > 0
+        case .loading, .unavailable:
+            return false
+        }
+    }
+
+    /// PLY-A13: "Start from Beginning" — the same stream picker as Play, whose launches then play
+    /// from 0:00 instead of the saved position (`PlaybackContext.startingOver()`).
+    private func performStartOver() {
+        switch primaryPlayState {
+        case .movie:
+            showStreamsFromBeginning = true
+            showStreams = true
+        case .series(let meta, let action):
+            seriesPlay = SeriesPlayRoute(meta: meta, action: action, startOver: true)
+        case .loading, .unavailable:
+            break
+        }
+    }
+
+    private static var startOverTitle: String {
+        String(localized: "detail.action.startOver", defaultValue: "Start from Beginning",
+               comment: "Detail page button beside Resume: play the title (or the episode to resume) from 0:00.")
     }
 
     /// F1: the Mark Watched button. A series marks or clears every episode, so it confirms first.
@@ -1546,6 +1584,18 @@ struct DetailView: View {
             // being first, wider and the default focus.
             .buttonStyle(.bordered)
             .focused($focusedAction, equals: .play)
+
+            // PLY-A13: with a saved position, Play resumes; this secondary button plays from 0:00.
+            if canStartOver {
+                Button {
+                    performStartOver()
+                } label: {
+                    actionLabel(verbatim: Self.startOverTitle, systemImage: "backward.end")
+                        .font(Theme.Font.body)
+                }
+                .buttonStyle(.bordered)
+                .focused($focusedAction, equals: .startOver)
+            }
 
             if model.trailerVideoURL != nil {
                 // Explicit, focusable "watch it full screen" entry point (tester request — the
@@ -2174,7 +2224,7 @@ struct DetailView: View {
 
 /// F1: the Detail action-row buttons `DetailView.focusedAction` tracks.
 private enum DetailActionFocus: Hashable {
-    case play, trailer, watched, library
+    case play, startOver, trailer, watched, library
 }
 
 /// One label/value pair in the Detail info block. `id` is the label (unique within the block).
@@ -2427,7 +2477,9 @@ private struct CompanyChip: View {
 private struct SeriesPlayRoute: Identifiable {
     let meta: MetaDetails
     let action: SeriesPrimaryAction
-    var id: String { action.videoId }
+    /// PLY-A13: opened by "Start from Beginning" — the episode plays from 0:00.
+    var startOver = false
+    var id: String { startOver ? "\(action.videoId)|startOver" : action.videoId }
 
     /// The resolved episode (by season/episode number) — the Info header shows ITS still +
     /// overview, not the series poster/synopsis, matching the EpisodesSection launch path.

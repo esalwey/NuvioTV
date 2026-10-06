@@ -69,6 +69,9 @@ final class NativePlaybackCoordinator: ObservableObject {
     /// "Play Again" rebuilt the session: start from 0 even if a saved position would resume it
     /// (an end short of the duration is not recorded as completed).
     private var resumeFromStart = false
+    /// The viewer chose Start Over in the transport bar (PLY-A13): a resume still waiting for the
+    /// item's duration must not move playback forward again.
+    private var startedOver = false
 
     /// Last observed position/duration, used when falling back to mpv.
     private(set) var lastPositionSec: Double = 0
@@ -859,6 +862,20 @@ final class NativePlaybackCoordinator: ObservableObject {
         completed = true
     }
 
+    /// Start Over (PLY-A13) from the transport bar: back to 0:00, and no pending resume may move
+    /// playback forward again. Progress ticks then overwrite the saved position as usual.
+    func startOver() {
+        startedOver = true
+        explicitStartSec = nil
+        plannedResumeSec = nil
+        guard let player else {
+            resumeFromStart = true
+            return
+        }
+        player.seek(to: .zero)
+        player.play()
+    }
+
     /// "Play Again" from the end screen. Presenting that full-screen cover makes the player screen
     /// disappear, which stops this coordinator (progress flushed, Trakt closed, remux + server +
     /// player released) — so the replay is normally a fresh session, which the screen's `onAppear`
@@ -970,7 +987,7 @@ final class NativePlaybackCoordinator: ObservableObject {
                             // Before this tick records a position over the saved row; dropped when
                             // playback already got past the 10 s resume floor.
                             let current = CMTimeGetSeconds(player.currentTime())
-                            if current.isFinite, current < 10,
+                            if current.isFinite, current < 10, !self.startedOver,
                                let resume = self.recorder.resumePositionSec(durationSec: knownDuration) {
                                 await player.seek(to: CMTime(seconds: resume, preferredTimescale: 600))
                                 // As above: no tick of a player the viewer left during the seek.

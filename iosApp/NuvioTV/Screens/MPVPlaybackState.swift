@@ -79,6 +79,8 @@ final class MPVPlaybackState: ObservableObject {
     var reclaimFocus: (() -> Void)?
     /// Exact seek to an absolute time (the Chapters tab).
     var seekTo: ((Double) -> Void)?
+    /// Start Over (PLY-A13, the transport bar): back to 0:00, dropping any resume still pending.
+    var startOver: (() -> Void)?
 
     /// Wired by `MPVPlayerScreen` to the `NextEpisodeEngine`; each returns true when the Up Next
     /// card consumed the press (PLY-A4/F5). Select → play the next episode now ("Choose a Source"

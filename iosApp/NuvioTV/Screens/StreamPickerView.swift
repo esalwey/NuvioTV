@@ -99,6 +99,11 @@ struct StreamPickerView: View {
     /// the Up Next cancel, "Back to Details", the end of a movie or finale. nil = the presenter IS
     /// the details page (Detail, its episode list).
     let onLeaveToDetails: (() -> Void)?
+    /// Start Over (PLY-A13): the Detail page's "Start from Beginning" or the Continue Watching
+    /// card's. Every stream picked for the episode this picker was opened for plays from 0:00
+    /// (`PlaybackContext.startingOver()`); another episode it is retargeted to plays as usual.
+    private let startFromBeginning: Bool
+    private let startOverVideoId: String
 
     @StateObject private var model: StreamsViewModel
     @State private var selected: PlaybackContext?
@@ -177,8 +182,11 @@ struct StreamPickerView: View {
         episodeTitle: String? = nil,
         background: String? = nil,
         logo: String? = nil,
+        startFromBeginning: Bool = false,
         onLeaveToDetails: (() -> Void)? = nil
     ) {
+        self.startFromBeginning = startFromBeginning
+        self.startOverVideoId = videoId
         self.meta = meta
         self.poster = poster
         // A progress-record launch hands over what the record holds, which builds before CW-1
@@ -221,7 +229,7 @@ struct StreamPickerView: View {
     }
 
     private func context(url: URL, stream: StreamItem?) -> PlaybackContext {
-        PlaybackContext(
+        let built = PlaybackContext(
             url: url,
             title: title,
             contentType: type,
@@ -250,6 +258,7 @@ struct StreamPickerView: View {
             episodeTitle: Self.nonEmpty(target.episodeTitle),
             logo: Self.nonEmpty(logo) ?? fetchedSeries?.logo
         )
+        return startFromBeginning && videoId == startOverVideoId ? built.startingOver() : built
     }
 
     /// CW-1: the series name the progress record is filed under — the caller's (legacy episode

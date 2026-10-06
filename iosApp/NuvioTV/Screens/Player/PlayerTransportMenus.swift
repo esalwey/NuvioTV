@@ -14,12 +14,16 @@ import SwiftUI
 
 /// One button of the transport bar.
 enum PlayerTransportItem: String, CaseIterable, Identifiable, Hashable {
-    case sources, playbackSpeed, subtitleTiming, subtitles, audio
+    case startOver, sources, playbackSpeed, subtitleTiming, subtitles, audio
 
     var id: String { rawValue }
 
     var title: String {
         switch self {
+        case .startOver:
+            return String(localized: "player.menu.startOver",
+                          defaultValue: "Start Over",
+                          comment: "Player transport-bar button: go back to the beginning of the video (0:00).")
         case .sources: return String(localized: "Sources")
         case .playbackSpeed: return String(localized: "Playback Speed")
         case .subtitleTiming:
@@ -35,6 +39,7 @@ enum PlayerTransportItem: String, CaseIterable, Identifiable, Hashable {
     /// last two stand in for the system player's built-in Subtitles and Audio buttons.
     var symbol: String {
         switch self {
+        case .startOver: return "backward.end"
         case .sources: return "rectangle.stack"
         case .playbackSpeed: return "speedometer"
         case .subtitleTiming: return "clock.arrow.circlepath"
@@ -54,8 +59,9 @@ enum PlayerTransportMenus {
     static let delays: [Int] = [-2000, -1000, -500, -250, 0, 250, 500, 1000, 2000]
 
     /// The app-defined items in transport-bar order (`transportBarCustomMenuItems` on native).
+    /// Start Over (PLY-A13) leads: a plain action, available on every title and both engines.
     static func customItems(canChooseSource: Bool, supportsSubtitleDelay: Bool) -> [PlayerTransportItem] {
-        var items: [PlayerTransportItem] = []
+        var items: [PlayerTransportItem] = [.startOver]
         if canChooseSource { items.append(.sources) }
         items.append(.playbackSpeed)
         if supportsSubtitleDelay { items.append(.subtitleTiming) }
