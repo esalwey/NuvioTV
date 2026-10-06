@@ -97,6 +97,9 @@ object StreamRecommender {
 
     private const val EXCLUDED_PENALTY = 100_000
 
+    /** A tagged audio track in the title's own language, whatever the tag's version or confidence. */
+    private const val ORIGINAL_LANGUAGE_MATCH = 0.95
+
     /** Builds the context from the shared player settings and the device languages. */
     fun contextFromSettings(
         originalLanguage: String?,
@@ -452,7 +455,7 @@ object StreamRecommender {
             is AudioWish.Language -> {
                 val matches = insight.audioLanguages.filter { it.language == wish.language }
                 if (matches.isEmpty()) {
-                    if (original == wish.language) {
+                    if (original == wish.language && !insight.isDubbed) {
                         insight.originalAudioConfidence?.let {
                             return 0.85 * it.weight to StreamReason(StreamReasonKind.LANGUAGE, wish.language.uppercase())
                         }
@@ -467,7 +470,13 @@ object StreamRecommender {
                 var bestReason: StreamReason? = null
                 matches.forEach { match ->
                     val confidence = match.confidence.weight
-                    val (quality, reason) = if (wish.variant != null) {
+                    val (quality, reason) = if (original == wish.language) {
+                        // The wanted language is the title's own (a French film for a French
+                        // viewer): "FRENCH" / "TRUEFRENCH" / "VOQ" all name the original track, so
+                        // the dub version (VFF vs VFQ) does not apply, and a 🇫🇷 flag says the same as
+                        // a "FRENCH" tag: quality decides among them. Above an untagged release (0.75).
+                        ORIGINAL_LANGUAGE_MATCH to StreamReason(StreamReasonKind.LANGUAGE, match.tag)
+                    } else if (wish.variant != null) {
                         when {
                             match.variant == wish.variant ->
                                 confidence to StreamReason(StreamReasonKind.LANGUAGE, match.tag)

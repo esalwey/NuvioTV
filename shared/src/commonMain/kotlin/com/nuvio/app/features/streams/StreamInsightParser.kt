@@ -115,7 +115,7 @@ object StreamInsightParser {
             }
         }
         readStructured(input, acc)
-        val (audio, subtitles) = finalizeLanguages(acc)
+        val (audio, subtitles) = finalizeLanguages(acc, acc.provider ?: input.tracker)
         val (cacheState, service) = readCache(input)
         val releaseName = pickReleaseName(input)
         return StreamInsight(
@@ -140,6 +140,7 @@ object StreamInsightParser {
             isDualAudio = acc.dual,
             hasMultiSubtitles = acc.multiSubs,
             hasHardcodedSubtitles = acc.hardSubs,
+            isDubbed = acc.dubbedTag && !acc.multi && !acc.dual && !acc.sceneMulti && acc.original == null,
             sizeBytes = input.videoSize?.takeIf { it > 0 }
                 ?: input.sizeHint?.takeIf { it > 0 }
                 ?: acc.markedSize
@@ -406,6 +407,11 @@ object StreamInsightParser {
         val explicitDub: Boolean = false,
         val original: StreamConfidence? = null,
         val kind: SpecKind = SpecKind.LANGUAGE,
+        /**
+         * The variant is only a default ("SPANISH" is read as Castilian): another tag naming a
+         * variant of the same language ("SPANiSH.LATiNO") replaces it instead of adding to it.
+         */
+        val weakVariant: Boolean = false,
     )
 
     private val U = StreamLanguageVariant.UNSPECIFIED
@@ -421,7 +427,8 @@ object StreamInsightParser {
         upperOnly: Boolean = false,
         explicitDub: Boolean = false,
         original: StreamConfidence? = null,
-    ) = LanguageSpec(listOf(code to variant), confidence, tierA, upperOnly, explicitDub, original)
+        weakVariant: Boolean = false,
+    ) = LanguageSpec(listOf(code to variant), confidence, tierA, upperOnly, explicitDub, original, weakVariant = weakVariant)
 
     private val LANGUAGE_SPECS: Map<String, LanguageSpec> = buildMap {
         // French release tags (critical: the variant is only ever what the tag says).
@@ -438,20 +445,24 @@ object StreamInsightParser {
         )
         put("vf", lang("fr", tierA = true, explicitDub = true))
         put("vof", lang("fr", tierA = true, explicitDub = true, original = HIGH))
+        // "Version originale québécoise": the original track of a Québec film (Incendies, Mommy).
+        put("voq", lang("fr", StreamLanguageVariant.QUEBEC, tierA = true, explicitDub = true, original = HIGH))
         put("french", lang("fr"))
         put("francais", lang("fr"))
+        // Spanish release names spell the language in Spanish ("Castellano-Francés").
+        put("frances", lang("fr"))
         put("fr", lang("fr", confidence = MEDIUM, upperOnly = true))
         put("fra", lang("fr", confidence = MEDIUM, upperOnly = true))
         put("fre", lang("fr", confidence = MEDIUM, upperOnly = true))
         put("quebec", lang("fr", StreamLanguageVariant.QUEBEC, MEDIUM))
         put("quebecois", lang("fr", StreamLanguageVariant.QUEBEC, MEDIUM))
         put("quebecoise", lang("fr", StreamLanguageVariant.QUEBEC, MEDIUM))
-        // Spanish
+        // Spanish ("SPANISH" alone defaults to Castilian, but "SPANiSH.LATiNO" is Latin American).
         put("castellano", lang("es", StreamLanguageVariant.SPAIN, tierA = true))
-        put("spanish", lang("es", StreamLanguageVariant.SPAIN, MEDIUM))
-        put("espanol", lang("es", StreamLanguageVariant.SPAIN, MEDIUM))
-        put("esp", lang("es", StreamLanguageVariant.SPAIN, MEDIUM))
-        put("spa", lang("es", StreamLanguageVariant.SPAIN, LOW, upperOnly = true))
+        put("spanish", lang("es", StreamLanguageVariant.SPAIN, MEDIUM, weakVariant = true))
+        put("espanol", lang("es", StreamLanguageVariant.SPAIN, MEDIUM, weakVariant = true))
+        put("esp", lang("es", StreamLanguageVariant.SPAIN, MEDIUM, weakVariant = true))
+        put("spa", lang("es", StreamLanguageVariant.SPAIN, LOW, upperOnly = true, weakVariant = true))
         put("latino", lang("es", StreamLanguageVariant.LATIN_AMERICA))
         put("latam", lang("es", StreamLanguageVariant.LATIN_AMERICA))
         put("lat", lang("es", StreamLanguageVariant.LATIN_AMERICA, MEDIUM, upperOnly = true))
@@ -464,13 +475,14 @@ object StreamInsightParser {
         put("portuguese", lang("pt"))
         put("portugues", lang("pt"))
         put("por", lang("pt", confidence = MEDIUM, upperOnly = true))
-        // Other languages
-        listOf("english", "anglais", "eng").forEach { put(it, lang("en")) }
+        // Other languages ("Inglés", "Alemán", "Japonés": Spanish spellings seen on Spanish sites).
+        listOf("english", "anglais", "eng", "ingles").forEach { put(it, lang("en")) }
+        put("en", lang("en", confidence = MEDIUM, upperOnly = true))
         listOf("italian", "italiano", "ita").forEach { put(it, lang("it")) }
-        listOf("german", "deutsch", "ger", "deu").forEach { put(it, lang("de")) }
-        listOf("japanese", "jap", "jpn").forEach { put(it, lang("ja")) }
-        listOf("korean", "kor").forEach { put(it, lang("ko")) }
-        listOf("russian", "rus").forEach { put(it, lang("ru")) }
+        listOf("german", "deutsch", "ger", "deu", "aleman").forEach { put(it, lang("de")) }
+        listOf("japanese", "jap", "jpn", "japones", "日本語").forEach { put(it, lang("ja")) }
+        listOf("korean", "kor", "한국어").forEach { put(it, lang("ko")) }
+        listOf("russian", "rus", "русский").forEach { put(it, lang("ru")) }
         put("polish", lang("pl"))
         put("pol", lang("pl", confidence = MEDIUM, upperOnly = true))
         put("pl", lang("pl", confidence = MEDIUM, upperOnly = true))
@@ -491,9 +503,29 @@ object StreamInsightParser {
         put("telugu", lang("te"))
         put("malayalam", lang("ml"))
         put("kannada", lang("kn"))
+        // "[Tam + Mal + Tel + Hin + Eng]": short codes only count in such lists (see relaxed case).
+        put("tam", lang("ta", confidence = MEDIUM, upperOnly = true))
+        put("tel", lang("te", confidence = MEDIUM, upperOnly = true))
+        put("mal", lang("ml", confidence = MEDIUM, upperOnly = true))
+        put("kan", lang("kn", confidence = MEDIUM, upperOnly = true))
         put("bengali", lang("bn"))
         put("marathi", lang("mr"))
-        listOf("chinese", "mandarin", "cantonese").forEach { put(it, lang("zh")) }
+        listOf("chinese", "mandarin", "cantonese", "汉语", "中文").forEach { put(it, lang("zh")) }
+        put("catalan", lang("ca"))
+        put("cat", lang("ca", confidence = MEDIUM, upperOnly = true))
+        put("slo", lang("sk", confidence = MEDIUM, upperOnly = true))
+        put("cz", lang("cs", confidence = MEDIUM, upperOnly = true))
+        // Two-letter codes of "(CZ/SK/EN)", "EN/FR/ES", "[EN-TR]", "RU.UA.FR.EN" lists.
+        put("sk", lang("sk", confidence = MEDIUM, upperOnly = true))
+        put("tr", lang("tr", confidence = MEDIUM, upperOnly = true))
+        put("ru", lang("ru", confidence = MEDIUM, upperOnly = true))
+        put("ua", lang("uk", confidence = MEDIUM, upperOnly = true))
+        put("es", lang("es", confidence = MEDIUM, upperOnly = true))
+        put("pt", lang("pt", confidence = MEDIUM, upperOnly = true))
+        // "ESP-CAST", "cast.mp4" (Spanish sites abbreviate Castellano).
+        put("cast", lang("es", StreamLanguageVariant.SPAIN, MEDIUM))
+        listOf("filipino", "tagalog").forEach { put(it, lang("tl")) }
+        put("indonesia", lang("id", confidence = MEDIUM))
         put("chi", lang("zh", confidence = MEDIUM, upperOnly = true))
         put("arabic", lang("ar"))
         put("ara", lang("ar", confidence = MEDIUM, upperOnly = true))
@@ -541,7 +573,7 @@ object StreamInsightParser {
     /** ISO codes accepted as subtitle languages in "Subs: fr, en" lists (any case). */
     private val SUBTITLE_SHORT_CODES = setOf(
         "fr", "en", "es", "it", "de", "pt", "nl", "pl", "ru", "ja", "ko", "zh", "ar", "sv", "no", "da",
-        "fi", "tr", "el", "he", "hu", "cs", "ro", "uk", "hi", "th", "vi",
+        "fi", "tr", "el", "he", "hu", "cs", "ro", "uk", "hi", "th", "vi", "sk", "ca",
     )
 
     private class SubtitleCombined(
@@ -565,7 +597,7 @@ object StreamInsightParser {
         }
         listOf("subita", "itasub", "itasubs", "subsita").forEach { put(it, SubtitleCombined("it" to U)) }
         listOf("nlsub", "nlsubs", "nlsubbed").forEach { put(it, SubtitleCombined("nl" to U)) }
-        listOf("multisub", "multisubs").forEach { put(it, SubtitleCombined(null, multiSubs = true)) }
+        listOf("multisub", "multisubs", "msub", "msubs").forEach { put(it, SubtitleCombined(null, multiSubs = true)) }
         listOf("hardsub", "hardsubs", "hardcoded").forEach { put(it, SubtitleCombined(null, hardSubs = true)) }
         put("legendado", SubtitleCombined("pt" to StreamLanguageVariant.BRAZIL, original = MEDIUM))
     }
@@ -574,13 +606,45 @@ object StreamInsightParser {
 
     private val SUBTITLE_WORDS = setOf(
         "sub", "subs", "subbed", "subtitle", "subtitles", "subtitled", "subtitulado", "subtitulada",
-        "subtitulos", "soustitre", "soustitres", "soustitrage",
+        "subtitulos", "soustitre", "soustitres", "soustitrage", "napisy", "titulky",
     )
     private val LANGUAGE_LINE_WORDS = setOf(
         "audio", "audios", "language", "languages", "lang", "langs", "langue", "langues", "and", "et",
         "track", "tracks", "piste", "pistes", "dub", "dubbed", "original",
     )
-    private val MULTI_COMPANIONS = setOf("audio", "audios", "lang", "langs", "language", "languages", "track", "tracks")
+    private val MULTI_COMPANIONS = setOf(
+        "audio", "audios", "lang", "langs", "language", "languages", "track", "tracks", "dub", "dubs",
+    )
+
+    /** Words that may sit between a language and "Subs" ("English Hardcoded Subs"). */
+    private val SUBTITLE_QUALIFIERS = setOf(
+        "hardcoded", "hardcode", "hardsub", "hardsubs", "burned", "burnedin", "forced", "embedded", "softsub", "softsubs",
+    )
+
+    /** A language list followed by one of these is a list of dubs, not of subtitles. */
+    private val DUB_WORDS = setOf("dub", "dubs", "dubbed", "dublado", "dublagem", "doblaje", "doblado", "audio", "audios")
+    private val LIST_JOINERS = setOf("and", "et", "y", "e")
+
+    /** Track words of Russian / Polish release names ("DVO Ukr", "Original (Fra)", "Dubbing PL"). */
+    private val VOICE_WORDS = setOf("dub", "dubs", "dubbed", "dubbing", "dvo", "mvo", "avo", "original")
+
+    private val SHARED_DUB_WORDS = setOf("dubbing", "dub", "dubbed")
+    private val LANGUAGE_SUFFIX_WORDS = setOf("br", "la", "lat", "latam", "419", "mx", "ca", "qc")
+
+    /** Rutracker / Rutor track words: a Russian or Ukrainian voice-over is in the file. */
+    private val VOICE_OVER_WORDS = setOf("dub", "dubs", "dvo", "mvo", "avo")
+
+    /** "ENSUB", "SweSub", "FRsubs": a language code glued to "sub". */
+    private val GLUED_SUB_REGEX = Regex("^([a-z]{2,3})(subs?|subbed)$")
+
+    /** "2xRus" (two Russian tracks), "5.1Ingles" (the "1" of 5.1 glued to the language). */
+    private val DIGIT_PREFIX_REGEX = Regex("^\\d+(x?)([a-z]{3,})$")
+
+    /** Torrentio shows one 🇮🇳 for every Indian language. */
+    private val INDIAN_LANGUAGES = setOf("hi", "ta", "te", "ml", "kn", "bn", "mr")
+
+    /** Brazilian sites whose Portuguese is Brazilian Portuguese ("Dublado"), whatever the title says. */
+    private val BRAZILIAN_PROVIDERS = setOf("comando", "comandotorrents", "bludv", "lapumia")
 
     private class LangHit(
         val language: String,
@@ -590,13 +654,45 @@ object StreamInsightParser {
         val explicitDub: Boolean = false,
         /** From a flag emoji or a structured list: weaker, overridden by tags. */
         val indirect: Boolean = false,
+        /** See [LanguageSpec.weakVariant]. */
+        val weakVariant: Boolean = false,
     )
+
+    /**
+     * A flag emoji, resolved once the whole text is read: Torrentio-style flag lines list every
+     * language the release name mentions (subtitles included), so a flag is only trusted as audio
+     * when the text does not explain it otherwise.
+     */
+    private class FlagHit(
+        val country: String,
+        val language: String,
+        val variant: StreamLanguageVariant,
+        /** The line is about subtitles ("💬 🇫🇷", "Subs: 🇬🇧"). */
+        val subtitleLine: Boolean,
+        /** The line carries a "Multi Subs" tag next to the flags (Torrentio's last line). */
+        val multiSubsLine: Boolean,
+    )
+
+    private class LangCompound(val language: String, val variant: StreamLanguageVariant, val confidence: StreamConfidence)
 
     private class Accumulator {
         val audio = mutableListOf<LangHit>()
         val subtitles = mutableListOf<LangHit>()
         val externalSubtitles = mutableListOf<LangHit>()
+        val flags = mutableListOf<FlagHit>()
+
+        /** Languages whose word was read as part of the movie title ("The French Connection"). */
+        val titleWordLanguages = HashSet<String>()
         var multi = false
+
+        /** A bare scene "MULTi" tag (French scene convention: original + French). */
+        var sceneMulti = false
+
+        /** "Dub + MVO + Original (Fra)": Russian-site voice-over tracks (their 🇷🇺 / 🇺🇦 flags are audio). */
+        var voiceOver = false
+
+        /** A scene "DUBBED" tag. */
+        var dubbedTag = false
         var dual = false
         var multiSubs = false
         var hardSubs = false
@@ -645,6 +741,7 @@ object StreamInsightParser {
         // "Film.FRENCH.ENGLISH.2019") — never in the bare title part ("The.French.Dispatch.2021").
         fun tierBAllowed(index: Int): Boolean {
             if (isContext || line.anchorIndex in 0 until index) return true
+            if (inBracketedLanguageGroup(line, index)) return true
             var next = index + 1
             while (next < tokens.size &&
                 (LANGUAGE_SPECS[tokens[next].folded] != null || tokens[next].folded in SUBTITLE_COMBINED) &&
@@ -655,20 +752,41 @@ object StreamInsightParser {
             return next < tokens.size && isAnchorToken(tokens[next])
         }
 
-        fun specFor(index: Int): LanguageSpec? {
+        fun isLanguageish(token: Tok): Boolean =
+            isLanguageWord(token) || token.folded in VOICE_WORDS || digitPrefixedSpec(token.folded) != null
+
+        // "iTA Fre AC3", "ita fre sub ita eng", "Hin-Tam-Eng", "Ukr(VO) Eng": a short code that is
+        // not upper case still counts after an anchor when it sits in a list of languages.
+        fun relaxedCaseAllowed(index: Int): Boolean {
+            if (tokens[index].raw.length < 3) return false
+            if (!isContext && line.anchorIndex !in 0 until index) return false
+            for (offset in -3..3) {
+                if (offset == 0) continue
+                val neighbour = tokens.getOrNull(index + offset) ?: continue
+                if (isLanguageish(neighbour)) return true
+            }
+            return false
+        }
+
+        fun specFor(index: Int, anyCase: Boolean = false): LanguageSpec? {
             val token = tokens[index]
-            val spec = LANGUAGE_SPECS[token.folded] ?: return null
-            if (spec.upperOnly && !token.isUpperCase) return null
+            val spec = LANGUAGE_SPECS[token.folded] ?: digitPrefixedSpec(token.folded) ?: return null
+            if (spec.upperOnly && !token.isUpperCase && !anyCase && !relaxedCaseAllowed(index)) return null
             return spec
         }
 
-        fun subtitleLanguageAt(index: Int): Pair<String, StreamLanguageVariant>? {
+        fun subtitleLanguageAt(index: Int, anyCase: Boolean): Pair<String, StreamLanguageVariant>? {
             val token = tokens[index]
-            val spec = specFor(index)
+            val spec = specFor(index, anyCase)
             if (spec != null && spec.explicitDub) return null
             if (spec != null && spec.kind == SpecKind.LANGUAGE && spec.targets.size == 1) return spec.targets.first()
             if (token.folded.length == 2 && token.folded in SUBTITLE_SHORT_CODES) return token.folded to U
             return null
+        }
+
+        fun compoundAt(index: Int): LangCompound? {
+            val next = tokens.getOrNull(index + 1) ?: return null
+            return compoundLanguage(tokens[index].folded, next.folded, line.separatorAfter(index))
         }
 
         fun isSubtitleWord(index: Int): Boolean {
@@ -678,6 +796,11 @@ object StreamInsightParser {
 
         fun addSubtitle(language: Pair<String, StreamLanguageVariant>, evidence: String, confidence: StreamConfidence = HIGH) {
             acc.subtitles += LangHit(language.first, language.second, confidence, evidence)
+        }
+
+        /** Another audio language is named on this line, outside [excluded] ("French … Eng Spa Subs"). */
+        fun otherAudioLanguageOnLine(excluded: Set<Int>): Boolean = tokens.indices.any { index ->
+            index !in excluded && !consumed[index] && specFor(index)?.kind == SpecKind.LANGUAGE
         }
 
         // Pass 1: multi-token tags, subtitle tags and "<lang> subs" / "subs: <lang>, <lang>".
@@ -705,6 +828,13 @@ object StreamInsightParser {
                 i++
                 continue
             }
+            val gluedSubtitle = GLUED_SUB_REGEX.matchEntire(folded)?.let { gluedSubtitleLanguage(it.groupValues[1]) }
+            if (gluedSubtitle != null) {
+                addSubtitle(gluedSubtitle, token.raw)
+                consumed[i] = true
+                i++
+                continue
+            }
             if (folded == "true" && nextFolded == "french") {
                 acc.audio += LangHit("fr", StreamLanguageVariant.FRANCE, HIGH, "TRUEFRENCH", explicitDub = true)
                 consumed[i] = true
@@ -712,33 +842,17 @@ object StreamInsightParser {
                 i += 2
                 continue
             }
-            if (folded == "pt" && (nextFolded == "br" || nextFolded == "pt") && separator.length <= 1) {
-                val variant = if (nextFolded == "br") StreamLanguageVariant.BRAZIL else StreamLanguageVariant.PORTUGAL
-                acc.audio += LangHit("pt", variant, HIGH, "${token.raw}-${next.raw}")
-                consumed[i] = true
-                consumed[i + 1] = true
-                i += 2
-                continue
-            }
-            if (folded == "es" && nextFolded == "419" && separator.length <= 1) {
-                acc.audio += LangHit("es", StreamLanguageVariant.LATIN_AMERICA, HIGH, "es-419")
-                consumed[i] = true
-                consumed[i + 1] = true
-                i += 2
-                continue
-            }
-            if (folded == "fr" && (nextFolded == "ca" || nextFolded == "fr") && (separator == "-" || separator == "_")) {
-                val variant = if (nextFolded == "ca") StreamLanguageVariant.QUEBEC else StreamLanguageVariant.FRANCE
-                acc.audio += LangHit("fr", variant, if (variant == StreamLanguageVariant.QUEBEC) HIGH else MEDIUM, "${token.raw}-${next.raw}")
+            val compound = compoundAt(i)
+            if (compound != null && next != null) {
+                acc.audio += LangHit(compound.language, compound.variant, compound.confidence, "${token.raw}-${next.raw}")
                 consumed[i] = true
                 consumed[i + 1] = true
                 i += 2
                 continue
             }
             val frenchWord = folded == "french" || folded == "francais" || (folded == "fr" && token.isUpperCase)
-            val canadaWord = setOf("canadian", "canada", "canadien", "canadienne", "quebec", "quebecois", "quebecoise")
-            if (next != null && ((frenchWord && nextFolded in canadaWord) ||
-                    (folded in canadaWord && (nextFolded == "french" || nextFolded == "francais")))
+            if (next != null && ((frenchWord && nextFolded in CANADA_WORDS) ||
+                    (folded in CANADA_WORDS && (nextFolded == "french" || nextFolded == "francais")))
             ) {
                 if (tierBAllowed(i)) {
                     acc.audio += LangHit("fr", StreamLanguageVariant.QUEBEC, HIGH, "${token.raw} ${next.raw}")
@@ -756,6 +870,17 @@ object StreamInsightParser {
                 i += 2
                 continue
             }
+            // "Multi 4 lang"
+            val afterNext = tokens.getOrNull(i + 2)?.folded
+            if (folded == "multi" && nextFolded != null && nextFolded.all(Char::isDigit) && afterNext in MULTI_COMPANIONS) {
+                acc.multi = true
+                acc.addOriginal(MEDIUM)
+                consumed[i] = true
+                consumed[i + 1] = true
+                consumed[i + 2] = true
+                i += 3
+                continue
+            }
             if (folded == "dual" && nextFolded == "audio") {
                 acc.dual = true
                 acc.addOriginal(MEDIUM)
@@ -764,11 +889,12 @@ object StreamInsightParser {
                 i += 2
                 continue
             }
-            if (folded == "multi" && next != null && (nextFolded in SUBTITLE_WORDS)) {
+            // "Multi-Subs", "Multiple Subtitle": the subtitle word itself is read next (it may
+            // head a list: "[Multiple Subtitle] [ENG][POR-BR]").
+            if ((folded == "multi" || folded == "multiple") && nextFolded != null && nextFolded in SUBTITLE_WORDS) {
                 acc.multiSubs = true
                 consumed[i] = true
-                consumed[i + 1] = true
-                i += 2
+                i++
                 continue
             }
             val sousTitres = folded == "sous" && (nextFolded == "titre" || nextFolded == "titres")
@@ -776,32 +902,94 @@ object StreamInsightParser {
                 consumed[i] = true
                 if (sousTitres) consumed[i + 1] = true
                 val subtitledRelease = folded == "subbed"
-                // "<lang> SUBS" / "FRENCH.SUBBED": the one token right before.
-                val previous = i - 1
-                if (previous >= 0 && !consumed[previous]) {
-                    if (tokens[previous].folded == "multi") {
-                        acc.multiSubs = true
-                        consumed[previous] = true
-                    } else {
-                        subtitleLanguageAt(previous)?.let { language ->
-                            addSubtitle(language, "${tokens[previous].raw} ${token.raw}")
-                            if (language.first == "fr" && subtitledRelease) acc.frenchSubtitledRelease = true
-                            consumed[previous] = true
-                        }
-                    }
-                }
-                // "SUBS: English, French" / "SUB ITA": consecutive languages right after.
+
+                // After the word: "SUBS: English, French", "Sub (rus eng)", "[Sub - English Arabic]".
+                val forwardHits = mutableListOf<Pair<Pair<String, StreamLanguageVariant>, String>>()
+                val forwardIndices = mutableSetOf<Int>()
                 var j = i + (if (sousTitres) 2 else 1)
                 while (j < tokens.size && !consumed[j]) {
-                    val language = subtitleLanguageAt(j)
-                    if (language == null) {
-                        if (tokens[j].folded == "and" || tokens[j].folded == "et") { j++; continue }
+                    // "[Napisy ENG-PL] [ENG-Dubbing PL]": the list ends with its bracket group
+                    // unless the next group is nothing but languages ("[ENG][POR-BR][SPA-LA]").
+                    if (forwardHits.isNotEmpty() && line.separatorAfter(j - 1).any { it == ']' || it == ')' } &&
+                        !isLanguageOnlyGroup(line, j)
+                    ) {
                         break
                     }
-                    addSubtitle(language, "${token.raw} ${tokens[j].raw}")
-                    if (language.first == "fr" && subtitledRelease) acc.frenchSubtitledRelease = true
-                    consumed[j] = true
+                    val forwardCompound = compoundAt(j)
+                    if (forwardCompound != null && !consumed[j + 1]) {
+                        forwardHits += (forwardCompound.language to forwardCompound.variant) to "${token.raw} ${tokens[j].raw}-${tokens[j + 1].raw}"
+                        forwardIndices += j
+                        forwardIndices += j + 1
+                        j += 2
+                        continue
+                    }
+                    val language = subtitleLanguageAt(j, anyCase = true)
+                    if (language == null) {
+                        if (tokens[j].folded in LIST_JOINERS && forwardHits.isNotEmpty()) { j++; continue }
+                        // "Sub Rus Ukr Eng Multi 4": more subtitle tracks than named.
+                        if (tokens[j].folded == "multi" && forwardHits.isNotEmpty()) {
+                            acc.multiSubs = true
+                            forwardIndices += j
+                        }
+                        break
+                    }
+                    forwardHits += language to "${token.raw} ${tokens[j].raw}"
+                    forwardIndices += j
                     j++
+                }
+                // "[Multi-Subs] (English Japanese Hindi … Dubs)": that list is the dubs.
+                val forwardIsDubList = forwardHits.isNotEmpty() && groupEndsWithDubWord(line, forwardIndices.max())
+                // "[Dubbing & Napisy PL]": the language is both the dub and the subtitles.
+                val sharedWithDub = i > 0 && tokens[i - 1].folded in SHARED_DUB_WORDS &&
+                    line.separatorAfter(i - 1).let { it.contains('&') || it.contains('+') }
+                if (forwardHits.isNotEmpty() && !forwardIsDubList) {
+                    forwardHits.forEach { (language, evidence) ->
+                        addSubtitle(language, evidence)
+                        if (sharedWithDub) acc.audio += LangHit(language.first, language.second, MEDIUM, evidence)
+                        if (language.first == "fr" && subtitledRelease) acc.frenchSubtitledRelease = true
+                    }
+                    forwardIndices.forEach { consumed[it] = true }
+                } else {
+                    // Before the word: "ENG SUBS", "FRENCH.SUBBED", "English Hardcoded Subs",
+                    // "(Eng/Multi subs)". A run of several languages is the audio list of the
+                    // release ("ITA.FRE.SUB", "Ita Eng Jap SubS") unless the audio languages are
+                    // named elsewhere on the line ("French Castellano … Eng Spa Subs").
+                    val run = mutableListOf<Int>()
+                    var relaxedOnly = false
+                    var k = i - 1
+                    while (k >= 0 && isRunSeparator(line.separatorAfter(k))) {
+                        val previous = tokens[k]
+                        if (run.isEmpty() && (previous.folded in SUBTITLE_QUALIFIERS ||
+                                previous.folded == "multi" || previous.folded == "multiple")
+                        ) {
+                            if (previous.folded != "multiple" && previous.folded !in SUBTITLE_QUALIFIERS) acc.multiSubs = true
+                            consumed[k] = true
+                            k--
+                            continue
+                        }
+                        if (consumed[k] || subtitleLanguageAt(k, anyCase = false) == null) break
+                        if (run.isEmpty()) {
+                            val spec = LANGUAGE_SPECS[previous.folded]
+                            relaxedOnly = spec != null && spec.upperOnly && !previous.isUpperCase
+                        }
+                        run += k
+                        if (subtitledRelease) break
+                        k--
+                    }
+                    val asSubtitles = when {
+                        run.isEmpty() -> false
+                        // "MVO.Fre.Subs": a lone short code that is not upper case is too weak.
+                        run.size == 1 -> !relaxedOnly
+                        else -> otherAudioLanguageOnLine(run.toSet() + forwardIndices + i)
+                    }
+                    if (asSubtitles) {
+                        run.forEach { index ->
+                            val language = subtitleLanguageAt(index, anyCase = false) ?: return@forEach
+                            addSubtitle(language, "${tokens[index].raw} ${token.raw}")
+                            if (language.first == "fr" && subtitledRelease) acc.frenchSubtitledRelease = true
+                            consumed[index] = true
+                        }
+                    }
                 }
                 i++
                 continue
@@ -809,7 +997,23 @@ object StreamInsightParser {
             if (folded == "hc" && token.isUpperCase && line.anchorIndex in 0 until i) {
                 acc.hardSubs = true
                 consumed[i] = true
+                // "(HC-KOR)": hardcoded Korean subtitles.
+                val burned = if (next != null && separator.length <= 1) subtitleLanguageAt(i + 1, anyCase = true) else null
+                if (burned != null) {
+                    addSubtitle(burned, "${token.raw}-${next!!.raw}")
+                    consumed[i + 1] = true
+                    i += 2
+                    continue
+                }
             }
+            // "German DL": German scene for dual language (German + original).
+            if (folded == "dl" && i > 0 && specFor(i - 1)?.kind == SpecKind.LANGUAGE) {
+                acc.dual = true
+                acc.addOriginal(MEDIUM)
+                consumed[i] = true
+            }
+            if (folded in VOICE_OVER_WORDS) acc.voiceOver = true
+            if (token.raw == "DUBBED" && line.anchorIndex in 0 until i) acc.dubbedTag = true
             i++
         }
 
@@ -817,22 +1021,41 @@ object StreamInsightParser {
         for (index in tokens.indices) {
             if (consumed[index]) continue
             val spec = specFor(index) ?: continue
-            if (!spec.tierA && !tierBAllowed(index)) continue
+            if (!spec.tierA && !tierBAllowed(index)) {
+                // Part of the movie title ("The French Connection (1971)"): a flag derived from
+                // that word is not a language either.
+                if (line.role == LineRole.RELEASE && line.anchorIndex > index) {
+                    spec.targets.forEach { acc.titleWordLanguages += it.first }
+                }
+                continue
+            }
             val raw = tokens[index].raw
             when (spec.kind) {
-                SpecKind.MULTI -> acc.multi = true
+                SpecKind.MULTI -> {
+                    acc.multi = true
+                    if (tokens[index].folded == "multi") acc.sceneMulti = true
+                }
                 SpecKind.DUAL -> acc.dual = true
                 SpecKind.ORIGINAL, SpecKind.LANGUAGE -> Unit
             }
             spec.original?.let(acc::addOriginal)
             spec.targets.forEach { (language, variant) ->
-                acc.audio += LangHit(language, variant, spec.confidence, raw, explicitDub = spec.explicitDub)
+                acc.audio += LangHit(
+                    language, variant, spec.confidence, raw,
+                    explicitDub = spec.explicitDub, weakVariant = spec.weakVariant,
+                )
             }
         }
 
-        // Flags: audio, unless the line is about subtitles.
+        // Flags: resolved in [finalizeLanguages] against what the text says.
         if (line.flags.isNotEmpty()) {
-            val subtitleLine = line.subtitleMarker || tokens.indices.any(::isSubtitleWord)
+            fun multiQualified(index: Int): Boolean =
+                tokens.getOrNull(index - 1)?.folded.let { it == "multi" || it == "multiple" }
+            val subtitleLine = line.subtitleMarker || tokens.indices.any { isSubtitleWord(it) && !multiQualified(it) }
+            val multiSubsLine = !subtitleLine && (
+                tokens.indices.any { isSubtitleWord(it) && multiQualified(it) } ||
+                    tokens.any { SUBTITLE_COMBINED[it.folded]?.multiSubs == true }
+                )
             line.flags.forEach { country ->
                 if (country == "CA") {
                     if (!subtitleLine) acc.canadaFlag = true
@@ -840,14 +1063,106 @@ object StreamInsightParser {
                 }
                 if (country == "FR" && !subtitleLine) acc.franceFlag = true
                 val language = FLAG_LANGUAGES[country] ?: return@forEach
-                val evidence = flagEmoji(country)
-                if (subtitleLine) {
-                    acc.subtitles += LangHit(language.first, language.second, MEDIUM, evidence, indirect = true)
-                } else {
-                    acc.audio += LangHit(language.first, language.second, MEDIUM, evidence, indirect = true)
-                }
+                acc.flags += FlagHit(country, language.first, language.second, subtitleLine, multiSubsLine)
             }
         }
+    }
+
+    private val CANADA_WORDS = setOf("canadian", "canada", "canadien", "canadienne", "quebec", "quebecois", "quebecoise")
+    private val PORTUGUESE_CODES = setOf("pt", "por")
+    private val SPANISH_CODES = setOf("es", "spa", "esp")
+    private val LATAM_SUFFIXES = setOf("la", "lat", "latam", "419", "mx")
+    private val FRENCH_CODES = setOf("fr", "fre", "fra")
+
+    /** "PT-BR", "POR-BR", "SPA-LA", "es-419", "fr-CA", "FR-FR" (two tokens). */
+    private fun compoundLanguage(first: String, second: String, separator: String): LangCompound? {
+        val joined = separator == "-" || separator == "_"
+        return when {
+            first in PORTUGUESE_CODES && second == "br" && separator.length <= 1 ->
+                LangCompound("pt", StreamLanguageVariant.BRAZIL, HIGH)
+            first in PORTUGUESE_CODES && second == "pt" && separator.length <= 1 ->
+                LangCompound("pt", StreamLanguageVariant.PORTUGAL, HIGH)
+            first == "es" && second == "419" && separator.length <= 1 ->
+                LangCompound("es", StreamLanguageVariant.LATIN_AMERICA, HIGH)
+            first in SPANISH_CODES && second in LATAM_SUFFIXES && joined ->
+                LangCompound("es", StreamLanguageVariant.LATIN_AMERICA, HIGH)
+            first in FRENCH_CODES && (second == "ca" || second == "qc") && joined ->
+                LangCompound("fr", StreamLanguageVariant.QUEBEC, HIGH)
+            first == "fr" && second == "fr" && joined ->
+                LangCompound("fr", StreamLanguageVariant.FRANCE, MEDIUM)
+            else -> null
+        }
+    }
+
+    /** "Eng Spa", "ITA.FRE", "Eng/Multi", "Rus, Eng" — not " - " (which closes a group: "ORG Hindi - Eng Sub"). */
+    private fun isRunSeparator(separator: String): Boolean {
+        if (separator.length > 2) return false
+        val trimmed = separator.trim()
+        if (trimmed == "-" && separator.contains(' ')) return false
+        return trimmed.isEmpty() || trimmed == "." || trimmed == "_" || trimmed == "-" || trimmed == "/" || trimmed == ","
+    }
+
+    /** The bracket group holding token [last] ends with "Dubs" / "Audio" ("(English Japanese … Dubs)"). */
+    private fun groupEndsWithDubWord(line: Line, last: Int): Boolean {
+        var index = last
+        while (index + 1 < line.tokens.size) {
+            if (line.separatorAfter(index).any { it == ')' || it == ']' || it == '|' || it == '\n' }) return false
+            index++
+            if (line.tokens[index].folded in DUB_WORDS) return true
+        }
+        return false
+    }
+
+    private fun isLanguageWord(token: Tok): Boolean =
+        LANGUAGE_SPECS[token.folded] != null || token.folded in SUBTITLE_WORDS || token.folded in SUBTITLE_COMBINED
+
+    /** The bracket group opening at token [start] holds only language codes ("[POR-BR]", "[ENG]"). */
+    private fun isLanguageOnlyGroup(line: Line, start: Int): Boolean {
+        var index = start
+        while (index < line.tokens.size) {
+            val token = line.tokens[index]
+            if (!isLanguageWord(token) && token.folded !in LANGUAGE_SUFFIX_WORDS) return false
+            val after = if (index == line.tokens.size - 1) "]" else line.separatorAfter(index)
+            if (after.contains(']') || after.contains(')')) return true
+            index++
+        }
+        return true
+    }
+
+    /** "[JPN-ENG]", "(CZ/EN)", "(Spanish.French.Subs)": a bracket group holding only language words. */
+    private fun inBracketedLanguageGroup(line: Line, index: Int): Boolean {
+        val tokens = line.tokens
+        var first = index
+        while (true) {
+            val before = line.text.substring(if (first == 0) 0 else tokens[first - 1].end, tokens[first].start)
+            if (before.contains('[') || before.contains('(')) break
+            if (first == 0 || !isLanguageWord(tokens[first - 1])) return false
+            first--
+        }
+        var last = index
+        while (true) {
+            val after = if (last == tokens.size - 1) line.text.substring(tokens[last].end) else line.separatorAfter(last)
+            if (after.contains(']') || after.contains(')')) return true
+            if (last == tokens.size - 1 || !isLanguageWord(tokens[last + 1])) return false
+            last++
+        }
+    }
+
+    private fun digitPrefixedSpec(folded: String): LanguageSpec? {
+        if (folded.isEmpty() || !folded[0].isDigit()) return null
+        val match = DIGIT_PREFIX_REGEX.matchEntire(folded) ?: return null
+        // "2xUkr" is a track count, so even a short code counts; "1ingles" (5.1Ingles) needs a word.
+        val counted = match.groupValues[1].isNotEmpty()
+        return LANGUAGE_SPECS[match.groupValues[2]]?.takeIf { (counted || !it.upperOnly) && it.kind == SpecKind.LANGUAGE }
+    }
+
+    private fun gluedSubtitleLanguage(prefix: String): Pair<String, StreamLanguageVariant>? {
+        if (prefix == "no") return null // "NoSubs"
+        val spec = LANGUAGE_SPECS[prefix]
+        if (spec != null && spec.kind == SpecKind.LANGUAGE && !spec.explicitDub && spec.targets.size == 1) {
+            return spec.targets.first()
+        }
+        return if (prefix in SUBTITLE_SHORT_CODES) prefix to U else null
     }
 
     private fun applySubtitleCombined(combined: SubtitleCombined, evidence: String, acc: Accumulator) {
@@ -880,10 +1195,12 @@ object StreamInsightParser {
     private val FLAG_LANGUAGES: Map<String, Pair<String, StreamLanguageVariant>> = buildMap {
         put("FR", "fr" to U)
         listOf("GB", "US", "AU", "NZ", "IE").forEach { put(it, "en" to U) }
-        put("ES", "es" to StreamLanguageVariant.SPAIN)
+        // Torrentio / Peerflix show 🇪🇸 for any Spanish and 🇵🇹 for any Portuguese (a "Dublado"
+        // Brazilian release gets 🇵🇹): the flag says the language, not the variant. 🇲🇽 and 🇧🇷 do.
+        put("ES", "es" to U)
         listOf("MX", "AR", "CO", "CL", "PE", "VE").forEach { put(it, "es" to StreamLanguageVariant.LATIN_AMERICA) }
         put("BR", "pt" to StreamLanguageVariant.BRAZIL)
-        put("PT", "pt" to StreamLanguageVariant.PORTUGAL)
+        put("PT", "pt" to U)
         put("IT", "it" to U)
         put("DE", "de" to U)
         put("AT", "de" to U)
@@ -973,17 +1290,52 @@ object StreamInsightParser {
         }
     }
 
-    private fun finalizeLanguages(acc: Accumulator): Pair<List<StreamLanguage>, List<StreamLanguage>> {
+    private fun finalizeLanguages(acc: Accumulator, provider: String?): Pair<List<StreamLanguage>, List<StreamLanguage>> {
         val audio = acc.audio.toMutableList()
+        val flagSubtitles = mutableListOf<LangHit>()
 
         // VOSTFR / SUBFRENCH / FRENCH.SUBBED: French is the subtitle, not a dub — unless an
         // explicit dub tag (VFF, VFQ, TRUEFRENCH…) says otherwise.
         if (acc.frenchSubtitledRelease) {
             audio.removeAll { it.language == "fr" && !it.explicitDub }
         }
-        // A flag/structured language that the title states as a subtitle is a subtitle.
+        // A structured language that the title states as a subtitle is a subtitle.
         val subtitleLanguages = acc.subtitles.map { it.language }.toSet()
         audio.removeAll { it.indirect && it.language in subtitleLanguages }
+
+        // Flags. They repeat what the release name mentions, subtitles included, so: a language
+        // the text names as audio is confirmed; one it names as a subtitle stays a subtitle; on a
+        // "Multi Subs" line an unexplained flag is a subtitle; otherwise an unexplained flag only
+        // counts when the text names no audio language at all or announces several tracks
+        // (MULTi / DUAL: the flags then say which). A flag born from a title word ("The French
+        // Connection" → 🇫🇷) is dropped.
+        val textAudio = audio.filter { !it.indirect }.map { it.language }.toSet()
+        val severalTracks = acc.multi || acc.dual || acc.sceneMulti
+        val flags = acc.flags.filter { flag ->
+            !(flag.language in acc.titleWordLanguages && flag.language !in textAudio) &&
+                !(flag.country == "IN" && textAudio.any { it in INDIAN_LANGUAGES })
+        }
+        // "Dual Audio / Multi Subs / 🇬🇧": one or two unexplained flags next to a dual-audio tag
+        // name the dub; a long list next to "Multi Subs" names the subtitles.
+        val unexplained = flags.count { !it.subtitleLine && it.language !in textAudio && it.language !in subtitleLanguages }
+        val multiSubsFlagsAreAudio = severalTracks && unexplained <= 2
+        // "Dual Audio" is two tracks: a long flag list next to it ("Dubbed / Dual Audio / 🇬🇧 / 🇷🇺
+        // / 🇮🇹 / … 14 flags") lists the subtitles, not the dubs.
+        val dualOnly = acc.dual && !acc.multi && !acc.sceneMulti
+        for (flag in flags) {
+            val language = flag.language
+            val hit = LangHit(language, flag.variant, MEDIUM, flagEmoji(flag.country), indirect = true)
+            when {
+                flag.subtitleLine -> flagSubtitles += hit
+                language in textAudio -> audio += hit
+                language in subtitleLanguages -> Unit
+                flag.multiSubsLine && !multiSubsFlagsAreAudio -> flagSubtitles += hit
+                dualOnly && unexplained > 4 -> flagSubtitles += hit
+                textAudio.isEmpty() || severalTracks -> audio += hit
+                acc.voiceOver && (language == "ru" || language == "uk") -> audio += hit
+                else -> Unit
+            }
+        }
 
         // 🇨🇦: French (Québec) or English (Canada) — a low-confidence hint, combined with the rest.
         if (acc.canadaFlag) {
@@ -1009,19 +1361,37 @@ object StreamInsightParser {
             }
         }
 
-        // MULTi: several audio tracks, in practice the original + French. Only assumed when the
-        // title names no other non-English dub and is not a subtitled release.
-        if (acc.multi && audio.none { it.language == "fr" } && !acc.frenchSubtitledRelease &&
+        // Scene MULTi: several audio tracks, in practice the original + French (French scene
+        // convention). Only assumed for the bare scene tag — not "Multi Audio" / "MultiLang" /
+        // "Multi 4 lang", which other scenes use too — when the title names no other non-English
+        // dub and is not a subtitled release.
+        if (acc.sceneMulti && audio.none { it.language == "fr" } && !acc.frenchSubtitledRelease &&
             audio.none { it.language != "en" }
         ) {
             audio += LangHit("fr", StreamLanguageVariant.UNSPECIFIED, LOW, "MULTi")
         }
 
+        // Portuguese from a Brazilian site (Comando, BluDV) is Brazilian Portuguese.
+        if (provider?.lowercase()?.filter { it.isLetter() } in BRAZILIAN_PROVIDERS) {
+            audio.replaceAll { hit ->
+                if (hit.language == "pt" && hit.variant == StreamLanguageVariant.UNSPECIFIED) {
+                    LangHit("pt", StreamLanguageVariant.BRAZIL, LOW, hit.evidence, indirect = true)
+                } else {
+                    hit
+                }
+            }
+        }
+
+        // "SPANiSH.LATiNO": the default variant of "SPANISH" gives way to the one named.
+        val namedVariants = audio.filter { !it.weakVariant && it.variant != StreamLanguageVariant.UNSPECIFIED }
+            .map { it.language }.toSet()
+        audio.removeAll { it.weakVariant && it.language in namedVariants }
+
         // A specific variant explains the generic mention ("FRENCH … VFQ" is VFQ, not VF + VFQ).
         val specificLanguages = audio.filter { it.variant != StreamLanguageVariant.UNSPECIFIED }.map { it.language }.toSet()
         audio.removeAll { it.variant == StreamLanguageVariant.UNSPECIFIED && it.language in specificLanguages }
 
-        val subtitles = (acc.subtitles + acc.externalSubtitles).toMutableList()
+        val subtitles = (acc.subtitles + flagSubtitles + acc.externalSubtitles).toMutableList()
         val specificSubtitles = subtitles.filter { it.variant != StreamLanguageVariant.UNSPECIFIED }.map { it.language }.toSet()
         subtitles.removeAll { it.variant == StreamLanguageVariant.UNSPECIFIED && it.language in specificSubtitles }
 

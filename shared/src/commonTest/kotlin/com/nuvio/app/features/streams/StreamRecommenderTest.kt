@@ -362,4 +362,64 @@ class StreamRecommenderTest {
     }
 
     // endregion
+
+    // region Real lists (Torrentio, 2026-10)
+
+    private val frenchFilm = context.copy(originalLanguage = "fr")
+
+    @Test
+    fun frenchFilmTaggedFrenchIsTheOriginalForBothVersions() {
+        // Incendies / Le Comte de Monte-Cristo: "FRENCH" and "TRUEFRENCH" name the original track.
+        val options = linkedMapOf(
+            "remuxFrench" to "Incendies.2010.FRENCH.1080p.BluRay.REMUX.AVC.DTS-HD.MA.5.1-FGT",
+            "untagged4k" to "Incendies.2010.2160p.4K.BluRay.x265.10bit.AAC5.1-[YTS.MX]",
+            "trueFrench" to "Le.Comte.de.Monte-Cristo.2024.TRUEFRENCH.1080p.WEB.H264-FW",
+        )
+        for (audio in listOf(StreamRankingPreferences.AUDIO_FRENCH_FRANCE, StreamRankingPreferences.AUDIO_FRENCH_QUEBEC)) {
+            val order = ranked(options, prefs(audio = audio), frenchFilm)
+            assertTrue(order.indexOf("remuxFrench") < order.indexOf("untagged4k"), "$audio: a tagged French original beats an untagged one")
+            val trueFrench = StreamRecommender.recommend(insight(options.getValue("trueFrench")), prefs(audio = audio), frenchFilm)
+            assertEquals(StreamReasonKind.LANGUAGE, trueFrench.reasons.first().kind, "$audio: the original is never 'other version'")
+        }
+    }
+
+    @Test
+    fun dubbedReleaseIsNotTheOriginal() {
+        val dubbed = StreamRecommender.recommend(
+            insight("Lupin.S01E01.DUBBED.1080p.NF.WEBRip.DDP5.1.x264-NOGRP"),
+            prefs(audio = StreamRankingPreferences.AUDIO_FRENCH_FRANCE),
+            frenchFilm,
+        )
+        assertTrue(dubbed.insight.isDubbed)
+        assertTrue(dubbed.reasons.none { it.kind == StreamReasonKind.LANGUAGE })
+        val french = StreamRecommender.recommend(
+            insight("Lupin.S01E01.FRENCH.720p.NF.WEBRip.x264"),
+            prefs(audio = StreamRankingPreferences.AUDIO_FRENCH_FRANCE),
+            frenchFilm,
+        )
+        assertTrue(french.score > dubbed.score)
+    }
+
+    @Test
+    fun torrentioFlagNoiseDoesNotOutrankRealFrench() {
+        // QxR "French" + a stray 🇬🇧: still French only; and the ENSUB release is French audio.
+        val vff = prefs(audio = StreamRankingPreferences.AUDIO_FRENCH_FRANCE)
+        val ensub = StreamRecommender.recommend(
+            insight("Anatomy Of A Fall (2023) FRENCH.ENSUB 720p WEBRip-WORLD\n🇬🇧 / 🇫🇷"), vff, frenchFilm,
+        )
+        assertEquals(StreamReason(StreamReasonKind.LANGUAGE, "VF"), ensub.reasons.first())
+        // Dual-audio anime listing 9 subtitle flags is not a French dub.
+        val anime = StreamRecommender.recommend(
+            insight(
+                "[Sokudo] Sousou no Frieren S01E01 v3 [1080p EAC3 AV1][dual audio]\n" +
+                    "Dubbed / Dual Audio / 🇬🇧 / 🇷🇺 / 🇮🇹 / 🇵🇹 / 🇪🇸 / 🇲🇽 / 🇫🇷 / 🇩🇪 / 🇸🇦",
+            ),
+            vff,
+            context.copy(originalLanguage = "ja"),
+        )
+        assertTrue(anime.insight.audioLanguages.none { it.language == "fr" })
+        assertEquals(StreamReason(StreamReasonKind.SUBTITLED, "VOSTFR"), anime.reasons.first())
+    }
+
+    // endregion
 }

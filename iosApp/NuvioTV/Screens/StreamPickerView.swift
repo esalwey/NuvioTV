@@ -25,11 +25,14 @@ import SharedCore
 /// summary. STAB-04: addons that failed or timed out (15 s) stay listed, dimmed, with Retry.
 ///
 /// STREAM-INSIGHT: rows no longer print the add-on's raw title. The shared parser reads it
-/// (`StreamInsightParser`) and each row shows a quality line ("4K · Dolby Vision · Atmos"), audio
-/// chips with the French version visible (VFF / VFQ / VF), subtitle chips, size, cache state and
-/// source/provider; the original title stays one line below and in full in the footer, with the
-/// reasons behind the ranking. Each group is sorted best-first for the viewer's preferences
-/// (Settings → Playback → Stream Recommendations); the pinned row is the "Recommended" pick.
+/// (`StreamInsightParser`) and each row shows, for the 3 m read, a quality line (resolution big,
+/// then "Dolby Vision · Atmos"), audio chips with the French version visible (VFF / VFQ / "VF ?")
+/// then subtitle chips, the size and ready-to-play state in a right column, and one fixed third
+/// line (a warning, the recommended row's reasons, or source/provider on focus). The original
+/// title is only in the footer. Each group is sorted best-first for the viewer's preferences
+/// (Settings → Playback → Stream Recommendations), in sections ("Dans votre langue", "Autre
+/// version", "VO sous-titrée"…); the pinned row is the "Recommended" pick. Imported badge-pack
+/// chips sit in the third line whatever their TOP/BOTTOM placement (the row has one fixed height).
 ///
 /// Focus: rows and group headers carry stable focus keys. Initial focus lands on the first
 /// group's header (its first row when that group auto-expanded), then moves to the Best Match row
@@ -138,7 +141,14 @@ struct StreamPickerView: View {
     /// F10: one fixed height for every stream row (scales with the text size), so moving down the
     /// list never shifts the rows below. The full release name of the focused row is shown in the
     /// footer under the list instead of growing the row (the old BUG-16 behaviour).
-    @ScaledMetric(relativeTo: .body) private var streamRowHeight: CGFloat = 184
+    ///
+    /// STREAM-INSIGHT readability pass: quality line (Headline) + chips line + one fixed slot
+    /// (warning, reasons, or source on focus) — three lines, read at 3 m.
+    @ScaledMetric(relativeTo: .body) private var streamRowHeight: CGFloat = 178
+    /// The third line's slot: fixed, so revealing the source on focus never moves anything.
+    @ScaledMetric(relativeTo: .caption2) private var rowSlotHeight: CGFloat = 40
+    /// The size / ready-to-play column, the same width on every row so sizes line up.
+    @ScaledMetric(relativeTo: .callout) private var sizeColumnWidth: CGFloat = 260
     @ScaledMetric(relativeTo: .caption2) private var focusedNameFooterHeight: CGFloat = 96
     /// Addon ids whose group is currently expanded. Collapsed (absent) by default; see
     /// `body`'s F10 auto-expand (`model.autoExpandGroupId`) and `toggleExpansion(_:)`.
@@ -557,8 +567,15 @@ struct StreamPickerView: View {
                     // the old always-expanded list built every row of every addon.
                     if expandedGroups.contains(group.id) {
                         LazyVStack(alignment: .leading, spacing: Theme.Spacing.sm) {
+                            let tiers = group.streams.map { model.info(for: $0)?.tier }
+                            let showsTiers = Set(tiers.compactMap { $0 }).count > 1
                             ForEach(Array(group.streams.enumerated()), id: \.offset) { index, stream in
-                                streamRow(stream, key: StreamsViewModel.rowKey(groupId: group.id, index: index))
+                                VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
+                                    if showsTiers, let tier = tiers[index], index == 0 || tiers[index - 1] != tier {
+                                        tierHeader(tier, count: tiers.filter { $0 == tier }.count)
+                                    }
+                                    streamRow(stream, key: StreamsViewModel.rowKey(groupId: group.id, index: index))
+                                }
                             }
                         }
                         // Rows sit under their addon's name, not under its chevron.
@@ -624,8 +641,8 @@ struct StreamPickerView: View {
     /// a long name is cut in the row and read here in full. Fixed height: focus moving between
     /// rows never resizes the list above it.
     ///
-    /// STREAM-INSIGHT: the original title as the add-on wrote it (emoji removed), under the reasons
-    /// the row ranks where it does ("Recommended · VFF · 4K DV · Atmos · Cached").
+    /// STREAM-INSIGHT: the original title as the add-on wrote it (emoji removed) — the only place it
+    /// appears — under what the focused row does not already say (its reasons, or its source).
     private var focusedNameFooter: some View {
         let stream = focusedRow.flatMap { model.stream(forRowKey: $0) }
         let info = stream.flatMap { model.info(for: $0) }
@@ -635,12 +652,15 @@ struct StreamPickerView: View {
             if let desc, !desc.isEmpty { return StreamInsightText.shared.stripEmojiSingleLine(text: desc) }
             return stream.map { StreamInsightText.shared.stripEmojiSingleLine(text: $0.streamLabel) } ?? ""
         }()
+        // No repeat of the row's third line: the recommended row shows its reasons there, so the
+        // footer gives its source; any other row reveals its source there on focus, so the footer
+        // gives its reasons (plus a downside the row does not already flag).
         let reasons: String = {
             guard let info, let stream else { return "" }
+            if model.isTopPick(stream) { return info.detail }
             var parts: [String] = []
-            if model.isTopPick(stream) { parts.append(StreamInsightPresenter.recommendedLabel) }
             if !info.reasons.isEmpty { parts.append(info.reasons) }
-            if let caveat = info.caveat { parts.append(caveat) }
+            if let caveat = info.caveat, !info.isExcluded, !info.isLowQuality { parts.append(caveat) }
             return parts.joined(separator: " \u{00B7} ")
         }()
         return VStack(alignment: .leading, spacing: Theme.Spacing.xxs) {
@@ -1079,10 +1099,14 @@ struct StreamPickerView: View {
 
     /// - Parameter pinnedLabel: the "Recommended" / "Best Match" / "Last Used" capsule of the pinned row.
     ///
-    /// STREAM-INSIGHT layout (fixed height, F10): the quality line ("4K · Dolby Vision · Atmos",
-    /// the add-on's name when the title states nothing technical), then the chips — size, audio
-    /// languages (VFF, VFQ, Anglais…), subtitles, cache state — then source · provider · seeders ·
-    /// group, then the original title cut in the middle (in full in the footer).
+    /// STREAM-INSIGHT layout, built for the 3 m read (fixed height, F10):
+    /// 1. the quality line — resolution big and bold ("4K"), then HDR · audio · REMUX;
+    /// 2. the language chips — audio first (solid: VFF, VFQ, "VF ?", Anglais…), then subtitles
+    ///    (outlined, behind a captions symbol);
+    /// 3. one fixed slot: a warning (CAM, over a limit) always; the reasons on the recommended
+    ///    row; otherwise source · provider · group, revealed on focus only.
+    /// The size and the ready-to-play state sit in a fixed right column so they line up down the
+    /// list; the add-on's raw title is only in the footer under the list.
     private func streamRow(_ stream: StreamItem, key: String, pinnedLabel: String? = nil) -> some View {
         let badges: [StreamBadge] = stream.badges
         let hintSize: Int64? = stream.behaviorHints.videoSize?.int64Value
@@ -1090,69 +1114,59 @@ struct StreamPickerView: View {
         let sizeBytes: Int64? = model.showFileSizeBadges ? (info?.sizeBytes ?? hintSize) : nil
         let isTopPick = pinnedLabel == nil && model.isTopPick(stream)
         let isExcluded = info?.isExcluded == true
+        let recommended = isTopPick || pinnedLabel == StreamInsightPresenter.recommendedLabel
+        let resolution: String = info?.resolution ?? ""
+        let extras: String = {
+            let value = info?.qualityExtras ?? ""
+            // Nothing technical in the title: the add-on's own label stands in.
+            return resolution.isEmpty && value.isEmpty ? rowTitle(stream) : value
+        }()
         let quality: String = {
             if let quality = info?.quality, !quality.isEmpty { return quality }
             return rowTitle(stream)
         }()
-        let detail: String = info?.detail ?? ""
-        let rawTitle: String = info?.rawTitle ?? StreamInsightText.shared.stripEmojiSingleLine(text: stream.streamLabel)
 
         return Button {
             play(stream, rowKey: key)
         } label: {
             HStack(alignment: .center, spacing: Theme.Spacing.lg) {
                 VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
-                    if !badges.isEmpty && model.badgesOnTop {
-                        badgeRow(badges: badges, sizeBytes: nil)
-                    }
-                    HStack(spacing: Theme.Spacing.sm) {
+                    HStack(alignment: .firstTextBaseline, spacing: Theme.Spacing.sm) {
                         if let pinnedLabel {
                             rowCapsule(pinnedLabel, systemImage: pinnedLabel == StreamInsightPresenter.recommendedLabel
-                                       ? "checkmark.seal.fill" : nil)
+                                       ? "checkmark.seal.fill" : (pinnedLabel == Self.lastUsedLabel ? "clock.arrow.circlepath" : nil))
                         } else if isTopPick {
                             rowCapsule(StreamInsightPresenter.recommendedLabel, systemImage: "checkmark.seal.fill")
                         }
-                        Text(quality)
-                            .font(Theme.Font.body.weight(.semibold))
-                            .rowTextColor()
-                            .lineLimit(1)
-                            .truncationMode(.middle)
+                        if !resolution.isEmpty {
+                            Text(resolution)
+                                .font(Theme.Font.headline.weight(.bold))
+                                .rowTextColor()
+                                .lineLimit(1)
+                                .fixedSize()
+                        }
+                        if !extras.isEmpty {
+                            Text(extras)
+                                .font(Theme.Font.sectionTitle)
+                                .rowTextColor()
+                                .lineLimit(1)
+                                .truncationMode(.tail)
+                        }
                         if resolvingKey == key {
                             ProgressView().scaleEffect(0.7)
                         }
                     }
                     if let info {
-                        StreamLanguageChipsRow(info: info, sizeBytes: sizeBytes)
-                    } else if let sizeBytes {
-                        StreamFileSizeChip(bytes: sizeBytes)
+                        StreamLanguageChipsLine(audio: info.audio, subtitles: info.subtitles)
                     }
-                    if isExcluded || info?.isLowQuality == true, let caveat = info?.caveat {
-                        HStack(spacing: Theme.Spacing.xxs) {
-                            Image(systemName: "exclamationmark.triangle.fill")
-                            Text(detail.isEmpty ? caveat : "\(caveat) \u{00B7} \(detail)")
-                                .lineLimit(1)
-                        }
-                        .font(Theme.Font.caption)
-                        .rowTextColor(secondary: true)
-                    } else if !detail.isEmpty {
-                        Text(detail)
-                            .font(Theme.Font.caption)
-                            .rowTextColor(secondary: true)
-                            .lineLimit(1)
-                    }
-                    if badges.isEmpty {
-                        // The add-on's own title, emoji removed: one line here, in full in the footer.
-                        Text(rawTitle)
-                            .font(Theme.Font.caption)
-                            .rowTextColor(secondary: true)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                            .opacity(0.8)
-                    } else if !model.badgesOnTop {
-                        badgeRow(badges: badges, sizeBytes: nil)
-                    }
+                    rowSlot(info: info, badges: badges, recommended: recommended)
+                        .frame(maxWidth: .infinity, minHeight: rowSlotHeight, maxHeight: rowSlotHeight, alignment: .leading)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
+
+                StreamSizeColumn(sizeBytes: sizeBytes, cache: info?.cache, seeders: info?.seeders,
+                                 showsSize: model.showFileSizeBadges)
+                    .frame(width: sizeColumnWidth, alignment: .trailing)
 
                 if model.showAddonLogo {
                     addonLogoColumn(stream)
@@ -1193,32 +1207,62 @@ struct StreamPickerView: View {
         ))
     }
 
-    /// The "Recommended" / "Best Match" / "Last Used" capsule.
-    private func rowCapsule(_ text: String, systemImage: String?) -> some View {
-        HStack(spacing: Theme.Spacing.xxs) {
-            if let systemImage {
-                Image(systemName: systemImage)
-                    .imageScale(.small)
+    /// The row's third line, one fixed-height slot, in priority order: a warning (always shown —
+    /// it changes the choice), the imported badge-pack chips (the viewer installed them to see
+    /// them), the reasons of the recommended row ("VFF · 4K DV · Atmos · En cache"), else the
+    /// secondary facts (source · provider · group) revealed on focus only.
+    @ViewBuilder
+    private func rowSlot(info: StreamRowInfo?, badges: [StreamBadge], recommended: Bool) -> some View {
+        if let info, info.isExcluded || info.isLowQuality, let caveat = info.caveat {
+            HStack(spacing: Theme.Spacing.xxs) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                Text(caveat)
+                    .lineLimit(1)
             }
-            Text(text)
+            .font(Theme.Font.caption.weight(.semibold))
+            .rowTextColor()
+        } else if !badges.isEmpty {
+            badgeRow(badges: badges, sizeBytes: nil)
+        } else if recommended, let info, !info.reasons.isEmpty {
+            HStack(spacing: Theme.Spacing.xxs) {
+                Image(systemName: "checkmark")
+                Text(info.reasons)
+                    .lineLimit(1)
+            }
+            .font(Theme.Font.caption.weight(.semibold))
+            .rowTextColor()
+        } else if let info, !info.detail.isEmpty {
+            StreamFocusRevealText(text: info.detail)
         }
-        .font(Theme.Font.caption.weight(.semibold))
-        .rowTextColor()
-        .padding(.horizontal, Theme.Spacing.xs)
-        .padding(.vertical, 2)
-        .overlay(Capsule().strokeBorder(Theme.Palette.textSecondary, lineWidth: 1))
-        .fixedSize()
+    }
+
+    /// Non-focusable section header inside an add-on's list ("Dans votre langue · 6"): focus
+    /// moves from row to row straight past it.
+    private func tierHeader(_ tier: StreamRowTier, count: Int) -> some View {
+        Text("\(tier.title) \u{00B7} \(count)")
+            .font(Theme.Font.meta)
+            .foregroundStyle(Theme.Palette.textSecondary)
+            .lineLimit(1)
+            .padding(.leading, Theme.Spacing.md)
+            .padding(.top, Theme.Spacing.xs)
+            .accessibilityAddTraits(.isHeader)
+    }
+
+    /// The "Recommended" / "Best Match" / "Last Used" capsule: a filled capsule (inverted on the
+    /// focus platter) so the pick is the first thing seen in the list, not one more outline.
+    private func rowCapsule(_ text: String, systemImage: String?) -> some View {
+        StreamPickCapsule(text: text, systemImage: systemImage)
     }
 
     /// VoiceOver: "Recommended, 4K · Dolby Vision · Atmos, audio VFF, English, subtitles French,
-    /// 18.4 GB, WEB-DL · YggTorrent".
+    /// 18.4 GB, Cached, WEB-DL · YggTorrent".
     private func accessibilityText(quality: String, info: StreamRowInfo?, sizeBytes: Int64?, capsule: String?) -> String {
         var parts: [String] = []
         if let capsule { parts.append(capsule) }
         parts.append(quality)
         if let info {
-            let audioList = info.audio.map { $0.text }.joined(separator: ", ")
-            let subtitleList = info.subtitles.map { $0.text }.joined(separator: ", ")
+            let audioList = info.audio.map { $0.accessibilityText }.joined(separator: ", ")
+            let subtitleList = info.subtitles.map { $0.accessibilityText }.joined(separator: ", ")
             if !audioList.isEmpty {
                 parts.append(String(localized: "streams.a11y.audio", defaultValue: "audio \(audioList)",
                                     comment: "VoiceOver, source picker row: the audio languages. %@ is the list."))
@@ -1229,8 +1273,18 @@ struct StreamPickerView: View {
             }
         }
         if let sizeBytes { parts.append(StreamFileSizeChip.label(for: sizeBytes)) }
+        switch info?.cache {
+        case .cached:
+            parts.append(StreamInsightPresenter.reasonText(StreamReason(kind: .cached, label: "", positive: true)))
+        case .download:
+            parts.append(StreamInsightPresenter.reasonText(StreamReason(kind: .notCached, label: "", positive: false)))
+        case .direct:
+            parts.append(StreamInsightPresenter.reasonText(StreamReason(kind: .direct, label: "", positive: true)))
+        case nil:
+            break
+        }
         if let detail = info?.detail, !detail.isEmpty { parts.append(detail) }
-        if let caveat = info?.caveat, info?.isExcluded == true { parts.append(caveat) }
+        if let caveat = info?.caveat, info?.isExcluded == true || info?.isLowQuality == true { parts.append(caveat) }
         return parts.joined(separator: ", ")
     }
 

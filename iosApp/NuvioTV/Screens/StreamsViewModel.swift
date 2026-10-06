@@ -330,7 +330,10 @@ final class StreamsViewModel: ObservableObject {
     }
 
     /// Scores one group's streams, records their row info, and returns them best first —
-    /// except in an expanded group, whose shown order is kept (new streams go after it).
+    /// except in an expanded group, whose shown order is kept (new streams go after it). "Best
+    /// first" is by section (`StreamRowTier`: in your language, other version, subtitled, other
+    /// languages, outside your limits) and then by score, so each section is one contiguous run
+    /// under its header.
     private func rankGroup(
         _ streams: [StreamItem],
         groupId: String,
@@ -338,7 +341,7 @@ final class StreamsViewModel: ObservableObject {
         context: StreamRankingContext,
         infos: inout [String: StreamRowInfo]
     ) -> [StreamItem] {
-        var entries: [(key: String, stream: StreamItem, score: Int, index: Int)] = []
+        var entries: [(key: String, stream: StreamItem, tier: StreamRowTier, score: Int, index: Int)] = []
         entries.reserveCapacity(streams.count)
         for (index, stream) in streams.enumerated() {
             let key = Self.streamKey(stream)
@@ -347,12 +350,14 @@ final class StreamsViewModel: ObservableObject {
                 preferences: preferences,
                 context: context
             )
-            infos[key] = StreamInsightPresenter.rowInfo(stream: stream, recommendation: recommendation)
-            entries.append((key: key, stream: stream, score: Int(recommendation.score), index: index))
+            let info = StreamInsightPresenter.rowInfo(stream: stream, recommendation: recommendation)
+            infos[key] = info
+            entries.append((key: key, stream: stream, tier: info.tier, score: Int(recommendation.score), index: index))
         }
         guard preferences.enabled else { return streams }
         let desired = entries.sorted { lhs, rhs in
-            lhs.score != rhs.score ? lhs.score > rhs.score : lhs.index < rhs.index
+            if lhs.tier != rhs.tier { return lhs.tier < rhs.tier }
+            return lhs.score != rhs.score ? lhs.score > rhs.score : lhs.index < rhs.index
         }
         guard expandedGroupIds.contains(groupId), let frozen = frozenOrder[groupId] else {
             frozenOrder[groupId] = desired.map { $0.key }
@@ -641,14 +646,17 @@ final class StreamsViewModel: ObservableObject {
             topPickKey = nil
         }
         guard allAnswered else { return }
-        var best: (score: Int, key: String)?
+        // Same order as the rows: the best section first, then the best score in it.
+        var best: (tier: StreamRowTier, score: Int, key: String)?
         for group in groups {
             for stream in group.streams {
                 let key = Self.streamKey(stream)
                 guard let info = rowInfos[key], !info.isExcluded else { continue }
-                if best == nil || info.score > best!.score {
-                    best = (info.score, key)
+                if let current = best,
+                   info.tier > current.tier || (info.tier == current.tier && info.score <= current.score) {
+                    continue
                 }
+                best = (info.tier, info.score, key)
             }
         }
         topPickKey = best?.key

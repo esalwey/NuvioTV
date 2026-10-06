@@ -6,8 +6,9 @@ import SharedCore
 // (`StreamInsightParser`, `StreamRecommender`, `StreamRankingSettingsRepository` in SharedCore).
 // Kotlin reads the messy add-on title; this file turns the result into what a row shows — a
 // quality line, audio/subtitle language chips with the French version always visible (VFF, VFQ,
-// VF), size, source/provider, cache state and the reasons behind the "Recommended" pick. SF
-// Symbols only: every add-on emoji is stripped before display.
+// "VF ?" when unstated), size and cache state in a right column, source/provider on focus, the
+// section (tier) a stream belongs to, and the reasons behind the "Recommended" pick. SF Symbols
+// only: every add-on emoji is stripped before display.
 
 /// What this Apple TV can show, for the HDR/DV part of the ranking.
 enum StreamDisplayCapabilities {
@@ -33,29 +34,84 @@ enum StreamOriginalLanguage {
     }
 }
 
-/// One language chip ("VFF", "Anglais", "Français" under a captions symbol).
+/// One language chip ("VFF", "VF ?", "Anglais", "Français" under a captions symbol).
 struct StreamLanguageChipInfo: Hashable {
     let text: String
-    /// Low-confidence deductions (a lone 🇨🇦 flag, a bare MULTi) read as a question.
+    /// Low-confidence deductions (a lone 🇨🇦 flag, a bare MULTi): drawn dashed, read as a question.
     let isUncertain: Bool
+    /// What VoiceOver reads ("Français, version inconnue" for "VF ?").
+    let accessibilityText: String
+}
+
+/// Where a stream sits for this viewer — the section headers inside an add-on's list. Follows the
+/// recommender's first reason, so the order matches the ranking: a dub in the viewer's language,
+/// the right language in another version (VFQ for a VFF viewer), the original with subtitles,
+/// anything else, then what the viewer's own limits filter out.
+enum StreamRowTier: Int, Comparable {
+    case yourLanguage = 0
+    case otherVersion
+    case subtitled
+    case otherLanguages
+    case outsideLimits
+
+    static func < (lhs: StreamRowTier, rhs: StreamRowTier) -> Bool { lhs.rawValue < rhs.rawValue }
+
+    var title: String {
+        switch self {
+        case .yourLanguage:
+            return String(localized: "streams.tier.yourLanguage", defaultValue: "In Your Language",
+                          comment: "Source picker section header: streams with audio in the viewer's language (e.g. VFF).")
+        case .otherVersion:
+            return String(localized: "streams.tier.otherVersion", defaultValue: "Other Version",
+                          comment: "Source picker section header: right language, other version (e.g. VFQ for a viewer who wants VFF).")
+        case .subtitled:
+            return String(localized: "streams.tier.subtitled", defaultValue: "Original with Subtitles",
+                          comment: "Source picker section header: original-language audio with subtitles in the viewer's language (VOSTFR).")
+        case .otherLanguages:
+            return String(localized: "streams.tier.otherLanguages", defaultValue: "Other Languages",
+                          comment: "Source picker section header: none of the viewer's languages, or nothing stated.")
+        case .outsideLimits:
+            return String(localized: "streams.tier.outsideLimits", defaultValue: "Outside Your Limits",
+                          comment: "Source picker section header: streams filtered by the viewer's settings (CAM, max size, max resolution). Still playable.")
+        }
+    }
+
+    static func from(_ recommendation: StreamRecommendation) -> StreamRowTier {
+        if recommendation.isExcluded { return .outsideLimits }
+        let reasons = recommendation.reasons
+        func has(_ kind: String, positive: Bool) -> Bool {
+            reasons.contains { $0.kind.name == kind && $0.positive == positive }
+        }
+        if has("LANGUAGE", positive: true) || has("ORIGINAL_LANGUAGE", positive: true) { return .yourLanguage }
+        if has("OTHER_VARIANT", positive: false) { return .otherVersion }
+        if has("SUBTITLED", positive: true) { return .subtitled }
+        return .otherLanguages
+    }
 }
 
 /// Everything a stream row draws, computed once per stream by `StreamsViewModel`.
 struct StreamRowInfo {
-    /// "4K · Dolby Vision · Atmos"; empty when the title states nothing technical.
+    /// The big first token of the row: "4K", "1080p", "CAM 720p"; empty when not stated.
+    let resolution: String
+    /// The rest of the quality line: "Dolby Vision · Atmos · REMUX"; may be empty.
+    let qualityExtras: String
+    /// "4K · Dolby Vision · Atmos" (VoiceOver, and the fallback check for "nothing technical").
     let quality: String
     let audio: [StreamLanguageChipInfo]
     let subtitles: [StreamLanguageChipInfo]
     let sizeBytes: Int64?
-    /// "WEB-DL · YggTorrent · 152 seeders · S01E05 · FW".
+    /// "WEB-DL · YggTorrent · S01E05 · FW" — shown on focus only.
     let detail: String
     let cache: StreamCacheBadge?
+    /// Torrent seeders when the cache state says nothing better (shown under the size).
+    let seeders: Int?
     /// "VFF · 4K DV · Atmos · Cached" — why this stream ranks where it does.
     let reasons: String
     /// The first hard-filter or downside reason ("Over your size limit"), nil when none.
     let caveat: String?
     let isExcluded: Bool
     let isLowQuality: Bool
+    let tier: StreamRowTier
     /// The add-on's own name and description, emoji removed — the "original title".
     let rawTitle: String
     let score: Int
@@ -77,47 +133,92 @@ enum StreamInsightPresenter {
             let value: KotlinLong? = insight.sizeBytes
             return value?.int64Value
         }()
+        let seeders: Int? = {
+            let value: KotlinInt? = insight.seeders
+            guard let value, insight.cacheState.name != "CACHED" else { return nil }
+            return Int(value.int32Value)
+        }()
         let positive = recommendation.reasons.filter { $0.positive }
         let negative = recommendation.reasons.filter { !$0.positive }
+        let headline = qualityHeadline(insight)
         return StreamRowInfo(
+            resolution: headline.resolution,
+            qualityExtras: headline.extras,
             quality: insight.qualitySummary,
             audio: audioChips(insight),
-            subtitles: insight.subtitleLanguages.prefix(3).map { language in
-                StreamLanguageChipInfo(text: languageName(language), isUncertain: language.confidence == StreamConfidence.low)
+            subtitles: insight.subtitleLanguages.map { language in
+                let name = languageName(language)
+                return StreamLanguageChipInfo(text: name, isUncertain: language.confidence == StreamConfidence.low,
+                                              accessibilityText: name)
             },
             sizeBytes: size,
             detail: detailLine(insight),
             cache: cacheBadge(insight),
+            seeders: seeders,
             reasons: positive.prefix(4).map(reasonText).joined(separator: " \u{00B7} "),
             caveat: negative.first.map(reasonText),
             isExcluded: recommendation.isExcluded,
             isLowQuality: insight.isLowQuality,
+            tier: StreamRowTier.from(recommendation),
             rawTitle: rawTitle(stream),
             score: Int(recommendation.score)
         )
     }
 
-    /// Audio chips: every detected language; then "VO" when the original track is in the file
-    /// but not named (MULTi, DUAL, VO, VOSTFR).
+    /// "4K" + "Dolby Vision · Atmos · REMUX". A CAM/TS release leads with its source so the
+    /// warning is the first thing read ("CAM 720p").
+    static func qualityHeadline(_ insight: StreamInsight) -> (resolution: String, extras: String) {
+        var resolution = insight.resolution.label
+        if insight.isLowQuality {
+            resolution = [insight.source.label, resolution].filter { !$0.isEmpty }.joined(separator: " ")
+        }
+        var extras: [String] = []
+        let hdr: StreamHdrFormat? = insight.primaryHdr
+        if let hdr { extras.append(hdr.label) }
+        if insight.is3D { extras.append("3D") }
+        let audio: String? = insight.audioSummary
+        if let audio, !audio.isEmpty { extras.append(audio) }
+        if insight.source.name == "REMUX" { extras.append(insight.source.label) }
+        return (resolution, extras.joined(separator: " \u{00B7} "))
+    }
+
+    /// Audio chips: the UI language first (a French viewer reads VFF/VFQ before "Anglais"), then
+    /// the rest in the parser's order; then "VO" when the original track is in the file but not
+    /// named (MULTi, DUAL, VO).
     static func audioChips(_ insight: StreamInsight) -> [StreamLanguageChipInfo] {
-        var chips = insight.audioLanguages.prefix(4).map { language in
-            StreamLanguageChipInfo(text: audioLabel(language), isUncertain: language.confidence == StreamConfidence.low)
+        let uiLanguage = String((Bundle.main.preferredLocalizations.first ?? "en").prefix(2))
+        let languages = insight.audioLanguages.enumerated().sorted { lhs, rhs in
+            let left = lhs.element.language == uiLanguage ? 0 : 1
+            let right = rhs.element.language == uiLanguage ? 0 : 1
+            return left != right ? left < right : lhs.offset < rhs.offset
+        }.map { $0.element }
+        var chips = languages.map { language in
+            StreamLanguageChipInfo(
+                text: audioLabel(language),
+                isUncertain: language.confidence == StreamConfidence.low,
+                accessibilityText: audioAccessibilityLabel(language)
+            )
         }
         if insight.includesOriginalAudio && insight.audioLanguages.count < 2 {
+            let original = String(localized: "streams.chip.original", defaultValue: "VO",
+                                  comment: "Source picker audio chip: the original-language track is in the file (version originale).")
             chips.append(StreamLanguageChipInfo(
-                text: String(localized: "streams.chip.original", defaultValue: "VO",
-                             comment: "Source picker audio chip: the original-language track is in the file (version originale)."),
-                isUncertain: insight.originalAudioConfidence == StreamConfidence.low
+                text: original,
+                isUncertain: insight.originalAudioConfidence == StreamConfidence.low,
+                accessibilityText: original
             ))
         }
         return chips
     }
 
-    /// French keeps its release tag — VFF, VFQ, VFI, VF — so the version is never hidden behind
-    /// a generic "French". Other languages read as their name in the UI language, with the
-    /// Spanish/Portuguese variant kept short ("Espagnol LAT", "Portugais BR").
+    /// French keeps its release tag so the version is never hidden behind a generic "French":
+    /// VFF, VFQ, VFI — and "VF ?" when the release says French without saying which. Other
+    /// languages read as their name in the UI language, the Spanish/Portuguese variant kept short
+    /// ("Espagnol LAT", "Portugais BR").
     static func audioLabel(_ language: StreamLanguage) -> String {
-        if language.language == "fr" { return language.tag }
+        if language.language == "fr" {
+            return language.variant.name == "UNSPECIFIED" ? "VF\u{202F}?" : language.tag
+        }
         let name = languageDisplayName(language.language)
         switch language.variant.name {
         case "LATIN_AMERICA": return "\(name) LAT"
@@ -125,6 +226,19 @@ enum StreamInsightPresenter {
         case "BRAZIL": return "\(name) BR"
         case "PORTUGAL": return "\(name) PT"
         default: return name
+        }
+    }
+
+    static func audioAccessibilityLabel(_ language: StreamLanguage) -> String {
+        guard language.language == "fr" else { return audioLabel(language) }
+        let french = languageDisplayName("fr")
+        switch language.variant.name {
+        case "FRANCE": return "\(french) VFF"
+        case "QUEBEC": return "\(french) VFQ"
+        case "INTERNATIONAL": return "\(french) VFI"
+        default:
+            return String(localized: "streams.a11y.frenchUnknownVersion", defaultValue: "\(french), version not stated",
+                          comment: "VoiceOver, source picker: French audio whose version (France/Québec) the release does not state; the chip shows 'VF ?'. %@ is the language name.")
         }
     }
 
@@ -146,21 +260,13 @@ enum StreamInsightPresenter {
         return name.prefix(1).uppercased(with: locale) + name.dropFirst()
     }
 
+    /// Source · provider · episode · group: secondary facts, shown when the row is focused.
     static func detailLine(_ insight: StreamInsight) -> String {
         var parts: [String] = []
         let source = insight.source.label
-        if !source.isEmpty && !insight.isLowQuality { parts.append(source) }
+        if !source.isEmpty && !insight.isLowQuality && insight.source.name != "REMUX" { parts.append(source) }
         let provider: String? = insight.provider
         if let provider, !provider.isEmpty { parts.append(provider) }
-        let seeders: KotlinInt? = insight.seeders
-        if let seeders, insight.cacheState != .cached {
-            let count = Int(seeders.int32Value)
-            parts.append(String(
-                localized: "streams.detail.seeders",
-                defaultValue: "\(count) seeders",
-                comment: "Source picker detail line: how many peers share this torrent. %lld is the count."
-            ))
-        }
         let episode: String? = insight.episodeLabel
         if let episode, !episode.isEmpty {
             parts.append(insight.isSeasonPack
@@ -183,6 +289,11 @@ enum StreamInsightPresenter {
         case "NOT_CACHED": return .download(service: service)
         default: return insight.isDirectLink && !insight.isTorrent ? .direct : nil
         }
+    }
+
+    static func seedersText(_ count: Int) -> String {
+        String(localized: "streams.detail.seeders", defaultValue: "\(count) seeders",
+               comment: "Source picker detail line: how many peers share this torrent. %lld is the count.")
     }
 
     static func rawTitle(_ stream: StreamItem) -> String {
@@ -251,92 +362,202 @@ enum StreamInsightPresenter {
     }
 }
 
-/// A small fixed-colour chip (dark fill, white text): legible on the resting row and on the
-/// white focus platter alike — the same fixed/fixed rule as `StreamFileSizeChip` (BUG-28).
-struct StreamInfoChip: View {
-    let text: String
-    var systemImage: String?
-    var isUncertain: Bool = false
-    var emphasized: Bool = false
+/// True while the stream row this view sits in has focus (white platter). Reads both signals the
+/// `.settingsRow` style publishes (BUG-65: `\.isFocused` alone can die inside a custom style).
+fileprivate struct RowFocusReader<Content: View>: View {
+    @Environment(\.isFocused) private var isFocused
+    @Environment(\.settingsRowIsFocused) private var rowFocused
+    private let content: (Bool) -> Content
 
-    static let height: CGFloat = 34
+    init(@ViewBuilder content: @escaping (Bool) -> Content) {
+        self.content = content
+    }
+
+    var body: some View { content(isFocused || rowFocused) }
+}
+
+/// A language chip sized for the 3 m read. Audio: a solid chip (white with near-black text at
+/// rest, inverted on the white focus platter: about 19:1 either way). Subtitles: an outlined chip
+/// behind a captions symbol. A deduction the parser is unsure of is dashed and ends with "?" — the
+/// difference is never carried by colour alone.
+struct StreamLanguageChip: View {
+    enum Kind { case audio, subtitle, overflow }
+
+    let text: String
+    var kind: Kind = .audio
+    var systemImage: String?
+    var isUncertain = false
+
+    @ScaledMetric(relativeTo: .caption) private var height: CGFloat = 44
 
     var body: some View {
-        let shape = RoundedRectangle(cornerRadius: StreamBadgeMetrics.cornerRadius, style: .continuous)
-        HStack(spacing: Theme.Spacing.xxs) {
-            if let systemImage {
-                Image(systemName: systemImage)
-                    .imageScale(.small)
+        RowFocusReader { focused in
+            let ink = focused ? Color(hex: 0x0D0D0D) : Color.white
+            let paper = focused ? Color.white : Color(hex: 0x0D0D0D)
+            let solid = kind == .audio && !isUncertain
+            let shape = RoundedRectangle(cornerRadius: StreamBadgeMetrics.cornerRadius, style: .continuous)
+            HStack(spacing: Theme.Spacing.xxs) {
+                if let systemImage {
+                    Image(systemName: systemImage)
+                        .imageScale(.small)
+                }
+                Text(isUncertain && !text.hasSuffix("?") ? "\(text)\u{202F}?" : text)
+                    .lineLimit(1)
             }
-            Text(isUncertain ? "\(text)?" : text)
-                .lineLimit(1)
+            .font(Theme.Font.meta)
+            .foregroundStyle(solid ? paper : ink.opacity(kind == .overflow ? 0.75 : 1))
+            .padding(.horizontal, Theme.Spacing.sm)
+            .frame(minHeight: height)
+            .background(solid ? ink : ink.opacity(kind == .subtitle ? 0.12 : 0), in: shape)
+            .overlay {
+                if !solid {
+                    shape.strokeBorder(
+                        ink.opacity(kind == .overflow ? 0.4 : 0.7),
+                        style: StrokeStyle(lineWidth: 2, dash: isUncertain ? [6, 4] : [])
+                    )
+                }
+            }
+            .fixedSize()
         }
-        .font(Theme.Font.caption.weight(.semibold))
-        .foregroundStyle(Color.white.opacity(isUncertain ? 0.75 : 1))
-        .padding(.horizontal, Theme.Spacing.sm)
-        .frame(minHeight: Self.height)
-        .background(emphasized ? Color.white.opacity(0.28) : Theme.Palette.surfaceElevated, in: shape)
-        .overlay(shape.stroke(Color.white.opacity(isUncertain ? 0.1 : 0.18), lineWidth: 1))
-        .fixedSize()
     }
 }
 
-/// The audio chips, subtitle chips and cache state of one row, on one line. A `ViewThatFits`
-/// ladder drops trailing chips (never the first audio one) instead of widening the row.
-struct StreamLanguageChipsRow: View {
-    let info: StreamRowInfo
-    let sizeBytes: Int64?
+/// The audio chips then the subtitle chips of one row, on one line. A `ViewThatFits` ladder
+/// folds trailing chips into a "+N" chip (never the first audio one) instead of widening the row.
+struct StreamLanguageChipsLine: View {
+    let audio: [StreamLanguageChipInfo]
+    let subtitles: [StreamLanguageChipInfo]
 
     var body: some View {
-        let audio = info.audio
-        let subtitles = info.subtitles
         ViewThatFits(in: .horizontal) {
-            content(audioCount: audio.count, subtitleCount: subtitles.count, showCache: true)
-            content(audioCount: audio.count, subtitleCount: min(1, subtitles.count), showCache: true)
-            content(audioCount: min(2, audio.count), subtitleCount: min(1, subtitles.count), showCache: true)
-            content(audioCount: min(2, audio.count), subtitleCount: 0, showCache: true)
-            content(audioCount: min(1, audio.count), subtitleCount: 0, showCache: false)
-        }
-        .frame(maxWidth: .infinity, minHeight: StreamInfoChip.height, alignment: .leading)
-    }
-
-    private func content(audioCount: Int, subtitleCount: Int, showCache: Bool) -> some View {
-        HStack(spacing: Theme.Spacing.xs) {
-            if let sizeBytes {
-                StreamInfoChip(text: StreamFileSizeChip.label(for: sizeBytes), systemImage: "internaldrive")
-            }
-            ForEach(Array(info.audio.prefix(audioCount).enumerated()), id: \.offset) { index, chip in
-                StreamInfoChip(text: chip.text, systemImage: index == 0 ? "speaker.wave.2.fill" : nil,
-                               isUncertain: chip.isUncertain, emphasized: index == 0)
-            }
-            ForEach(Array(info.subtitles.prefix(subtitleCount).enumerated()), id: \.offset) { index, chip in
-                StreamInfoChip(text: chip.text, systemImage: index == 0 ? "captions.bubble.fill" : nil,
-                               isUncertain: chip.isUncertain)
-            }
-            if showCache, let cache = info.cache {
-                cacheChip(cache)
+            ForEach(Self.candidates(audio: audio.count, subtitles: subtitles.count), id: \.self) { candidate in
+                line(audioCount: candidate.audio, subtitleCount: candidate.subtitles)
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    @ViewBuilder
-    private func cacheChip(_ cache: StreamCacheBadge) -> some View {
+    struct Candidate: Hashable {
+        let audio: Int
+        let subtitles: Int
+    }
+
+    /// Widest first: every chip, then fewer subtitles, then fewer audio chips (at least one).
+    static func candidates(audio: Int, subtitles: Int) -> [Candidate] {
+        let shownAudio = min(audio, 4)
+        let shownSubtitles = min(subtitles, 3)
+        var list: [Candidate] = []
+        for subtitleCount in stride(from: shownSubtitles, through: 0, by: -1) {
+            list.append(Candidate(audio: shownAudio, subtitles: subtitleCount))
+        }
+        for audioCount in stride(from: shownAudio - 1, through: min(1, shownAudio), by: -1) {
+            list.append(Candidate(audio: audioCount, subtitles: 0))
+        }
+        return list
+    }
+
+    private func line(audioCount: Int, subtitleCount: Int) -> some View {
+        let hidden = (audio.count - audioCount) + (subtitles.count - subtitleCount)
+        return HStack(spacing: Theme.Spacing.xs) {
+            ForEach(Array(audio.prefix(audioCount).enumerated()), id: \.offset) { index, chip in
+                StreamLanguageChip(text: chip.text, kind: .audio,
+                                   systemImage: index == 0 ? "speaker.wave.2.fill" : nil,
+                                   isUncertain: chip.isUncertain)
+            }
+            ForEach(Array(subtitles.prefix(subtitleCount).enumerated()), id: \.offset) { index, chip in
+                StreamLanguageChip(text: chip.text, kind: .subtitle,
+                                   systemImage: index == 0 ? "captions.bubble" : nil,
+                                   isUncertain: chip.isUncertain)
+            }
+            if hidden > 0 {
+                StreamLanguageChip(text: "+\(hidden)", kind: .overflow)
+            }
+        }
+    }
+}
+
+/// The right-hand column of a row: the size, big and aligned, with the ready-to-play state under
+/// it (cached on the debrid service, needs downloading, direct link, or the torrent's seeders).
+struct StreamSizeColumn: View {
+    let sizeBytes: Int64?
+    let cache: StreamCacheBadge?
+    let seeders: Int?
+    /// The viewer's file-size badge setting: off hides the size (an unknown size shows a dash).
+    var showsSize = true
+
+    var body: some View {
+        VStack(alignment: .trailing, spacing: Theme.Spacing.xxs) {
+            if showsSize {
+                Text(sizeBytes.map { StreamFileSizeChip.label(for: $0) } ?? "\u{2014}")
+                    .font(Theme.Font.sectionTitle.monospacedDigit())
+                    .rowTextColor(secondary: sizeBytes == nil)
+                    .lineLimit(1)
+            }
+            if let state = stateLine {
+                Label(state.text, systemImage: state.symbol)
+                    .font(Theme.Font.caption)
+                    .rowTextColor(secondary: !state.emphasized)
+                    .lineLimit(1)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .trailing)
+    }
+
+    private var stateLine: (text: String, symbol: String, emphasized: Bool)? {
+        let cached = StreamInsightPresenter.reasonText(StreamReason(kind: .cached, label: "", positive: true))
         switch cache {
         case .cached(let service):
-            StreamInfoChip(
-                text: service.isEmpty
-                    ? StreamInsightPresenter.reasonText(StreamReason(kind: .cached, label: "", positive: true))
-                    : "\(service) \(StreamInsightPresenter.reasonText(StreamReason(kind: .cached, label: "", positive: true)))",
-                systemImage: "bolt.fill"
-            )
+            return (service.isEmpty ? cached : "\(service) \u{00B7} \(cached)", "bolt.fill", true)
         case .download(let service):
-            StreamInfoChip(text: service.isEmpty ? "P2P" : service, systemImage: "arrow.down.circle", isUncertain: false)
-                .opacity(0.8)
+            let download = StreamInsightPresenter.reasonText(StreamReason(kind: .notCached, label: "", positive: false))
+            return (service.isEmpty ? download : "\(service) \u{00B7} \(download)", "arrow.down.circle", false)
         case .direct:
-            StreamInfoChip(
-                text: StreamInsightPresenter.reasonText(StreamReason(kind: .direct, label: "", positive: true)),
-                systemImage: "link"
-            )
+            return (StreamInsightPresenter.reasonText(StreamReason(kind: .direct, label: "", positive: true)), "link", true)
+        case nil:
+            guard let seeders else { return nil }
+            return (StreamInsightPresenter.seedersText(seeders), "person.2.fill", false)
+        }
+    }
+}
+
+/// The "Recommended" / "Best Match" / "Last Used" capsule: solid (white with near-black text at
+/// rest, inverted on the focus platter) so the pick is the first thing the eye lands on.
+struct StreamPickCapsule: View {
+    let text: String
+    var systemImage: String?
+
+    var body: some View {
+        RowFocusReader { focused in
+            HStack(spacing: Theme.Spacing.xxs) {
+                if let systemImage {
+                    Image(systemName: systemImage)
+                        .imageScale(.small)
+                }
+                Text(text)
+                    .lineLimit(1)
+            }
+            .font(Theme.Font.meta)
+            .foregroundStyle(focused ? Color.white : Color(hex: 0x0D0D0D))
+            .padding(.horizontal, Theme.Spacing.sm)
+            .padding(.vertical, Theme.Spacing.xxs)
+            .background(Capsule().fill(focused ? Color(hex: 0x0D0D0D) : Color.white))
+            .fixedSize()
+        }
+    }
+}
+
+/// Text shown only while its row has focus — the slot keeps its height, so nothing moves.
+struct StreamFocusRevealText: View {
+    let text: String
+
+    var body: some View {
+        RowFocusReader { focused in
+            Text(text)
+                .font(Theme.Font.caption)
+                .rowTextColor(secondary: true)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .opacity(focused ? 1 : 0)
         }
     }
 }

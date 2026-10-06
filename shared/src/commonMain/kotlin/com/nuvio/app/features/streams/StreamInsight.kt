@@ -189,6 +189,8 @@ data class StreamInsight(
     val isDualAudio: Boolean = false,
     val hasMultiSubtitles: Boolean = false,
     val hasHardcodedSubtitles: Boolean = false,
+    /** A scene "DUBBED" release with no other track named: the original audio is not in the file. */
+    val isDubbed: Boolean = false,
     val sizeBytes: Long? = null,
     val seeders: Int? = null,
     val peers: Int? = null,

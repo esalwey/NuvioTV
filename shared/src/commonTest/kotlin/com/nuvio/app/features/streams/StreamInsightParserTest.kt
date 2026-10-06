@@ -394,7 +394,9 @@ class StreamInsightParserTest {
     @Test
     fun flagListOfTorrentio() {
         val insight = parse(title = "Movie.2021.MULTi.1080p.WEB\nMulti Audio / 🇬🇧 / 🇮🇹 / 🇪🇸 / 🇲🇽 / 🇧🇷 / 🇯🇵")
-        assertEquals(setOf("en", "it", "es-ES", "es-419", "pt-BR", "ja"), insight.audioCodes())
+        // 🇪🇸 is Torrentio's flag for any Spanish (it shows 🇪🇸 + 🇲🇽 for "SPANiSH.LATiNO"): with
+        // 🇲🇽 next to it, it is the Latin American track, not a second, Castilian one.
+        assertEquals(setOf("en", "it", "es-419", "pt-BR", "ja"), insight.audioCodes())
         assertTrue(insight.audioLanguages.none { it.language == "fr" }, "MULTi with listed languages adds no French")
     }
 
@@ -621,6 +623,193 @@ class StreamInsightParserTest {
         )
         assertEquals("[RD+] Torrentio · 4k", StreamInsightText.stripEmojiSingleLine("[RD+] Torrentio\n4k"))
         assertEquals("Les Misérables", StreamInsightText.stripEmoji("Les Misérables ⚡"))
+    }
+
+    // endregion
+
+    // region Real add-on regressions (texts from Torrentio / TorrentsDB / Peerflix, 2026-10)
+
+    private fun StreamInsight.subtitleTags(): Set<String> = subtitleLanguages.map { it.tag }.toSet()
+
+    @Test
+    fun torrentioFlagLineDoesNotTurnSubtitlesIntoAudio() {
+        // The 🇬🇧 comes from "ENSUB": English is the subtitle, the audio is French only.
+        val ensub = parse(
+            name = "Torrentio\n720p",
+            title = "Anatomy Of A Fall (2023) FRENCH.ENSUB 720p WEBRip-WORLD\n👤 63 💾 1.36 GB ⚙️ ThePirateBay\n🇬🇧 / 🇫🇷",
+        )
+        assertEquals(setOf("VF"), ensub.audioTags())
+        assertEquals(setOf("EN"), ensub.subtitleTags())
+        // An unexplained 🇬🇧 next to a release that names its only audio track is noise.
+        val qxr = parse(
+            title = "Anatomy of a Fall (2023) (1080p BluRay x265 HEVC 10bit EAC3 5.1 French Silence) [QxR]\n" +
+                "👤 106 💾 8.09 GB ⚙️ 1337x\n🇬🇧 / 🇫🇷",
+        )
+        assertEquals(setOf("VF"), qxr.audioTags())
+    }
+
+    @Test
+    fun flagFromAMovieTitleWordIsDropped() {
+        val insight = parse(
+            title = "The French Connection (1971) 2160p 4K AI SDR Upscale Blu-Ray x265 HEVC DTS-HD MA\n" +
+                "👤 18 💾 242.34 MB ⚙️ 1337x\n🇬🇧 / 🇫🇷",
+        )
+        assertEquals(setOf("EN"), insight.audioTags())
+        val latinoList = parse(title = "The Latino List 2011 1080p MAX WEB-DL DDP2 0 H 264-GPRS\n🇲🇽")
+        assertTrue(latinoList.audioLanguages.isEmpty())
+    }
+
+    @Test
+    fun torrentioMultiSubsLineFlagsAreSubtitles() {
+        // Erai-raws: every flag repeats the subtitle list; nothing is a dub.
+        val erai = parse(
+            title = "[Erai-raws] Sousou no Frieren - 01 ~ 28 [1080p][BATCH][Multiple Subtitle] " +
+                "[ENG][POR-BR][SPA-LA][SPA][ARA][FRE][GER][ITA][RUS]\n" +
+                "👤 41 💾 1.48 GB ⚙️ NyaaSi\nMulti Subs / 🇬🇧 / 🇷🇺 / 🇮🇹 / 🇵🇹 / 🇪🇸 / 🇲🇽 / 🇫🇷 / 🇩🇪 / 🇸🇦",
+        )
+        assertTrue(erai.audioLanguages.isEmpty())
+        assertEquals(setOf("EN", "PT-BR", "LAT", "CAST", "AR", "VF", "DE", "IT", "RU"), erai.subtitleTags())
+        assertTrue(erai.hasMultiSubtitles)
+        // Hindi + English named as audio: the "Multi Subs" flags only confirm them.
+        val tombDoc = parse(
+            title = "Money Heist (2017) Season 1-2 1080p 10bit NF WEBRip x265 HEVC Hindi-Eng DDP 5.1 MSubs ~ TombDoc\n" +
+                "Multi Subs / 🇬🇧 / 🇮🇳",
+        )
+        assertEquals(setOf("HI", "EN"), tombDoc.audioTags())
+        assertTrue(tombDoc.subtitleLanguages.isEmpty())
+    }
+
+    @Test
+    fun dualAudioWithOneUnexplainedFlagIsTheDub() {
+        val trix = parse(
+            title = "[Trix] Kimetsu no Yaiba S01-03 (COMPLETE) [Dual Audio][Multi Subs] (720p AV1) - Demon Slayer VOSTFR\n" +
+                "Dubbed / Multi Subs / Dual Audio / 🇬🇧 / 🇫🇷",
+        )
+        assertEquals(setOf("EN"), trix.audioTags())
+        assertEquals(setOf("VF"), trix.subtitleTags())
+    }
+
+    @Test
+    fun italianStyleAudioThenSubtitleLists() {
+        // "<audio list> Sub <subtitle list>": the languages before "Sub" are audio.
+        val mirCrew = parse(title = "The Platform (2019) 720p h264 Ac3 5.1 Ita Eng Sub Ita Eng-MIRCrew.mkv")
+        assertEquals(setOf("IT", "EN"), mirCrew.audioTags())
+        assertEquals(setOf("IT", "EN"), mirCrew.subtitleTags())
+        // Mixed-case three-letter codes count inside such lists ("iTA Fre", "Sub iTA EnG Fre").
+        val monteCristo = parse(title = "The Count of Monte-Cristo (2024) 2160p H265 HDR D.V iTA Fre AC3 Sub iTA EnG Fre - MIRCrew")
+        assertEquals(setOf("IT", "VF"), monteCristo.audioTags())
+        assertEquals(setOf("IT", "EN", "VF"), monteCristo.subtitleTags())
+        // A list right before "SUB" with no other audio named is the audio list.
+        assertEquals(setOf("IT", "VF"), parse(title = "Anatomia.di.una.caduta.2023.FULL.HD.1080p.DTS AC3.ITA.FRE.SUB.LFi.mkv").audioTags())
+        assertEquals(setOf("IT", "EN", "JA"), parse(title = "Attack on Titan S01e01-25 [720p Ita Eng Jap SubS]").audioTags())
+    }
+
+    @Test
+    fun languagesBeforeSubsWhenTheAudioIsNamedElsewhere() {
+        val insight = parse(filename = "Mommy 2014 BDRip 1080p x264 AC3 French Castellano URBiN4HD Eng Spa Subs.mkv")
+        assertEquals(setOf("VF", "CAST"), insight.audioTags())
+        assertEquals(setOf("EN", "CAST"), insight.subtitleTags())
+        val eng = parse(title = "Lupin (2021) - season 1 (Eng/Multi subs)")
+        assertTrue(eng.audioLanguages.isEmpty())
+        assertEquals(setOf("en"), eng.subtitleCodes())
+        assertTrue(eng.hasMultiSubtitles)
+        val hardcoded = parse(title = "City Of God (2002) - English Hardcoded Subs")
+        assertTrue(hardcoded.audioLanguages.isEmpty())
+        assertEquals(setOf("en"), hardcoded.subtitleCodes())
+        assertTrue(hardcoded.hasHardcodedSubtitles)
+    }
+
+    @Test
+    fun rutrackerTrackLists() {
+        val insight = parse(
+            title = "Дэдпул и Росомаха / Deadpool & Wolverine [2024 UHD BDRemux 2160p HDR10 Dolby Vision] 4x Dub + 3x MVO + " +
+                "VO + Dub Ukr + DVO Ukr + Sub Rus Ukr Eng + Original Eng\n👤 5 💾 56.15 GB ⚙️ Rutracker\n🇬🇧 / 🇷🇺 / 🇺🇦",
+        )
+        assertEquals(setOf("UK", "EN"), insight.audioTags())
+        assertEquals(setOf("RU", "UK", "EN"), insight.subtitleTags())
+        // "Original (Fra)" + Russian dub: the 🇷🇺 flag is the voice-over.
+        val monteCristo = parse(
+            title = "Граф Монте-Кристо / Le comte de Monte-Cristo [2024 WEB-DL 1080p] Dub (Пифагор) + Original (Fra) + Sub (Fra)\n🇷🇺 / 🇫🇷",
+        )
+        assertEquals(setOf("VF", "RU"), monteCristo.audioTags())
+        assertEquals(setOf("RU", "PT"), parse(filename = "Cidade de Deus.2002.BD.Remux.1080p.h264.2xRus.Por.mkv").audioTags())
+    }
+
+    @Test
+    fun gluedSubtitleTags() {
+        assertEquals(setOf("sv", "en"), parse(title = "Incendies.2010.SweSub-EngSub.1080p.x264-Justiso").subtitleCodes())
+        assertEquals(setOf("ro"), parse(title = "Oppenheimer.2023.V1.1080p.Cam.X264.RoSub-Will1869").subtitleCodes())
+        val burned = parse(title = "Barbie 2023 1080p WEB-DL (HC-KOR) HEVC x265 BONE")
+        assertEquals(setOf("ko"), burned.subtitleCodes())
+        assertTrue(burned.audioLanguages.isEmpty())
+    }
+
+    @Test
+    fun quebecOriginalVoq() {
+        val insight = parse(title = "Incendies 2010 FRENCH VOQ 1080p HDLight AC3 5 1 H264-LiHDL\n🇫🇷")
+        assertEquals(setOf("VFQ"), insight.audioTags())
+        assertTrue(insight.includesOriginalAudio)
+    }
+
+    @Test
+    fun genericMultiAudioDoesNotInventFrench() {
+        // Only the bare scene "MULTi" tag implies a French track (French scene convention).
+        assertTrue(parse(title = "Dune.Part.Two.2024.1080p.Bluray.REMUX.Multi.Audio.AVC.TrueHD.Atmos.7.1-VARR0A")
+            .audioLanguages.none { it.language == "fr" })
+        assertTrue(parse(title = "Elite (S01-06)(2018-2022)(1080p)(AVC)(WebDl)(Multi 4 lang)(MultiSUB) PHDTeam")
+            .audioLanguages.none { it.language == "fr" })
+        assertEquals(setOf("VF"), parse(title = "La.Casa.De.Papel.S01E01.MULTi.720p.NF.WEB-DL.x264-ARK01").audioTags())
+    }
+
+    @Test
+    fun spanishSitesAndVariants() {
+        // "SPANiSH.LATiNO" is Latin American only; Torrentio adds 🇪🇸 + 🇲🇽 for it.
+        assertEquals(
+            setOf("LAT"),
+            parse(title = "Dune.Part.Two.2024.SPANiSH.LATiNO.1080p.WEB-DL.DDP5.1.H.264-dem3nt3\n🇪🇸 / 🇲🇽").audioTags(),
+        )
+        // Spanish spellings of other languages.
+        val coco = parse(title = "Coco [BluRay 1080p][AC3 5.1 Castellano DTS 5.1-Ingles+Subs][ES-EN]")
+        assertEquals(setOf("CAST", "EN"), coco.audioTags())
+        assertEquals(setOf("es", "en"), coco.subtitleCodes())
+        assertEquals(setOf("CAST", "VF"), parse(title = "El conde de Montecristo Castellano-Frances +Subs H264 AC3 5.1 BD-Rip hd 1080p").audioTags())
+        // A lone 🇪🇸 from Peerflix says Spanish, not which Spanish.
+        assertEquals(setOf("LAT"), parse(name = "Peerflix 🇪🇸 480p", title = "Cocote [720p][Latino]").audioTags())
+        assertEquals(setOf("ES"), parse(name = "Peerflix 🇪🇸 1080p", title = "Deadpool y Lobezno (2024) UHD.iso").audioTags())
+    }
+
+    @Test
+    fun portugueseFlagsAndBrazilianSites() {
+        // Torrentio shows 🇵🇹 for "Dublado" (Brazilian) releases.
+        val dublado = parse(title = "Deadpool.e.Wolverine.1080p.HDCAM.Dublado.PT_BR\n🇵🇹")
+        assertEquals(setOf("PT-BR"), dublado.audioTags())
+        val comando = parse(
+            title = "Dragons.Race.To.The.Edge.S01E01.720p.NF.WEB-DL.DDP5.1.H264.DUAL\n👤 0 💾 408.5 MB ⚙️ Comando\nDual Audio / 🇬🇧 / 🇵🇹",
+        )
+        assertEquals(setOf("EN", "PT-BR"), comando.audioTags())
+        assertEquals(setOf("pt"), parse(title = "City.of.God.2002.PORTUGUESE.1080p.BluRay.x265-VXT\n🇵🇹").audioCodes())
+    }
+
+    @Test
+    fun animeSubtitleListsAndDubLists() {
+        val anitsu = parse(title = "[Anitsu] Sousou no Frieren S01 [BD 1080p x265 Opus] [DUAL JAP PT-BR] [SUB PT-BR ENG]")
+        assertEquals(setOf("JA", "PT-BR"), anitsu.audioTags())
+        assertEquals(setOf("PT-BR", "EN"), anitsu.subtitleTags())
+        val toonsHub = parse(
+            title = "[ToonsHub] Frieren - 01 (Multi-Audio 1080p x264 AAC) [Multi-Subs] (English Japanese Hindi Tamil French Dubs)",
+        )
+        assertEquals(setOf("EN", "JA", "HI", "TA", "VF"), toonsHub.audioTags())
+        assertTrue(toonsHub.subtitleLanguages.isEmpty())
+        assertTrue(toonsHub.hasMultiSubtitles)
+    }
+
+    @Test
+    fun indianLanguageListsAndCountryCodes() {
+        val tamil = parse(title = "Anatomy of a Fall (2023) [1080p BDRip - x264 - [Tam + Mal + Tel + Hin + Eng] - DD5.1 - ESub]")
+        assertEquals(setOf("TA", "ML", "TE", "HI", "EN"), tamil.audioTags())
+        assertEquals(setOf("en"), tamil.subtitleCodes())
+        assertEquals(setOf("CS", "SK", "EN"), parse(title = "Coco (2017)(CZ/SK/EN)[2160p][HDR10/DV][HEVC]").audioTags())
+        assertEquals(setOf("JA", "EN", "IT"), parse(title = "[JPN-ENG] Attack on Titan : Season 01 S01 [2013] 1080p Hybrid ITA BDRip").audioTags())
     }
 
     // endregion
