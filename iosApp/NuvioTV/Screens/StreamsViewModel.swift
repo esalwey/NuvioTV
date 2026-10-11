@@ -190,6 +190,9 @@ final class StreamsViewModel: ObservableObject {
     var showFileSizeBadges: Bool { badgeSettings?.showFileSizeBadges ?? true }
     var showAddonLogo: Bool { badgeSettings?.showAddonLogo ?? false }
     var badgesOnTop: Bool { badgeSettings?.badgePlacement == .top }
+    /// Stream background setting (Cinematic = the title's artwork behind the list, Normal = the
+    /// plain background). Unset or not loaded yet reads as Cinematic, what the picker always was.
+    var cinematicBackground: Bool { badgeSettings?.backgroundMode != .normal }
 
     static func rowKey(groupId: String, index: Int) -> String { "\(groupId)#\(index)" }
 

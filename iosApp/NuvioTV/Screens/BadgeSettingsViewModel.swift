@@ -38,6 +38,8 @@ final class BadgeSettingsViewModel: ObservableObject {
     var showFileSizeBadges: Bool { state?.showFileSizeBadges ?? true }
     var showAddonLogo: Bool { state?.showAddonLogo ?? false }
     var badgesOnTop: Bool { state?.badgePlacement == .top }
+    /// Cinematic (the title's artwork behind the source list) unless set to Normal.
+    var cinematicBackground: Bool { state?.backgroundMode != .normal }
 
     // MARK: - Actions (thin passthroughs to the shared repository)
 
@@ -81,6 +83,10 @@ final class BadgeSettingsViewModel: ObservableObject {
 
     func setBadgesOnTop(_ top: Bool) {
         StreamBadgeSettingsRepository.shared.setBadgePlacement(placement: top ? .top : .bottom)
+    }
+
+    func setCinematicBackground(_ cinematic: Bool) {
+        StreamBadgeSettingsRepository.shared.setBackgroundMode(mode: cinematic ? .cinematic : .normal)
     }
 
     /// Short display label for an imported pack (URL tail without query noise).

@@ -285,8 +285,11 @@ private actor BadgeImageCache {
         if let hit = cache.object(forKey: url as NSString) { return hit }
         if let running = inflight[url] { return await running.value }
         let task = Task<UIImage?, Never> {
+            // Badge art never changes under its URL: serve a stored copy without revalidating it
+            // (mobile's BadgeImageLoader behaves the same), and only go to the network on a miss.
             guard let parsed = URL(string: url),
-                  let (data, response) = try? await URLSession.shared.data(from: parsed),
+                  let (data, response) = try? await URLSession.shared.data(
+                      for: URLRequest(url: parsed, cachePolicy: .returnCacheDataElseLoad)),
                   (response as? HTTPURLResponse).map({ (200..<300).contains($0.statusCode) }) ?? true
             else { return nil }
             return Self.downsample(data: data, maxPixel: Self.maxPixelSize)

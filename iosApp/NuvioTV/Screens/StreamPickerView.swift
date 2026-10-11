@@ -397,7 +397,10 @@ struct StreamPickerView: View {
             .padding(.horizontal, Theme.Spacing.screen)
             .padding(.vertical, Theme.Spacing.xl)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .background { ArtworkBackdrop(url: backdrop.url, blurRadius: backdrop.blurRadius) }
+            // Cinematic (default): the title's artwork. Normal: the plain background only.
+            .background {
+                ArtworkBackdrop(url: model.cinematicBackground ? backdrop.url : nil, blurRadius: backdrop.blurRadius)
+            }
             .overlay(alignment: .bottom) {
                 if let toast {
                     Text(toast)
