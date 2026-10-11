@@ -1191,6 +1191,7 @@
     <string name="trakt_more_like_this_source_dialog_subtitle">Select the source for recommendations shown on detail pages.</string>
     <string name="trakt_more_like_this_source_trakt">Trakt</string>
     <string name="trakt_more_like_this_source_tmdb">TMDB</string>
+    <string name="trakt_more_like_this_source_simkl">Simkl</string>
     <string name="trakt_continue_watching_window">Continue Watching Window</string>
     <string name="trakt_continue_watching_subtitle">Trakt history considered for continue watching</string>
     <string name="trakt_cw_window_title">Continue Watching Window</string>
@@ -1319,6 +1320,7 @@
     <string name="details_more_like_this">More Like This</string>
     <string name="detail_more_like_this_powered_by_tmdb">Powered by TMDB</string>
     <string name="detail_more_like_this_powered_by_trakt">Powered by Trakt</string>
+    <string name="detail_more_like_this_powered_by_simkl">Powered by Simkl</string>
     <string name="details_seasons">Seasons</string>
     <string name="details_series_missing_numbers">This addon returned videos for the series, but none included season or episode numbers.</string>
     <string name="details_series_no_metadata">This addon did not provide episode metadata for this series.</string>

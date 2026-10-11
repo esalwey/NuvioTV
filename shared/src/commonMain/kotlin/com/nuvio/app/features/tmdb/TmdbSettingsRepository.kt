@@ -190,6 +190,10 @@ object TmdbSettingsRepository {
         update(next)
         publish()
         persist(next)
+        // The enrichment groups are baked into the cached detail meta and the Home hero: drop both
+        // so the flip shows on the next open (upstream parity, same reason as `setLanguage`).
+        invalidateHeroEnrichment()
+        MetaDetailsRepository.clear()
     }
 
     private fun loadFromDisk() {

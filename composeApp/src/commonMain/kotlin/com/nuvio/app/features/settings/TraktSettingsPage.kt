@@ -372,6 +372,7 @@ private fun moreLikeThisSourceLabel(source: MoreLikeThisSourcePreference): Strin
     when (source) {
         MoreLikeThisSourcePreference.TRAKT -> stringResource(Res.string.trakt_more_like_this_source_trakt)
         MoreLikeThisSourcePreference.TMDB -> stringResource(Res.string.trakt_more_like_this_source_tmdb)
+        MoreLikeThisSourcePreference.SIMKL -> stringResource(Res.string.trakt_more_like_this_source_simkl)
     }
 
 @Composable
