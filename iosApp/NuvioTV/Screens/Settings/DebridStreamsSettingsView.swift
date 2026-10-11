@@ -22,6 +22,12 @@ final class DebridStreamsSettingsModel: ObservableObject {
     private var watcher: FlowWatcher?
     private let editor = DebridStreamSettingsEditor.shared
 
+    init() {
+        // The watcher delivers its first value a tick after the page appears; start from the
+        // stored settings so switches and pickers never flash their "off" state.
+        settings = DebridSettingsRepository.shared.snapshot()
+    }
+
     func start() {
         guard watcher == nil else { return }
         DebridSettingsRepository.shared.ensureLoaded()
