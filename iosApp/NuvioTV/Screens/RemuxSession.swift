@@ -187,6 +187,10 @@ nonisolated final class RemuxSession: @unchecked Sendable {
     /// Transient source-read failures (a dropped CDN connection) are retried from the failing segment
     /// this many times in a row before the session gives up and the coordinator falls back to mpv.
     static let maxReadRecoveries = 4
+    /// Free space the paced window needs on the cache volume (ahead + behind budgets, plus slack for the
+    /// init segments, the subtitle files and whatever else is writing). Below it the session does not
+    /// start: the coordinator hands the title to mpv, which needs no disk.
+    static let minFreeDiskBytes = aheadBudgetBytes + behindBudgetBytes + (512 << 20)
 
     /// The newest segment AVPlayer asked for (video or audio rendition), nil until its first request.
     /// Guarded by `control`; the worker uses it as the playhead estimate.
@@ -330,6 +334,9 @@ nonisolated final class RemuxSession: @unchecked Sendable {
 
     private func runRemux() {
         setState(.running)
+        if let free = Self.freeDiskBytes(), free < Self.minFreeDiskBytes {
+            return fail("not enough free storage for the remux window (\(free >> 20) MB free)")
+        }
         // Errors/warnings only — the muxer otherwise logs two "Opening … for writing" info lines per
         // segment, which floods the Xcode console on long content.
         av_log_set_level(AV_LOG_WARNING)
@@ -993,8 +1000,10 @@ nonisolated final class RemuxSession: @unchecked Sendable {
                 guard flushFragment(run.video), run.video.writer.finalizeCurrent() else { return false }
                 if let a = run.audio {
                     guard flushFragment(a) else { return false }
-                    if !a.writer.finalizeCurrent(allowEmpty: isFinal), !isFinal {
-                        print("[Remux] audio window empty at segment \(currentSeg) — source not representable as aligned renditions")
+                    if !a.writer.finalizeCurrent(allowEmpty: isFinal), !isFinal || a.writer.writeFailed {
+                        print(a.writer.writeFailed
+                              ? "[Remux] audio segment \(currentSeg) could not be written"
+                              : "[Remux] audio window empty at segment \(currentSeg) — source not representable as aligned renditions")
                         return false
                     }
                 }
@@ -1551,6 +1560,15 @@ nonisolated final class RemuxSession: @unchecked Sendable {
         cb?(s)
     }
 
+    /// Bytes the app can still write to the cache volume (purgeable space counted, as the system would
+    /// reclaim it), nil when the volume does not report it.
+    private static func freeDiskBytes() -> Int? {
+        let probe = cacheRoot.deletingLastPathComponent()
+        guard let values = try? probe.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey]),
+              let free = values.volumeAvailableCapacityForImportantUsage else { return nil }
+        return Int(free)
+    }
+
     private func fail(_ stage: String) {
         print("[Remux] failed at \(stage) — \(config.url.lastPathComponent)")
         setState(.failed(stage))
@@ -1605,6 +1623,11 @@ private nonisolated final class SegmentWriter {
     /// Whether init.mp4 has been written (the moov box has been seen and routed).
     var initFinalized: Bool { initDone }
 
+    /// A segment or init file could not be written (disk full, volume gone). The published playlist
+    /// promises that file, so the caller ends the run in error (-> mpv) instead of letting the server
+    /// answer 503 for a segment that will never appear.
+    private(set) var writeFailed = false
+
     /// Size of the segment file `finalizeCurrent` wrote last (0 before the first).
     private(set) var lastFinalizedBytes = 0
 
@@ -1646,9 +1669,9 @@ private nonisolated final class SegmentWriter {
             return false
         }
         lastFinalizedBytes = segData.count
-        writeAtomic(segData, name: segName)
+        let written = writeAtomic(segData, name: segName)
         segData.removeAll(keepingCapacity: true)
-        return true
+        return written
     }
 
     // MARK: AVIO write callback
@@ -1697,7 +1720,8 @@ private nonisolated final class SegmentWriter {
         }
     }
 
-    private func writeAtomic(_ data: Data, name: String) {
+    @discardableResult
+    private func writeAtomic(_ data: Data, name: String) -> Bool {
         let finalURL = outputDir.appendingPathComponent(name)
         let partURL = finalURL.appendingPathExtension("part")
         try? FileManager.default.removeItem(at: partURL)
@@ -1705,8 +1729,12 @@ private nonisolated final class SegmentWriter {
             try data.write(to: partURL, options: .atomic)
             try? FileManager.default.removeItem(at: finalURL)
             try FileManager.default.moveItem(at: partURL, to: finalURL)
+            return true
         } catch {
             print("[Remux] segment write failed: \(name) — \(error.localizedDescription)")
+            try? FileManager.default.removeItem(at: partURL)
+            writeFailed = true
+            return false
         }
     }
 }
