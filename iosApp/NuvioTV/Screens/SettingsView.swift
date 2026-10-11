@@ -46,12 +46,13 @@ import SharedCore
 /// every state (e.g. Advanced offers "Start Remote Setup" when the server is stopped), and every
 /// pushed sub-page a `SettingsLinkRow` presents must keep one too.
 ///
-/// **Search.** A system `.searchable` field sits above the split (the Search tab's own recipe: the
-/// modifier is on the stack's root content, so pushed pages do not inherit it). Up from the first
-/// sidebar row now lands on that field before the tab bar. While the query is non-empty the
-/// split is replaced by the results list (`SettingsSearchResultsView`); choosing a result clears
-/// the query, selects the result's category and scrolls its pane to the matching section, and the
-/// sidebar default focus (the selected category) takes over as usual.
+/// **Search.** tvOS Settings has no search field, and a `.searchable` on the split reserved a
+/// tall empty header band (keyboard region) that stayed visible while scrolling and with the
+/// sidebar. Search is therefore a compact "Search Settings" row at the very top of the category
+/// list that PUSHES `SettingsSearchScreen` (the only place `.searchable` is attached). Choosing a
+/// result pops back, selects the result's category and scrolls its pane to the matching section;
+/// the sidebar default focus (the selected category) takes over as usual. The split itself never
+/// carries a search modifier, so no band exists in any focus, scroll or sidebar state.
 ///
 /// **Menu.** Exactly one level per press, all of it the system's default — this file installs no
 /// `onExitCommand` anywhere. Inside an open `Menu`/`Picker` popover it dismisses the popover; on a
@@ -93,8 +94,8 @@ struct SettingsView: View {
     /// clears it, same contract as `pendingThemeSwatchFocus`.
     @Binding var pendingAppearanceRowFocus: String?
     @FocusState private var focusedCategory: SettingsCategory?
-    /// The Settings search field's text; non-empty swaps the split for the results list.
-    @State private var searchQuery = ""
+    /// Drives the push of the dedicated Settings search screen from the top sidebar row.
+    @State private var showingSearch = false
     /// Section title the detail pane should scroll to after a search result was chosen.
     @State private var pendingSearchAnchor: String?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -115,33 +116,25 @@ struct SettingsView: View {
                     .padding(.horizontal, Theme.Spacing.screen)
                     .padding(.top, Theme.Spacing.lg)
 
-                if isSearching {
-                    SettingsSearchResultsView(
-                        query: searchQuery,
-                        developerUnlocked: developerUnlocked
-                    ) { entry in
-                        openSearchResult(entry)
-                    }
-                } else {
-                    GeometryReader { geo in
-                        HStack(spacing: 0) {
-                            categorySidebar
-                                .frame(width: max(400, geo.size.width / 3))
+                GeometryReader { geo in
+                    HStack(spacing: 0) {
+                        categorySidebar
+                            .frame(width: max(400, geo.size.width / 3))
+                            // Left/Right hand focus between the two columns whatever row the
+                            // user stands on (the engine otherwise needs a geometric overlap).
+                            .focusSection()
 
-                            detailPane
-                                .frame(maxWidth: .infinity)
-                        }
+                        detailPane
+                            .frame(maxWidth: .infinity)
+                            .focusSection()
                     }
                 }
             }
-            .searchable(
-                text: $searchQuery,
-                prompt: Text(String(
-                    localized: "settings.search.prompt",
-                    defaultValue: "Search Settings",
-                    comment: "Placeholder in the Settings search field"
-                ))
-            )
+            .navigationDestination(isPresented: $showingSearch) {
+                SettingsSearchScreen(developerUnlocked: developerUnlocked) { entry in
+                    openSearchResult(entry)
+                }
+            }
             // Wave 2 (decision D1): the shell is the system `.sidebarAdaptable` sidebar, which
             // owns Menu at a tab root itself, so the old `.sidebarMenuReveal()` hook is gone.
             .background(Theme.Palette.background.ignoresSafeArea())
@@ -270,7 +263,7 @@ struct SettingsView: View {
                 // After a search result: let the pane build, then bring its section into view.
                 .task(id: pendingSearchAnchor) {
                     guard let anchor = pendingSearchAnchor else { return }
-                    try? await Task.sleep(nanoseconds: 350_000_000)
+                    try? await Task.sleep(nanoseconds: 500_000_000)
                     guard !Task.isCancelled else { return }
                     let target = SettingsSearchAnchor.id(for: anchor)
                     if reduceMotion {
@@ -284,15 +277,11 @@ struct SettingsView: View {
         }
     }
 
-    private var isSearching: Bool {
-        !searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    }
-
-    /// A search result was chosen: show its category, queue the scroll, leave search.
+    /// A search result was chosen: show its category and queue the scroll. The search screen pops
+    /// itself right after this call.
     private func openSearchResult(_ entry: SettingsSearchEntry) {
         pendingSearchAnchor = entry.section
         selectedCategory = entry.category
-        searchQuery = ""
     }
 
     /// The detail pane's content for the currently selected sidebar category. Only the selected
@@ -360,6 +349,26 @@ struct SettingsView: View {
     /// platter, which is what BUG-45's hand-rolled three-way colour switch was working around.
     private var categorySidebar: some View {
         List(selection: sidebarSelection) {
+            // Compact entry to the Settings search, first in the list (tvOS has no search field in
+            // Settings). Not tagged, so it never becomes a category selection; the push is driven
+            // by `showingSearch`.
+            Button {
+                showingSearch = true
+            } label: {
+                HStack(spacing: Theme.Spacing.md) {
+                    Image(systemName: "magnifyingglass")
+                        .settingsAccentTint()
+                        .accessibilityHidden(true)
+                    Text(String(
+                        localized: "settings.search.prompt",
+                        defaultValue: "Search Settings",
+                        comment: "Placeholder in the Settings search field"
+                    ))
+                    .font(Theme.Font.body)
+                }
+            }
+            .accessibilityIdentifier("settings_search_entry")
+
             ForEach(visibleCategories) { category in
                 Button {
                     selectedCategory = category
