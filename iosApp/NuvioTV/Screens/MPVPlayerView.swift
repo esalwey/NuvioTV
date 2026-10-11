@@ -247,10 +247,13 @@ final class MPVTVPlayerViewController: UIViewController {
 
         metalLayer.contentsGravity = .resizeAspect
         metalLayer.contentsScale = UIScreen.main.nativeScale
-        metalLayer.framebufferOnly = true
+        // Readable (not framebuffer-only) so the Liquid Glass of the transport bar can sample the
+        // picture under it; see `ensureMetalLayerReadable`.
+        metalLayer.framebufferOnly = PlayerTuning.framebufferOnly
         metalLayer.backgroundColor = UIColor.black.cgColor
         view.layer.addSublayer(metalLayer)
         layoutMetalLayer()
+        print("[MPV] metal layer framebufferOnly=\(metalLayer.framebufferOnly) (requested \(PlayerTuning.framebufferOnly))")
 
         state.selectAudio = { [weak self] id in self?.selectAudio(id) }
         state.selectSubtitle = { [weak self] id in self?.selectSubtitle(id) }
@@ -402,6 +405,20 @@ final class MPVTVPlayerViewController: UIViewController {
     }
 
     override var canBecomeFirstResponder: Bool { true }
+
+    /// MoltenVK derives `CAMetalLayer.framebufferOnly` from the swapchain image usage when mpv's
+    /// Vulkan swapchain is created (after `viewDidLoad`), which can put the flag back to true. A
+    /// framebuffer-only layer is invisible to the backdrop of `.glassEffect`, so the bar's glass shows
+    /// a dark fill instead of the blurred picture. Re-assert the wanted value once the swapchain
+    /// exists (first video size, file loaded) and log the effective one. Main thread.
+    func ensureMetalLayerReadable(reason: String) {
+        let wanted = PlayerTuning.framebufferOnly
+        let before = metalLayer.framebufferOnly
+        if before != wanted {
+            metalLayer.framebufferOnly = wanted
+        }
+        print("[MPV] metal layer framebufferOnly=\(metalLayer.framebufferOnly) wanted=\(wanted) was=\(before) (\(reason))")
+    }
 
     private func layoutMetalLayer() {
         let bounds = view.bounds
@@ -614,6 +631,7 @@ final class MPVTVPlayerViewController: UIViewController {
         guard snap.videoW > 0, snap.videoH > 0 else { return }
         displayCriteriaAwaitsVideoSize = false
         DispatchQueue.main.async { [weak self] in
+            self?.ensureMetalLayerReadable(reason: "first video size")
             guard let self, self.view.window != nil else { return }
             self.applyDisplayCriteriaIfEnabled(holdDuringSwitch: true)
         }
@@ -1351,6 +1369,7 @@ final class MPVTVPlayerViewController: UIViewController {
     /// FILE_LOADED reached the main thread: the watchdog stands down, and a "not responding" card
     /// that went up meanwhile goes away — the slow source came through after all.
     private func fileDidLoad() {
+        ensureMetalLayerReadable(reason: "file loaded")
         loadWatchdog?.cancel()
         loadWatchdog = nil
         if playbackError?.kind == .timedOut {

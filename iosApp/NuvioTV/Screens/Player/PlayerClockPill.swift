@@ -65,7 +65,7 @@ private struct PlayerClockSurface: ViewModifier {
                 .overlay(Capsule().strokeBorder(Color.white.opacity(0.15), lineWidth: 1))
         } else {
             content
-                .glassEffect(.regular.tint(PlayerChipStyle.glassTint), in: .capsule)
+                .glassEffect(PlayerChipStyle.glass, in: .capsule)
                 .playerPanelShadow()
         }
     }

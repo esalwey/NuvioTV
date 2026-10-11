@@ -60,6 +60,20 @@ nonisolated enum PlayerTuning {
     /// debrid redirect plus TLS plus the Matroska header on a cold link, so Dolby Vision files fell
     /// back to mpv (no true DV) for no reason. The loading view's spinner shows from 2 s either way.
     static let probeTimeoutSec: Double = 4
+
+    // MARK: - Player look A/B (Developer pane)
+
+    /// Developer A/B (hidden pane): put the old dark tint (black 45 %) back under every player glass
+    /// surface. OFF by default: the tvOS 26 system bar is neutral Liquid Glass over the video, so the
+    /// app-drawn surfaces (mpv transport bar, chips, Up Next and pause cards) match it.
+    static let darkGlassTintKey = "debug.player.darkGlassTint"
+    /// Developer A/B: keep the mpv `CAMetalLayer` framebuffer-only (the old, faster setting). OFF by
+    /// default: a framebuffer-only layer cannot be read by the backdrop of `.glassEffect`, so the
+    /// glass over the mpv picture rendered as a dark block instead of the blurred video.
+    static let framebufferOnlyKey = "debug.player.framebufferOnly"
+
+    static var darkGlassTint: Bool { UserDefaults.standard.bool(forKey: darkGlassTintKey) }
+    static var framebufferOnly: Bool { UserDefaults.standard.bool(forKey: framebufferOnlyKey) }
 }
 
 /// Everything the player needs to render a stream and record watch progress for it.

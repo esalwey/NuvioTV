@@ -18,9 +18,18 @@ enum PlayerChipStyle {
     /// triggers it (F6, VIS-05 point 3). Replaces the old D-pad-down chevron.
     static let selectHintSymbol = "smallcircle.filled.circle"
     /// Neutral Liquid Glass (docs/design/hig-hybrid-contract.md): a prompt is an action, not a
-    /// selection, so it never wears the brand accent. Also the one tint of every player panel
-    /// (`playerPanelGlass()`), dark enough for text over bright scenes.
-    static let glassTint = Color.black.opacity(0.45)
+    /// selection, so it never wears the brand accent. The tvOS 26 system player floats plain,
+    /// untinted glass over the video and lets the glass and its vibrancy carry the text, so the
+    /// transport bar, the chips and the clock pill wear NO tint; a black 45 % tint made them read as
+    /// opaque dark blocks. The Developer pane's "Dark Player Glass" switch (`PlayerTuning.darkGlassTint`)
+    /// brings the old tint back for an on-device A/B.
+    static var glass: Glass {
+        PlayerTuning.darkGlassTint ? .regular.tint(Color.black.opacity(0.45)) : .regular
+    }
+    /// Text-heavy cards (Up Next, pause info) only get a very light dark tint under their copy.
+    static var cardGlass: Glass {
+        .regular.tint(Color.black.opacity(PlayerTuning.darkGlassTint ? 0.45 : 0.18))
+    }
     /// Inner padding of every floating player panel (transport bar, pause / Up Next / stream-info
     /// cards) — AES-7.
     static let panelPadding: CGFloat = Theme.Spacing.lg
@@ -34,7 +43,7 @@ extension View {
     /// shared tint, `Theme.Radius.panel` corners and one soft drop shadow — the transport bar and the
     /// cards around it used to show four radii, three tints and four shadows on one screen.
     func playerPanelGlass() -> some View {
-        glassEffect(.regular.tint(PlayerChipStyle.glassTint),
+        glassEffect(PlayerChipStyle.cardGlass,
                     in: RoundedRectangle(cornerRadius: Theme.Radius.panel, style: .continuous))
             .playerPanelShadow()
     }
@@ -66,7 +75,7 @@ struct PlayerActionChip: View {
         .foregroundStyle(Theme.Palette.textPrimary)
         .padding(.horizontal, Theme.Spacing.lg + Theme.Spacing.xs)
         .padding(.vertical, Theme.Spacing.md)
-        .glassEffect(.regular.tint(PlayerChipStyle.glassTint), in: .capsule)
+        .glassEffect(PlayerChipStyle.glass, in: .capsule)
         .playerPanelShadow()
         .accessibilityElement(children: .combine)
     }
@@ -89,7 +98,7 @@ struct PlayerChipCaption: View {
         .foregroundStyle(Theme.Palette.textSecondary)
         .padding(.horizontal, Theme.Spacing.md)
         .padding(.vertical, Theme.Spacing.xs)
-        .glassEffect(.regular.tint(PlayerChipStyle.glassTint), in: .capsule)
+        .glassEffect(PlayerChipStyle.glass, in: .capsule)
         .frame(maxWidth: 620, alignment: .trailing)
     }
 }
