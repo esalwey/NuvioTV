@@ -2,7 +2,9 @@ package com.nuvio.app.features.trakt
 
 import com.nuvio.app.features.library.LibraryItem
 import com.nuvio.app.features.library.LibrarySection
+import com.nuvio.app.features.tracking.LibraryListPrivacy
 import com.nuvio.app.features.tracking.TrackingLibraryProvider
+import com.nuvio.app.features.tracking.TrackingListManager
 import com.nuvio.app.features.tracking.TrackingLibrarySnapshot
 import com.nuvio.app.features.tracking.TrackingLibraryTab
 import com.nuvio.app.features.tracking.TrackingLibraryTabKind
@@ -27,6 +29,7 @@ object TraktTrackingLibraryProvider : TrackingLibraryProvider {
     override val providerId: TrackingProviderId = TrackingProviderId.TRAKT
     override val changes: Flow<Unit> = TraktLibraryRepository.uiState.map { Unit }
     override val connectionRefreshIntent: TrackingRefreshIntent = TrackingRefreshIntent.INVALIDATED
+    override val listManager: TrackingListManager = TraktListManager
 
     override fun ensureLoaded() = TraktLibraryRepository.ensureLoaded()
 
@@ -119,4 +122,6 @@ private fun TraktListTab.toTrackingLibraryTab(): TrackingLibraryTab =
             TraktListType.WATCHLIST -> TrackingLibraryTabKind.WATCHLIST
             TraktListType.PERSONAL -> TrackingLibraryTabKind.PERSONAL
         },
+        description = description?.takeIf { it.isNotBlank() },
+        privacy = privacy?.let { LibraryListPrivacy.fromApi(it.apiValue) },
     )

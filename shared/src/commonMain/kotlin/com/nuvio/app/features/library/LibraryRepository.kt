@@ -17,6 +17,10 @@ import com.nuvio.app.features.profiles.ProfileRepository
 import com.nuvio.app.features.tracking.TrackingLibraryProvider
 import com.nuvio.app.features.tracking.TrackingLibraryTab
 import com.nuvio.app.features.tracking.TrackingLibraryTabKind
+import com.nuvio.app.features.tracking.TrackingListManager
+import com.nuvio.app.features.tracking.TrackingMembershipApplyResult
+import com.nuvio.app.features.tracking.TrackingMembershipResolution
+import com.nuvio.app.features.tracking.TrackingProviderId
 import com.nuvio.app.features.tracking.TrackingProviderRegistry
 import com.nuvio.app.features.tracking.TrackingRefreshIntent
 import com.nuvio.app.features.tracking.TrackingSettingsRepository
@@ -242,6 +246,16 @@ object LibraryRepository {
         }
     }
 
+    /**
+     * User-initiated refresh of whatever backs the Library right now: the connected Trakt / Simkl
+     * provider (bypassing its cache) or the Nuvio account. Errors surface through
+     * [LibraryUiState.errorMessage], never as a thrown exception.
+     */
+    suspend fun syncNow() {
+        ensureLoaded()
+        pullFromServer(ProfileRepository.activeProfileId)
+    }
+
     private suspend fun pullLibraryDelta(
         token: LibraryProfileToken,
         profileId: Int,
@@ -401,6 +415,22 @@ object LibraryRepository {
                 .flatMap { provider -> provider.snapshot().tabs },
         ).filter { tab -> item == null || tab.supportsContentType(item.type) }
 
+    /**
+     * The library whose own lists the user can manage right now (the active remote source, when
+     * its provider supports list management), or null for the local library / Simkl.
+     */
+    internal fun listManagementContext(): LibraryManagementContext? {
+        val source = effectiveLibrarySourceMode()
+        val provider = activeLibraryProvider(source) ?: return null
+        if (provider.listManager == null) return null
+        return LibraryManagementContext(ProfileRepository.activeProfileId, source)
+    }
+
+    internal fun listManager(context: LibraryManagementContext): TrackingListManager {
+        check(context == listManagementContext()) { "Library changed" }
+        return requireNotNull(activeLibraryProvider(context.source)?.listManager)
+    }
+
     suspend fun getMembershipSnapshot(item: LibraryItem): Map<String, Boolean> {
         ensureLoaded()
         val inLocal = localState.contains(item.id, item.type)
@@ -412,11 +442,74 @@ object LibraryRepository {
     }
 
     suspend fun applyMembershipChanges(item: LibraryItem, desiredMembership: Map<String, Boolean>) {
+        applyMembershipCore(
+            item = item,
+            desiredMembership = desiredMembership,
+            confirmedRemovalProviders = emptySet(),
+            requireRemovalConfirmation = false,
+            updateLocal = true,
+        )
+    }
+
+    /**
+     * [applyMembershipChanges] for a UI that can ask the user first. When a provider would also
+     * clear watched history or a rating (Simkl), nothing is written and the result says which
+     * providers need a confirmation; call again with them in [confirmedRemovalProviders] once the
+     * user agreed. [TrackingMembershipApplyResult.rewrites] reports lists a provider moved the
+     * title to instead of the requested one.
+     */
+    suspend fun applyMembershipChangesConfirmable(
+        item: LibraryItem,
+        desiredMembership: Map<String, Boolean>,
+        confirmedRemovalProviders: Set<TrackingProviderId> = emptySet(),
+    ): TrackingMembershipApplyResult = applyMembershipCore(
+        item = item,
+        desiredMembership = desiredMembership,
+        confirmedRemovalProviders = confirmedRemovalProviders,
+        requireRemovalConfirmation = true,
+        updateLocal = true,
+    )
+
+    /**
+     * The "+" button as a suspending call with the same confirmation contract as
+     * [applyMembershipChangesConfirmable]: toggles the title in the active library (the local
+     * library, or the active provider's default list) and reports failures to the caller instead
+     * of a toast.
+     */
+    suspend fun toggleSavedConfirmable(
+        item: LibraryItem,
+        confirmedRemovalProviders: Set<TrackingProviderId> = emptySet(),
+    ): TrackingMembershipApplyResult {
+        ensureLoaded()
+        val provider = activeLibraryProvider()
+        if (provider == null) {
+            toggleSaved(item)
+            return TrackingMembershipApplyResult()
+        }
+        return applyMembershipCore(
+            item = item,
+            desiredMembership = provider.toggledDefaultMembership(provider.membership(item)),
+            confirmedRemovalProviders = confirmedRemovalProviders,
+            requireRemovalConfirmation = true,
+            updateLocal = false,
+            onlyProviderIds = setOf(provider.providerId),
+        )
+    }
+
+    private suspend fun applyMembershipCore(
+        item: LibraryItem,
+        desiredMembership: Map<String, Boolean>,
+        confirmedRemovalProviders: Set<TrackingProviderId>,
+        requireRemovalConfirmation: Boolean,
+        updateLocal: Boolean,
+        onlyProviderIds: Set<TrackingProviderId>? = null,
+    ): TrackingMembershipApplyResult {
         ensureLoaded()
         val localDesired = desiredMembership[LOCAL_LIBRARY_LIST_KEY] == true
         val currentlyInLocal = localState.contains(item.id, item.type)
         val profileId = localState.snapshot().token.profileId
         val providerChanges = TrackingProviderRegistry.connectedLibraryProviders()
+            .filter { provider -> onlyProviderIds == null || provider.providerId in onlyProviderIds }
             .mapNotNull { provider ->
                 val providerListKeys = provider.snapshot().tabs.mapTo(mutableSetOf(), TrackingLibraryTab::key)
                 desiredMembership
@@ -424,12 +517,21 @@ object LibraryRepository {
                     .takeIf { membership -> membership.isNotEmpty() }
                     ?.let { membership -> provider to membership }
             }
+        if (requireRemovalConfirmation) {
+            val requiredConfirmations = providerChanges.mapNotNull { (provider, providerMembership) ->
+                provider.membershipRemovalConfirmation(item, providerMembership)
+                    ?.takeUnless { confirmation -> confirmation.providerId in confirmedRemovalProviders }
+            }
+            if (requiredConfirmations.isNotEmpty()) {
+                return TrackingMembershipApplyResult(requiredRemovalConfirmations = requiredConfirmations)
+            }
+        }
         log.i {
             "Applying library membership item=${item.id} type=${item.type} profile=$profileId " +
                 "localDesired=$localDesired currentlyInLocal=$currentlyInLocal " +
                 "connectedProviders=${TrackingProviderRegistry.connectedProviderIdsSnapshot()}"
         }
-        if (localDesired != currentlyInLocal) {
+        if (updateLocal && localDesired != currentlyInLocal) {
             if (localDesired) {
                 save(item)
             } else {
@@ -438,13 +540,15 @@ object LibraryRepository {
         }
 
         var firstFailure: Throwable? = null
+        val resolutions = mutableListOf<TrackingMembershipResolution>()
         providerChanges.forEach { (provider, providerMembership) ->
             try {
                 provider.applyMembership(
                     profileId = profileId,
                     item = item,
                     desiredMembership = providerMembership,
-                )
+                    destructiveRemovalConfirmed = provider.providerId in confirmedRemovalProviders,
+                )?.let(resolutions::add)
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Throwable) {
@@ -454,6 +558,7 @@ object LibraryRepository {
         }
         publish()
         firstFailure?.let { throw it }
+        return TrackingMembershipApplyResult(resolutions = resolutions)
     }
 
     suspend fun removeFromList(item: LibraryItem, listKey: String) {

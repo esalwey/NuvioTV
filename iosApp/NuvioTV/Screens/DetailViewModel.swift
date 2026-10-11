@@ -16,6 +16,18 @@ final class DetailViewModel: ObservableObject {
     @Published private(set) var errorMessage: String?
     @Published private(set) var isWatched: Bool = false
     @Published private(set) var isSaved: Bool = false
+    /// A tracking account (Trakt / Simkl) with lists to put this title on is connected: Detail then
+    /// offers Add to Lists beside the "+" button.
+    @Published private(set) var hasProviderLists: Bool = false
+    /// Add to Lists is on screen.
+    @Published var showingAddToLists = false
+    /// The "+" button asked a provider to remove the title and it would also clear watched history
+    /// or a rating: waiting for the user's yes.
+    @Published var libraryRemovalPrompt: LibraryMembershipOutcome?
+    /// The "+" button put the title on a different list than the provider's default (rewritten).
+    @Published var libraryNotice: LibraryMembershipOutcome?
+    /// The "+" button could not update the library (offline, signed out of the provider).
+    @Published var libraryFailure: String?
     /// Resolved, directly-playable trailer video URL for the hero (nil until/unless one resolves).
     @Published private(set) var trailerVideoURL: String?
     /// BUG-81: the YouTube video id `trailerVideoURL` was extracted from, handed to the trailer
@@ -591,21 +603,63 @@ final class DetailViewModel: ObservableObject {
         )
     }
 
-    /// Toggle library membership. Prefers the enriched `meta`, falling back to the preview card.
-    /// `toLibraryItem` is a Kotlin extension → Swift instance method; the repo stamps
+    /// The title the library actions act on. Prefers the enriched `meta`, falling back to the
+    /// preview card. `toLibraryItem` is a Kotlin extension → Swift instance method; the repo stamps
     /// `savedAtEpochMs` itself, so we pass 0.
-    func toggleLibrary() {
-        // DET-1: saved under the preview's id only (before its meta resolved) → remove THAT entry;
+    private func libraryActionItem() -> LibraryItem {
+        // DET-1: saved under the preview's id only (before its meta resolved) → act on THAT entry;
         // toggling the meta's id would add a duplicate instead.
         if let previewIdentity = previewIdentityIfDistinct,
            !LibraryRepository.shared.isSaved(id: contentId, type: contentType),
            LibraryRepository.shared.isSaved(id: previewIdentity.id, type: previewIdentity.type) {
-            LibraryRepository.shared.toggleSaved(item: preview.toLibraryItem(savedAtEpochMs: 0))
+            return preview.toLibraryItem(savedAtEpochMs: 0)
+        }
+        return meta.map { $0.toLibraryItem(savedAtEpochMs: 0) }
+            ?? preview.toLibraryItem(savedAtEpochMs: 0)
+    }
+
+    /// Toggle library membership. With a tracking account connected the write can fail, can need
+    /// the user's confirmation (a removal that also clears history) and reports back; without
+    /// one it is the plain local toggle.
+    func toggleLibrary() {
+        let item = libraryActionItem()
+        guard LibraryMembership.shared.hasProviderLists() else {
+            LibraryRepository.shared.toggleSaved(item: item)
             return
         }
-        let item: LibraryItem = meta.map { $0.toLibraryItem(savedAtEpochMs: 0) }
-            ?? preview.toLibraryItem(savedAtEpochMs: 0)
-        LibraryRepository.shared.toggleSaved(item: item)
+        LibraryMembership.shared.toggleSaved(item: item) { [weak self] outcome, error in
+            Task { @MainActor in self?.handleLibraryOutcome(outcome, error) }
+        }
+    }
+
+    /// The user agreed to the removal `libraryRemovalPrompt` asked about.
+    func confirmLibraryRemoval(_ prompt: LibraryMembershipOutcome) {
+        libraryRemovalPrompt = nil
+        prompt.confirmRemoval { [weak self] outcome, error in
+            Task { @MainActor in self?.handleLibraryOutcome(outcome, error) }
+        }
+    }
+
+    /// Opens Add to Lists for this title.
+    func openAddToLists() {
+        showingAddToLists = true
+    }
+
+    /// The item Add to Lists edits (same identity rule as the "+" button).
+    func addToListsItem() -> LibraryItem {
+        libraryActionItem()
+    }
+
+    private func handleLibraryOutcome(_ outcome: LibraryMembershipOutcome?, _ error: Error?) {
+        guard error == nil, let outcome else {
+            libraryFailure = String(localized: "Couldn\u{2019}t update your lists. Check the connection and try again.")
+            return
+        }
+        if outcome.requiresConfirmation {
+            libraryRemovalPrompt = outcome
+        } else if !outcome.rewrites.isEmpty {
+            libraryNotice = outcome
+        }
     }
 
     private func refreshFlags() {
@@ -615,6 +669,8 @@ final class DetailViewModel: ObservableObject {
             || previewIdentityIfDistinct.map { isTitleWatched(id: $0.id, type: $0.type) } == true
         isSaved = LibraryRepository.shared.isSaved(id: contentId, type: contentType)
             || previewIdentityIfDistinct.map { LibraryRepository.shared.isSaved(id: $0.id, type: $0.type) } == true
+        let providerLists = LibraryMembership.shared.hasProviderLists()
+        if providerLists != hasProviderLists { hasProviderLists = providerLists }
         watchedEpisodeKeys = computeWatchedEpisodeKeys()
         let progress = computeEpisodeProgress(excluding: watchedEpisodeKeys)
         if progress != episodeProgress { episodeProgress = progress }

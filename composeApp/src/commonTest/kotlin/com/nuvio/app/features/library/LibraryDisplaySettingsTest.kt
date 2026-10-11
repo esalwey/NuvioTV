@@ -51,6 +51,29 @@ class LibraryDisplaySettingsTest {
     }
 
     @Test
+    fun `release sorting works in both directions and keeps undated items last`() {
+        val input = listOf(
+            item("undated"),
+            item("old", releaseInfo = "1979"),
+            item("new", releaseInfo = "2021"),
+            item("mid", releaseInfo = "1995-2001"),
+        )
+
+        assertEquals(
+            listOf("new", "mid", "old", "undated"),
+            sortLibraryItems(input, LibrarySortOption.RELEASED_DESC, LibrarySourceMode.LOCAL).map { it.id },
+        )
+        assertEquals(
+            listOf("old", "mid", "new", "undated"),
+            sortLibraryItems(input, LibrarySortOption.RELEASED_ASC, LibrarySourceMode.TRAKT).map { it.id },
+        )
+        assertEquals(
+            listOf(LibrarySortOption.RELEASED_DESC, LibrarySortOption.RELEASED_ASC),
+            availableLibrarySortOptions(LibrarySourceMode.LOCAL).filter { it.name.startsWith("RELEASED") },
+        )
+    }
+
+    @Test
     fun `title sorting ignores leading English articles`() {
         val input = listOf(
             item("batman", name = "The Batman"),
@@ -142,6 +165,7 @@ class LibraryDisplaySettingsTest {
         name: String = id,
         savedAt: Long = 0L,
         traktRank: Int? = null,
+        releaseInfo: String? = null,
     ): LibraryItem =
         LibraryItem(
             id = id,
@@ -149,5 +173,6 @@ class LibraryDisplaySettingsTest {
             name = name,
             savedAtEpochMs = savedAt,
             traktRank = traktRank,
+            releaseInfo = releaseInfo,
         )
 }
