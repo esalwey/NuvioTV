@@ -70,6 +70,9 @@ private struct MPVPlayerRepresentable: UIViewControllerRepresentable {
     static func dismantleUIViewController(_ controller: MPVTVPlayerViewController, coordinator: MPVChromeCoordinator) {
         coordinator.detach()
         controller.tearDownErrorCard()
+        // The real teardown happens here, on the main thread, and not in `deinit`, which can run on a
+        // libmpv queue when a closure holds the last reference.
+        controller.tearDown()
     }
 }
 
@@ -442,8 +445,8 @@ struct MPVPlayerScreen: View {
         state.upNextDown = { [weak upNext] in upNext?.handleDown() ?? false }
         state.upNextMenu = { [weak upNext] in upNext?.handleMenu() ?? false }
         state.upNextCancel = { [weak upNext] in upNext?.dismissForSession() }
-        state.upNextSkipCredits = { [weak upNext] creditsEnd in
-            upNext?.skipCreditsToNext(creditsEndSec: creditsEnd) ?? false
+        state.upNextSkipCredits = { [weak upNext] creditsEnd, automatic in
+            upNext?.skipCreditsToNext(creditsEndSec: creditsEnd, automatic: automatic) ?? false
         }
         state.onSkipSegmentsLoaded = { [weak upNext, weak chromeModel] segments in
             upNext?.setSkipSegments(segments)

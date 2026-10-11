@@ -63,8 +63,8 @@ extension MPVTVPlayerViewController {
     /// Credential-class header names (lowercased). When the stream carries any of these, mpv's
     /// GLOBAL `http-header-fields` would also send them to every `sub-add` URL — i.e. leak the
     /// media host's credentials to unrelated subtitle providers (Codex 2026-08-20 round 4, P1).
-    /// `subAdd` checks this flag and side-loads such subtitles through its own credential-free
-    /// download instead of letting the core fetch them.
+    /// `subAdd` never lets the core fetch a subtitle: every remote file comes down through
+    /// `MPVSubtitleFetcher`, whose requests carry none of these headers.
     private static let credentialHeaderNames: Set<String> = ["authorization", "cookie", "proxy-authorization"]
 
     func applyRequestHeaders(_ headers: [String: String]) {
@@ -483,7 +483,7 @@ extension MPVTVPlayerViewController {
         let url = subtitle.url
         if !addedSubtitleUrls.contains(url) {
             sideLoadedAddonSubtitles[url] = subtitle
-            subAdd(url: url, title: subtitle.display, lang: subtitle.language)
+            subAdd(url: url, title: subtitle.display, lang: subtitle.language, priority: 0)
         }
         pendingSubtitleSelectURL = url
         refreshTracksAsync()
@@ -645,7 +645,7 @@ extension MPVTVPlayerViewController {
             setAudioDelay(storedAudioDelay)
         }
         for sub in context.externalSubtitles {
-            subAdd(url: sub.url, title: sub.name ?? sub.language, lang: sub.language)
+            subAdd(url: sub.url, title: sub.name ?? sub.language, lang: sub.language, priority: 0)
         }
         SubtitleRepository.shared.fetchAddonSubtitles(type: context.contentType, videoId: context.videoId)
         // A stream-picker prefetch may already have completed (the fetch call above then no-ops,
@@ -745,50 +745,83 @@ extension MPVTVPlayerViewController {
         let kept = playerSettings.map {
             PlayerTrackSelectionKt.filterAddonSubtitlesForSettings(subtitles: subs, settings: $0)
         } ?? subs
-        latestAddonSubtitles = kept
+        // The panel lists 24 add-on rows at most (`addonTotalCap`): the best matches are downloaded
+        // first, the rest behind them, and a hard ceiling keeps a title with hundreds of files sane.
+        let ranked = Array(rankedForSideLoad(kept).prefix(Self.sideLoadCeiling))
+        latestAddonSubtitles = ranked
         var added = false
-        for sub in kept where !addedSubtitleUrls.contains(sub.url) {
+        for (index, sub) in ranked.enumerated() where !addedSubtitleUrls.contains(sub.url) {
             sideLoadedAddonSubtitles[sub.url] = sub
-            subAdd(url: sub.url, title: sub.display, lang: sub.language)
+            subAdd(url: sub.url, title: sub.display, lang: sub.language,
+                   priority: index < Self.sideLoadEagerCount ? 1 : 2)
             added = true
         }
         if added { refreshTracksAsync() }
     }
 
-    private func subAdd(url: String, title: String, lang: String) {
+    /// Add-on subtitles downloaded ahead of the others, and the most that are side-loaded at all.
+    private static let sideLoadEagerCount = 24
+    private static let sideLoadCeiling = 48
+
+    /// `subs` with the one the viewer saved for this title first, then the preferred subtitle
+    /// languages in their order, then the rest, each group in arrival order.
+    private func rankedForSideLoad(_ subs: [AddonSubtitle]) -> [AddonSubtitle] {
+        var targets: [String] = []
+        if let playerSettings {
+            targets = PlayerTrackSelectionKt.preferredSubtitleTargetsForSettings(settings: playerSettings)
+        }
+        let saved: AddonSubtitle? = persistedTrackPreference.flatMap {
+            PlayerTrackSelectionKt.findPersistedAddonSubtitle(subtitles: subs, preference: $0)
+        }
+        func rank(_ sub: AddonSubtitle) -> Int {
+            if let saved, saved.url == sub.url { return -1 }
+            return targets.firstIndex { PlayerTrackSelectionKt.addonSubtitleMatchesLanguage(subtitle: sub, target: $0) }
+                ?? targets.count
+        }
+        return subs.enumerated()
+            .sorted { lhs, rhs in
+                let l = rank(lhs.element), r = rank(rhs.element)
+                return l != r ? l < r : lhs.offset < rhs.offset
+            }
+            .map { $0.element }
+    }
+
+    /// Side-loads one subtitle. A remote file is downloaded by `URLSession` (`MPVSubtitleFetcher`),
+    /// never by the core: `sub-add <http url>` probes the file inside libmpv, and forty of them in a
+    /// row held the core, and with it the picture and every command, for 10 to 30 s after the file
+    /// loaded. mpv is handed the local copy once it is down, which `sub-add` takes in milliseconds.
+    /// The download carries none of the stream's headers, so their credentials never reach a
+    /// subtitle host. `priority`: lower first (0 is a subtitle the viewer is waiting for).
+    private func subAdd(url: String, title: String, lang: String, priority: Int = 1) {
         guard mpv != nil, !addedSubtitleUrls.contains(url) else { return }
         addedSubtitleUrls.insert(url)
-        // Credential leak guard (Codex round 4, P1): with credential-class stream headers set
-        // globally on this handle, an in-core `sub-add <http url>` would send them to the
-        // subtitle host. Download the file ourselves WITHOUT those headers and hand mpv a local
-        // path instead. Only this rare credential case takes the new path — header-free and
-        // benign-header (Referer/UA) streams keep the exact in-core behavior below.
-        if streamHeadersCarryCredentials,
-           let remote = URL(string: url), remote.scheme == "http" || remote.scheme == "https" {
-            URLSession.shared.dataTask(with: remote) { [weak self] data, _, error in
-                guard let self, let data, error == nil, !data.isEmpty else {
-                    NSLog("[MPVPlayer] credential-scoped subtitle fetch failed for %@ — skipping side-load", url)
-                    return
-                }
-                let ext = remote.pathExtension.isEmpty ? "srt" : remote.pathExtension
-                let local = FileManager.default.temporaryDirectory
-                    .appendingPathComponent("mpv-sub-\(UUID().uuidString).\(ext)")
-                do {
-                    try data.write(to: local)
-                } catch {
-                    NSLog("[MPVPlayer] credential-scoped subtitle write failed — skipping side-load")
-                    return
-                }
-                DispatchQueue.main.async { [weak self] in
-                    // The track publish maps the local copy back to the addon URL (subtitle memory).
-                    self?.externalSubtitleSources[local.path] = url
-                    self?.addSubtitleFile(local.path, title: title, lang: lang)
-                }
-            }.resume()
+        guard let remote = URL(string: url), remote.scheme == "http" || remote.scheme == "https" else {
+            addSubtitleFile(url, title: title, lang: lang)
             return
         }
-        // sub-add downloads/probes the file inside the core, which is why it is posted, not run.
-        addSubtitleFile(url, title: title, lang: lang)
+        let generation = subtitleGeneration
+        subtitleFetcher.enqueue(remote, priority: priority) { [weak self] local in
+            DispatchQueue.main.async {
+                guard let self, self.mpv != nil, self.subtitleGeneration == generation else { return }
+                guard let local else {
+                    NSLog("[MPVPlayer] subtitle download failed for %@ - skipping side-load", url)
+                    self.subtitleDownloadFailed(url)
+                    return
+                }
+                // The track publish maps the local copy back to the addon URL (subtitle memory).
+                self.externalSubtitleSources[local.path] = url
+                self.addSubtitleFile(local.path, title: title, lang: lang)
+            }
+        }
+    }
+
+    /// Main thread. A file that never came down is not waited for: the language plan and a saved
+    /// choice go on without it instead of holding out to their deadline.
+    private func subtitleDownloadFailed(_ url: String) {
+        sideLoadedAddonSubtitles[url] = nil
+        latestAddonSubtitles.removeAll { $0.url == url }
+        if pendingSubtitleSelectURL == url { pendingSubtitleSelectURL = nil }
+        resolveSubtitleSelection(subInfos: lastSubtitleInfos)
     }
 
     /// `sub-add`, reading the file in the legacy code page its language is written in when it is not

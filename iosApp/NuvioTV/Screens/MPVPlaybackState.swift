@@ -107,7 +107,7 @@ final class MPVPlaybackState: ObservableObject {
     var upNextCancel: (() -> Void)?
     /// "Skip Outro" on credits ending at this position: true when Up Next plays the next episode
     /// instead (credits that run to the end of the file), so the controller doesn't seek.
-    var upNextSkipCredits: ((Double) -> Bool)?
+    var upNextSkipCredits: ((Double, Bool) -> Bool)?
     /// Skip segments reached the controller (the engine times the Up Next card on the outro).
     var onSkipSegmentsLoaded: (([SkipSegment]) -> Void)?
     /// Set right before an Up Next hand-off replaces this player: the teardown flush records the

@@ -481,7 +481,7 @@ struct NativePlayerScreen: View {
         // Credits that run to the end of the file = the next episode now (Up Next), not a seek onto
         // the last frame; credits followed by a scene seek to the scene.
         let handedToUpNext = isCredits && !skip.action.skipsToPostCredits
-            && upNext.skipCreditsToNext(creditsEndSec: skip.action.targetSec)
+            && upNext.skipCreditsToNext(creditsEndSec: skip.action.targetSec, automatic: true)
         if !handedToUpNext {
             coordinator.player?.seek(to: CMTime(seconds: skip.action.targetSec, preferredTimescale: 600))
         }

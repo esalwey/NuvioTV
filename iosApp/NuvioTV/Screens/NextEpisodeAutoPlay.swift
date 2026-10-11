@@ -896,19 +896,34 @@ final class NextEpisodeEngine: ObservableObject {
     /// episode, so it plays now — instead of a seek onto the last frame, with a one-second card or a
     /// source search that only starts there. False = seek as usual (no next episode, autoplay off,
     /// Up Next dismissed for the session, a scene after the credits, or a panel jump in flight).
+    ///
+    /// `automatic`: the skip is Automatic Skipping's, not a press of the viewer. It is then an
+    /// automatic hand-off like the countdown running out: it counts toward "Still watching?" (and asks
+    /// it when it is due), and it waits for an open panel or a pause instead of replacing the player
+    /// under them. A press of the viewer is a hand-off of their own and starts the count again.
     @discardableResult
-    func skipCreditsToNext(creditsEndSec: Double) -> Bool {
+    func skipCreditsToNext(creditsEndSec: Double, automatic: Bool = false) -> Bool {
         guard started, !cancelled, !handedOff, !ended, autoplayEnabled, !sessionDismissed,
               searchTarget?.isJump != true, let next = nextVideo, lastDurationSec > 0,
               creditsEndSec >= lastDurationSec - UpNextTrigger.postCreditsGapSec else { return false }
         userActionSerial &+= 1
-        Self.consecutiveAutoPlays = 0
         cardShown = true
         countdownTask?.cancel()
         countdownTask = nil
         countdownTotal = countdownSeconds
         countdownRemaining = 0
-        handOffIsAutomatic = false
+        if automatic {
+            if mustConfirmAutoplay {
+                playWhenReady = false
+                handOffIsAutomatic = false
+                phase = .stillWatching
+                return true
+            }
+            handOffIsAutomatic = true
+        } else {
+            Self.consecutiveAutoPlays = 0
+            handOffIsAutomatic = false
+        }
         playWhenReady = true
         if phase != .upNext { phase = .upNext }
         ensureSearch(for: next, retryFailed: true)

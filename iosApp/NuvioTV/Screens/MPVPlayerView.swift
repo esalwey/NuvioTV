@@ -131,6 +131,11 @@ final class MPVTVPlayerViewController: UIViewController {
     private var lastPausedFlag = false
     private var backgroundObserver: NSObjectProtocol?
     var streamHeadersCarryCredentials = false
+    /// Add-on subtitles come down through `URLSession`, a few at a time, before mpv sees them as
+    /// local files (see `MPVSubtitleFetcher`). `subtitleGeneration` drops the answers of a file that
+    /// was replaced by a retry.
+    let subtitleFetcher = MPVSubtitleFetcher()
+    var subtitleGeneration = 0
 
     /// Contract C1 (PLY-A9): the probe found Dolby Vision Profile 5 and this file plays on mpv. Its
     /// IPTPQc2 colours only come out right through libplacebo's reshaping, so the session renders
@@ -514,6 +519,10 @@ final class MPVTVPlayerViewController: UIViewController {
         if drawable != lastDrawableSize {
             metalLayer.drawableSize = drawable
             lastDrawableSize = drawable
+            // A new drawable size can recreate the swapchain, and MoltenVK sets the flag again.
+            if metalLayer.framebufferOnly != PlayerTuning.framebufferOnly {
+                metalLayer.framebufferOnly = PlayerTuning.framebufferOnly
+            }
         }
         CATransaction.commit()
     }
@@ -774,6 +783,12 @@ final class MPVTVPlayerViewController: UIViewController {
             refreshRate: Float(fps),
             formatDescription: formatDescription
         )
+        // The mode switch (resolution, HDR) rebuilds the swapchain: assert the layer's flag again once
+        // it is up, so the Liquid Glass over the picture does not go dark after it.
+        ensureMetalLayerReadable(reason: "display criteria")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
+            self?.ensureMetalLayerReadable(reason: "after display switch")
+        }
         if holdDuringSwitch { holdPlaybackDuringDisplaySwitch() }
     }
 
@@ -1565,6 +1580,7 @@ final class MPVTVPlayerViewController: UIViewController {
         fileLoaded = false
         addedSubtitleUrls.removeAll()
         sideLoadedAddonSubtitles.removeAll()
+        subtitleGeneration += 1
         didAutoSelectTracks = false
         // The subtitle choice is settled again for the new file (a pick made before the failure is
         // saved, so it comes back).
@@ -1624,13 +1640,21 @@ final class MPVTVPlayerViewController: UIViewController {
 
     // MARK: - Teardown
 
-    deinit {
+    /// The real teardown, on the main thread: timers, observers, watchers, the scrobble and the
+    /// subtitle repository. Called when SwiftUI dismantles the player (`dismantleUIViewController`)
+    /// and, as a fallback, by `deinit` when that runs on the main thread. Idempotent.
+    func tearDown() {
+        guard !tornDown else { return }
+        tornDown = true
         loadWatchdog?.cancel()
         subtitleRestoreDeadline?.cancel()
         if let backgroundObserver { NotificationCenter.default.removeObserver(backgroundObserver) }
         for observer in lifecycleObservers { NotificationCenter.default.removeObserver(observer) }
+        lifecycleObservers.removeAll()
         pollTimer?.invalidate()
+        pollTimer = nil
         seekTimer?.invalidate()
+        seekTimer = nil
         if stallSessionOpen {
             stallSessionOpen = false
             MainThreadStallMonitor.shared.endSession()
@@ -1638,6 +1662,7 @@ final class MPVTVPlayerViewController: UIViewController {
         subtitleWatcher?.cancel()
         subtitleLoadingWatcher?.cancel()
         playerSettingsWatcher?.cancel()
+        subtitleFetcher.close()
         // Idempotent final scrobble stop — normally a no-op after viewDidDisappear, but covers
         // teardown paths where the disappearance callback never ran (ME-004).
         stopTraktScrobble()
@@ -1646,6 +1671,34 @@ final class MPVTVPlayerViewController: UIViewController {
         // started — a plain `clear()` wiped the next episode's list.
         let subtitleKey = SubtitleRepository.shared.requestKey(type: context.contentType, videoId: context.videoId)
         SubtitleRepository.shared.clearIfCurrent(key: subtitleKey)
+    }
+
+    private var tornDown = false
+
+    deinit {
+        if Thread.isMainThread {
+            tearDown()
+        } else if !tornDown {
+            // The last reference went away on a libmpv queue (a closure that was mid-call when the
+            // screen let go of the player). Timers and observers belong to the main run loop and the
+            // main thread, so they are handed over there, by value, without touching `self`.
+            let timers = [pollTimer, seekTimer].compactMap { $0 }
+            let observers = lifecycleObservers + [backgroundObserver].compactMap { $0 }
+            let watchdog = loadWatchdog
+            let restoreDeadline = subtitleRestoreDeadline
+            let watchers = [subtitleWatcher, subtitleLoadingWatcher, playerSettingsWatcher].compactMap { $0 }
+            let hadStallSession = stallSessionOpen
+            let fetcher = subtitleFetcher
+            DispatchQueue.main.async {
+                timers.forEach { $0.invalidate() }
+                observers.forEach { NotificationCenter.default.removeObserver($0) }
+                watchdog?.cancel()
+                restoreDeadline?.cancel()
+                watchers.forEach { $0.cancel() }
+                fetcher.close()
+                if hadStallSession { MainThreadStallMonitor.shared.endSession() }
+            }
+        }
         destroyPlayer()
     }
 
