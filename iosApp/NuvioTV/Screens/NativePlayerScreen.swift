@@ -50,6 +50,9 @@ struct NativePlayerScreen: View {
     /// The "Player Engine" item of the transport bar: hands the stream to mpv on request. nil = no
     /// item (the dispatcher offers none).
     var engineSwitch: PlayerEngineSwitch?
+    /// The Jellyfin / Emby session this context plays, if any (owned by `PlayerScreen`): it gets the
+    /// playback ticks and puts the server's own audio / subtitle tracks into the transport menus.
+    var serverLink: ServerPlaybackLink?
 
     @StateObject private var coordinator: NativePlaybackCoordinator
     @StateObject private var panelModel: PlayerTopPanelModel
@@ -81,9 +84,11 @@ struct NativePlayerScreen: View {
          onPickNextSource: ((MetaVideo) -> Void)? = nil,
          canSwitchStreams: Bool = false,
          onChooseAnotherSource: (() -> Void)? = nil,
-         engineSwitch: PlayerEngineSwitch? = nil) {
+         engineSwitch: PlayerEngineSwitch? = nil,
+         serverLink: ServerPlaybackLink? = nil) {
         self.context = context
         self.engineSwitch = engineSwitch
+        self.serverLink = serverLink
         _upNext = ObservedObject(wrappedValue: upNext)
         self.onFallback = onFallback
         self.routingNote = routingNote
@@ -126,7 +131,9 @@ struct NativePlayerScreen: View {
                             aspect: aspectMode,
                             supportsSubtitleDelay: panelModel.supportsSubtitleDelay,
                             subtitleDelayMs: coordinator.subtitleDelayMs,
-                            canSwitchEngine: engineSwitch?.canSwitch ?? false),
+                            canSwitchEngine: engineSwitch?.canSwitch ?? false,
+                            serverSubtitles: panelModel.serverSubtitles,
+                            serverAudio: panelModel.serverAudio),
                         chapters: skipSegments,
                         makeInfoViewControllers: makeInfoViewControllers,
                         onSkip: { [weak coordinator, weak upNext] prompt in
@@ -147,6 +154,8 @@ struct NativePlayerScreen: View {
                         onSetAspect: { mode in setAspectMode(mode) },
                         onTransportBarVisibility: { [weak clock] visible in clock?.transportBarVisible = visible },
                         onSetSubtitleDelay: { [weak coordinator] ms in coordinator?.setSubtitleDelay(ms: ms) },
+                        onSelectServerSubtitle: { [weak panelModel] option in panelModel?.onSelectServerSubtitle?(option) },
+                        onSelectServerAudio: { [weak panelModel] option in panelModel?.onSelectServerAudio?(option) },
                         onStartOver: { [weak coordinator] in coordinator?.startOver() },
                         onChooseSource: { [weak upNext] in
                             upNext?.cancelForSourceSwitch()
@@ -202,8 +211,11 @@ struct NativePlayerScreen: View {
         .onChange(of: coordinator.isPaused) { _, paused in
             // The Up Next countdown pauses with the video.
             upNext.setPaused(paused)
+            serverLink?.report(positionSec: coordinator.lastPositionSec, isPaused: paused, isBuffering: false, isEnded: false)
         }
         .onChange(of: coordinator.isEnded) { _, ended in
+            serverLink?.report(positionSec: coordinator.lastPositionSec, isPaused: true, isBuffering: false,
+                               isEnded: ended && coordinator.endedNaturally)
             if ended {
                 // Hand-off, card, end screen — or nothing to continue with: back to details.
                 if upNext.playbackDidEnd(natural: coordinator.endedNaturally) == .exit { exitToDetails() }
@@ -231,13 +243,16 @@ struct NativePlayerScreen: View {
             coordinator.onTick = { [weak adapter] _, _ in
                 adapter?.onTick()
             }
-            coordinator.onPositionTick = { [weak upNext, weak clock, weak parental] position, duration in
+            coordinator.onPositionTick = { [weak upNext, weak coordinator, weak clock, weak parental, serverLink] position, duration in
                 clock?.update(position: position, duration: duration)
                 parental?.firstFrameShown()
                 upNext?.onProgress(positionSec: position, durationSec: duration)
                 updateSkipPrompt(position: position, durationSec: duration)
+                serverLink?.report(positionSec: position, isPaused: coordinator?.isPaused ?? false,
+                                   isBuffering: false, isEnded: false)
             }
             parental.prepare(context: context)
+            serverLink?.bind(to: panelModel)
             upNext.playerAttached()
             upNext.setPaused(false)
             upNext.onExitRequested = exitAction
@@ -508,6 +523,9 @@ private struct TransportMenuState: Equatable {
     var subtitleDelayMs: Int
     /// The "Player Engine" item is offered (native is the engine playing here).
     var canSwitchEngine: Bool
+    /// A Jellyfin / Emby transcode's burned-in subtitle choices and audio tracks (empty otherwise).
+    var serverSubtitles: [PlayerPanelOption] = []
+    var serverAudio: [PlayerPanelOption] = []
 
     // Choices, titles and symbols come from `PlayerTransportMenus` / `PlayerTransportItem`, the
     // description the mpv chrome draws from too.
@@ -538,6 +556,8 @@ private struct AVPlayerContainer: UIViewControllerRepresentable {
     let onSetAspect: (PlayerAspectMode) -> Void
     let onTransportBarVisibility: (Bool) -> Void
     let onSetSubtitleDelay: (Int) -> Void
+    let onSelectServerSubtitle: (PlayerPanelOption?) -> Void
+    let onSelectServerAudio: (PlayerPanelOption) -> Void
     /// Start Over (PLY-A13): back to 0:00.
     let onStartOver: () -> Void
     let onChooseSource: () -> Void
@@ -611,7 +631,9 @@ private struct AVPlayerContainer: UIViewControllerRepresentable {
     private func transportMenuItems() -> [UIMenuElement] {
         PlayerTransportMenus.customItems(canChooseSource: menu.canChooseSource,
                                          supportsSubtitleDelay: menu.supportsSubtitleDelay,
-                                         canSwitchEngine: menu.canSwitchEngine)
+                                         canSwitchEngine: menu.canSwitchEngine,
+                                         hasServerSubtitles: !menu.serverSubtitles.isEmpty,
+                                         hasServerAudio: !menu.serverAudio.isEmpty)
             .compactMap { menuElement(for: $0) }
     }
 
@@ -657,6 +679,20 @@ private struct AVPlayerContainer: UIViewControllerRepresentable {
                 }
             }
             return UIMenu(title: item.title, image: image, options: [.singleSelection], children: choices)
+        case .serverSubtitles:
+            let select = onSelectServerSubtitle
+            let actions = menu.serverSubtitles.map { option in
+                UIAction(title: option.title, state: option.isSelected ? .on : .off) { _ in
+                    select(option.group == .off ? nil : option)
+                }
+            }
+            return UIMenu(title: item.title, image: image, options: [.singleSelection], children: actions)
+        case .serverAudio:
+            let select = onSelectServerAudio
+            let actions = menu.serverAudio.map { option in
+                UIAction(title: option.title, state: option.isSelected ? .on : .off) { _ in select(option) }
+            }
+            return UIMenu(title: item.title, image: image, options: [.singleSelection], children: actions)
         case .subtitles, .audio:
             // The system player's own buttons.
             return nil

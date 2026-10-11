@@ -7,6 +7,7 @@ import com.nuvio.app.features.addons.AddonResource
 import com.nuvio.app.features.addons.buildAddonResourceUrl
 import com.nuvio.app.features.addons.enabledAddons
 import com.nuvio.app.features.addons.fetchAddonResponseText
+import com.nuvio.app.features.servers.ServerItemRef
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -94,6 +95,14 @@ object SubtitleRepository {
             _error.value = null
             _addonSubtitles.value = emptyList()
             if (_completedRequest.value != null) _completedRequest.value = null
+
+            // A media-server file carries its own subtitle streams (ServerPlayback), and no add-on can
+            // be asked about a `srv1:` id. Still a terminal path: both players wait on completedRequest.
+            if (ServerItemRef.isServerId(videoId)) {
+                _completedRequest.value = key
+                _isLoading.value = false
+                return@launch
+            }
 
             val fetchStart = TimeSource.Monotonic.markNow()
             // The player can outrun addon bootstrap (cold launch straight into playback, debug

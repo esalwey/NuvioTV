@@ -11,6 +11,7 @@ import com.nuvio.app.features.addons.AddonRepository
 import com.nuvio.app.features.addons.enabledAddons
 import com.nuvio.app.features.catalog.CatalogTarget
 import com.nuvio.app.features.catalog.fetchCatalogPage
+import com.nuvio.app.features.servers.ServerCatalog
 import com.nuvio.app.features.collection.Collection
 import com.nuvio.app.features.collection.CollectionRepository
 import com.nuvio.app.features.collection.CollectionSource
@@ -1618,6 +1619,7 @@ object HomeRepository {
         // Inert unless the burst simulator is armed: it makes one nominated hero-source catalog
         // fail its FIRST fetch, so the gate has to survive a Failed outcome plus the retry.
         HomeLaunchBurstSim.consumeFirstFetchFailure(key)?.let { failure -> throw failure }
+        serverConnectionId?.let { connectionId -> return toServerSection(connectionId) }
         val page = fetchCatalogPage(
             manifestUrl = manifestUrl,
             type = type,
@@ -1656,6 +1658,22 @@ object HomeRepository {
                 supportsPagination = supportsPagination,
             ),
             items = items,
+            availableItemCount = page.rawItemCount,
+            hasMore = supportsPagination && page.nextSkip != null,
+        )
+    }
+
+    /** A Jellyfin / Emby library or "continue watching" shelf: paged by the server catalog, never by an add-on. */
+    private suspend fun HomeCatalogDefinition.toServerSection(connectionId: String): HomeCatalogSection {
+        val target = CatalogTarget.Server(connectionId, catalogId, type)
+        val page = ServerCatalog.page(target, skip = 0, limit = HOME_CATALOG_PREVIEW_FETCH_LIMIT)
+        return HomeCatalogSection(
+            key = key,
+            title = defaultTitle,
+            subtitle = addonName,
+            addonName = addonName,
+            target = target,
+            items = page.items,
             availableItemCount = page.rawItemCount,
             hasMore = supportsPagination && page.nextSkip != null,
         )

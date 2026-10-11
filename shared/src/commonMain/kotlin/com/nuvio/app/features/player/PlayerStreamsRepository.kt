@@ -15,6 +15,7 @@ import com.nuvio.app.features.details.MetaDetailsRepository
 import com.nuvio.app.features.plugins.PluginScraperHostProvider
 import com.nuvio.app.features.plugins.PluginsUiState
 import com.nuvio.app.features.plugins.pluginContentId
+import com.nuvio.app.features.servers.ServerStreams
 import com.nuvio.app.features.streams.AddonStreamGroup
 import com.nuvio.app.features.streams.InstalledStreamAddonTarget
 import com.nuvio.app.features.streams.StreamAutoPlaySelector
@@ -189,11 +190,15 @@ object PlayerStreamsRepository {
             return
         }
 
-        val installedAddons = AddonRepository.uiState.value.addons.enabledAddons()
+        // A `srv1:` id names one file on one Jellyfin / Emby server: no add-on or plugin can answer it.
+        val isNativeServerRequest = ServerStreams.isNativeRequest(videoId)
+        val serverSources = ServerStreams.sources(type, videoId, season, episode, forceRefresh)
+        val preferredGroupIds = serverSources.filter { it.preferred }.mapTo(mutableSetOf()) { it.addonId }
+        val installedAddons = if (isNativeServerRequest) emptyList() else AddonRepository.uiState.value.addons.enabledAddons()
         PlayerSettingsRepository.ensureLoaded()
         val playerSettings = PlayerSettingsRepository.uiState.value
         val debridSettings = DebridSettingsRepository.snapshot()
-        val pluginScrapers = if (FeaturePolicyProvider.policy.pluginsEnabled) {
+        val pluginScrapers = if (FeaturePolicyProvider.policy.pluginsEnabled && !isNativeServerRequest) {
             PluginScraperHostProvider.host.getEnabledScrapersForType(type)
         } else {
             emptyList()
@@ -203,7 +208,7 @@ object PlayerStreamsRepository {
             groupByRepository = pluginUiState.groupStreamsByRepository,
         )
 
-        if (installedAddons.isEmpty() && pluginProviderGroups.isEmpty()) {
+        if (installedAddons.isEmpty() && pluginProviderGroups.isEmpty() && serverSources.isEmpty()) {
             stateFlow.value = StreamsUiState(
                 isAnyLoading = false,
                 emptyStateReason = com.nuvio.app.features.streams.StreamsEmptyStateReason.NoAddonsInstalled,
@@ -285,7 +290,7 @@ object PlayerStreamsRepository {
             return
         }
 
-        if (streamAddons.isEmpty() && pluginProviderGroups.isEmpty()) {
+        if (streamAddons.isEmpty() && pluginProviderGroups.isEmpty() && serverSources.isEmpty()) {
             stateFlow.value = StreamsUiState(
                 isAnyLoading = false,
                 emptyStateReason = if (tmdbId != null) {
@@ -312,7 +317,7 @@ object PlayerStreamsRepository {
                 streams = emptyList(),
                 isLoading = true,
             )
-        }, installedAddonOrder)
+        } + serverSources.map { it.loadingGroup() }, installedAddonOrder, preferredGroupIds)
         val isInitiallyLoading = initialGroups.any { it.isLoading }
         stateFlow.value = StreamsUiState(
             groups = initialGroups,
@@ -328,7 +333,7 @@ object PlayerStreamsRepository {
                 .associate { it.addonId to it.scrapers.size }
                 .toMutableMap()
             val pluginFirstErrorByAddonId = mutableMapOf<String, String>()
-            val totalTasks = streamAddons.size + pluginProviderGroups.sumOf { it.scrapers.size }
+            val totalTasks = streamAddons.size + pluginProviderGroups.sumOf { it.scrapers.size } + serverSources.size
             val completions = Channel<StreamLoadCompletion>(capacity = Channel.BUFFERED)
             val debridAvailabilityJobs = mutableListOf<Job>()
 
@@ -356,6 +361,7 @@ object PlayerStreamsRepository {
                             if (currentGroup.addonId == group.addonId) group else currentGroup
                         },
                         installedOrder = installedAddonOrder,
+                        preferredGroupIds = preferredGroupIds,
                     )
                     val anyLoading = updated.any { it.isLoading }
                     current.copy(
@@ -429,6 +435,10 @@ object PlayerStreamsRepository {
                     )
                     publishCompletion(StreamLoadCompletion.Addon(group))
                 }
+            }
+
+            serverSources.forEach { source ->
+                launch { publishCompletion(StreamLoadCompletion.Addon(source.load())) }
             }
 
             pluginProviderGroups.forEach { providerGroup ->
@@ -517,6 +527,7 @@ object PlayerStreamsRepository {
                                     }
                                 },
                                 installedOrder = installedAddonOrder,
+                                preferredGroupIds = preferredGroupIds,
                             )
                             val anyLoading = updated.any { it.isLoading }
                             current.copy(

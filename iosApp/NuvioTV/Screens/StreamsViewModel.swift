@@ -669,6 +669,8 @@ final class StreamsViewModel: ObservableObject {
                 // A stream that is only a YouTube id resolves on the device at click time.
                 let youTubeId: String? = stream.youTubeIdToResolve
                 if !(youTubeId ?? "").isEmpty { return true }
+                // A Jellyfin / Emby file gets its playback URL (and session) when it is picked.
+                if stream.serverTarget != nil { return true }
                 // Torrent / clientResolve results from installed addons resolve at click time
                 // through the in-app debrid connection (DirectDebridPlaybackResolver).
                 return debridEnabled && stream.isAddonDebridCandidate
@@ -696,7 +698,9 @@ final class StreamsViewModel: ObservableObject {
                 failed.append(FailedGroup(
                     id: group.addonId,
                     addonName: group.addonName,
-                    message: Self.failureMessage(addonName: group.addonName, error: error),
+                    message: ServerStreams.shared.isServerSourceId(addonId: group.addonId)
+                        ? "\(group.addonName): \(ServerFailureText.localized(fallbackMessage: error))"
+                        : Self.failureMessage(addonName: group.addonName, error: error),
                     isRetrying: false
                 ))
                 chips.append(SourceChip(id: group.addonId, name: group.addonName, status: .failed, count: 0))

@@ -45,6 +45,7 @@ import com.nuvio.app.features.profiles.ProfileStorage
 import com.nuvio.app.features.details.SeasonViewModeStorage
 import com.nuvio.app.features.search.DiscoverSelectionStorage
 import com.nuvio.app.features.search.SearchHistoryStorage
+import com.nuvio.app.features.servers.ServerStorage
 import com.nuvio.app.features.settings.SentrySettingsStorage
 import com.nuvio.app.features.settings.ThemeSettingsStorage
 import com.nuvio.app.features.simkl.SimklAuthStorage
@@ -117,6 +118,7 @@ class MainActivity : AppCompatActivity() {
         TraktLibraryStorage.initialize(applicationContext)
         TraktSettingsStorage.initialize(applicationContext)
         SimklAuthStorage.initialize(applicationContext)
+        ServerStorage.initialize(applicationContext)
         SimklSyncStorage.initialize(applicationContext)
         LibraryDisplaySettingsStorage.initialize(applicationContext)
         ContinueWatchingPreferencesStorage.initialize(applicationContext)

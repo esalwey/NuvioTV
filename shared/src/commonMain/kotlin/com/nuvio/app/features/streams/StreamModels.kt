@@ -3,6 +3,7 @@ package com.nuvio.app.features.streams
 import com.nuvio.app.core.build.FeaturePolicyProvider
 import com.nuvio.app.core.i18n.StringKey
 import com.nuvio.app.core.i18n.resourceString
+import com.nuvio.app.features.servers.ServerPlaybackTarget
 import kotlinx.serialization.Serializable
 
 @Serializable
@@ -33,6 +34,8 @@ data class StreamItem(
     val debridCacheStatus: StreamDebridCacheStatus? = null,
     val externalSubtitles: List<StreamSubtitle> = emptyList(),
     val badges: List<StreamBadge> = emptyList(),
+    /** Set on a Jellyfin / Emby file; resolved to a playable URL by `ServerPlayback.prepare`. */
+    val serverTarget: ServerPlaybackTarget? = null,
 ) {
     val streamLabel: String
         get() = name ?: resourceString("Stream", StringKey.stream_default_name)
@@ -128,7 +131,12 @@ data class StreamItem(
         get() = isInstalledAddonStream && (needsLocalDebridResolve || isDirectDebridStream)
 
     val hasPlayableSource: Boolean
-        get() = url != null || infoHash != null || externalUrl != null || clientResolve != null || ytId != null
+        get() = url != null || infoHash != null || externalUrl != null || clientResolve != null || ytId != null ||
+            serverTarget != null
+
+    /** A Jellyfin / Emby file whose playback URL (and session) is only minted by `ServerPlayback.prepare`. */
+    val needsServerPreparation: Boolean
+        get() = serverTarget != null && playableDirectUrl == null
 }
 
 data class StreamBadge(

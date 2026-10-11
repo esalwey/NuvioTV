@@ -28,6 +28,9 @@ private struct MPVPlayerRepresentable: UIViewControllerRepresentable {
     let onSwitchToNative: ((Double) -> Void)?
     /// Chapter ticks for the transport bar (read from the file once it is loaded).
     let chromeModel: MPVChromeModel
+    /// A direct play of a Jellyfin / Emby file that failed: asks the server for a transcode instead
+    /// (the error card's "Try Again"). Returns false when there is nothing to fall back to.
+    let onServerFallback: ((Double, @escaping () -> Void) -> Bool)?
 
     func makeCoordinator() -> MPVChromeCoordinator { MPVChromeCoordinator() }
 
@@ -37,6 +40,7 @@ private struct MPVPlayerRepresentable: UIViewControllerRepresentable {
         controller.onExit = onExit
         controller.onChooseAnotherSource = onChooseAnotherSource
         controller.onSwitchToNative = onSwitchToNative
+        controller.onServerFallback = onServerFallback
         let state = state, makeChromeView = makeChromeView
         controller.onOpenChrome = { [weak controller] entry in
             guard let controller, controller.presentedViewController == nil else { return }
@@ -103,6 +107,9 @@ struct MPVPlayerScreen: View {
     /// The "Player Engine" item of the transport bar and the error card's "Try Native Player".
     /// nil = no engine switch offered.
     var engineSwitch: PlayerEngineSwitch? = nil
+    /// The Jellyfin / Emby session this context plays, if any (owned by `PlayerScreen`): it gets the
+    /// playback ticks, offers the server's own audio / subtitle tracks and the transcode fallback.
+    var serverLink: ServerPlaybackLink? = nil
 
     @StateObject private var state: MPVPlaybackState
     @Environment(\.dismiss) private var dismiss
@@ -133,9 +140,11 @@ struct MPVPlayerScreen: View {
          onPickNextSource: ((MetaVideo) -> Void)? = nil,
          onChooseAnotherSource: (() -> Void)? = nil,
          forceDVReshape: Bool = false,
-         engineSwitch: PlayerEngineSwitch? = nil) {
+         engineSwitch: PlayerEngineSwitch? = nil,
+         serverLink: ServerPlaybackLink? = nil) {
         self.context = context
         self.engineSwitch = engineSwitch
+        self.serverLink = serverLink
         summary = PlayerInfoSummary(context: context)
         _upNext = ObservedObject(wrappedValue: upNext)
         self.canSwitchStreams = canSwitchStreams
@@ -160,7 +169,8 @@ struct MPVPlayerScreen: View {
                 onChooseAnotherSource: onChooseAnotherSource,
                 forceDVReshape: forceDVReshape,
                 onSwitchToNative: switchToNative,
-                chromeModel: chromeModel
+                chromeModel: chromeModel,
+                onServerFallback: serverFallback
             )
             .ignoresSafeArea()
 
@@ -261,6 +271,7 @@ struct MPVPlayerScreen: View {
             }
             wireUpNext()
             parental.prepare(context: context)
+            serverLink?.bind(to: panelModel)
             // libmpv renders into a bare Metal layer, so tvOS doesn't know video is playing and
             // its idle timer fires the screensaver mid-movie (device report). Hold the idle timer
             // while playback is active — mirroring AVPlayerViewController, which does this
@@ -290,8 +301,11 @@ struct MPVPlayerScreen: View {
         }
         .onChange(of: state.positionSec) { _, position in
             upNext.onProgress(positionSec: position, durationSec: state.durationSec)
+            serverLink?.report(positionSec: position, isPaused: state.isPaused, isBuffering: state.isBuffering, isEnded: false)
         }
         .onChange(of: state.isEnded) { _, ended in
+            serverLink?.report(positionSec: state.positionSec, isPaused: true, isBuffering: false,
+                               isEnded: ended && state.endedNaturally)
             if ended {
                 // Hand-off, card, end screen — or nothing to continue with: back to details.
                 if upNext.playbackDidEnd(natural: state.endedNaturally) == .exit { exitToDetails() }
@@ -309,9 +323,18 @@ struct MPVPlayerScreen: View {
         .onChange(of: state.isPaused) { _, paused in
             // The Up Next countdown pauses with the video.
             upNext.setPaused(paused)
+            serverLink?.report(positionSec: state.positionSec, isPaused: paused, isBuffering: state.isBuffering, isEnded: false)
             // Paused → let the idle timer run again (a long-paused frame should be allowed to
             // hand off to the screensaver, same as the native player); playing → hold it.
             UIApplication.shared.isIdleTimerDisabled = !paused
+        }
+    }
+
+    /// The error card's "Try Again" on a failed Jellyfin / Emby direct play (nil for every other source).
+    private var serverFallback: ((Double, @escaping () -> Void) -> Bool)? {
+        guard let link = serverLink, link.isServer else { return nil }
+        return { position, unavailable in
+            link.fallBackToTranscode(positionSec: position, ifUnavailable: unavailable)
         }
     }
 

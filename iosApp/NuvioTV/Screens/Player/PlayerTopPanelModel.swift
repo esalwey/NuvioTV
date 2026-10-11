@@ -81,9 +81,19 @@ final class PlayerTopPanelModel: ObservableObject {
     /// Whether the current engine can shift audio (mpv `audio-delay`). False hides the row.
     @Published var supportsAudioDelay: Bool = false
 
+    /// A Jellyfin / Emby transcode's own audio tracks (switching restarts the server stream) and
+    /// burned-in subtitle choices ("Off" first). Both empty for every other source. They sit beside
+    /// the engine's own `audio` / `subtitles` on purpose: the HLS stream carries one audio track and
+    /// no image subtitles, so the engine can only show what the server has already picked.
+    @Published var serverAudio: [PlayerPanelOption] = []
+    @Published var serverSubtitles: [PlayerPanelOption] = []
+
     /// nil = Off.
     var onSelectSubtitle: ((PlayerPanelOption?) -> Void)?
     var onSelectAudio: ((PlayerPanelOption) -> Void)?
+    var onSelectServerAudio: ((PlayerPanelOption) -> Void)?
+    /// nil = Off.
+    var onSelectServerSubtitle: ((PlayerPanelOption?) -> Void)?
     /// New delay in milliseconds, already clamped to ±`SUBTITLE_DELAY_MAX_MS`.
     var onSubtitleDelayChange: ((Int) -> Void)?
     /// New audio delay in milliseconds, already clamped to ±`PlayerTopPanelModel.audioDelayLimitMs`.

@@ -9,6 +9,7 @@ import com.nuvio.app.features.details.MetaDetailsRepository
 import com.nuvio.app.features.plugins.PluginScraper
 import com.nuvio.app.features.plugins.PluginScraperHostProvider
 import com.nuvio.app.features.plugins.PluginsUiState
+import com.nuvio.app.features.servers.ServerStreams
 
 /**
  * Upstream 972109f9 ("disable play when no source is available"), tvOS port: whether any
@@ -18,10 +19,11 @@ import com.nuvio.app.features.plugins.PluginsUiState
  * Deliberately conservative — Play is only disabled when that is CERTAIN: while the add-on list
  * has not loaded or a manifest is still fetching, the answer is "yes". Mirrors what
  * `StreamsRepository.load` fans out to: stream add-ons (with BUG-74's tmdb → IMDb remap), plugin
- * scrapers, and streams embedded in the title's meta.
+ * scrapers, streams embedded in the title's meta, and the Jellyfin / Emby servers that hold it.
  */
 object StreamSourceAvailability {
     fun canStream(type: String, videoId: String): Boolean {
+        if (ServerStreams.canServe(type, videoId)) return true
         if (addonsCanStream(AddonRepository.uiState.value, type, videoId) != false) return true
         if (FeaturePolicyProvider.policy.pluginsEnabled) {
             val host = PluginScraperHostProvider.host

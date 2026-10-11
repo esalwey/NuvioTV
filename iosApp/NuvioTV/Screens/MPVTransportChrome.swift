@@ -46,7 +46,9 @@ enum MPVChromeContent {
         let canRetime = panelModel.supportsSubtitleDelay
             && panelModel.subtitles.contains { $0.isSelected && $0.group != .off }
         return PlayerTransportMenus.items(canChooseSource: canChooseSource, supportsSubtitleDelay: canRetime,
-                                          canSwitchEngine: canSwitchEngine)
+                                          canSwitchEngine: canSwitchEngine,
+                                          hasServerSubtitles: !panelModel.serverSubtitles.isEmpty,
+                                          hasServerAudio: !panelModel.serverAudio.isEmpty)
     }
 
     /// The content tabs, in the native screen's order.
@@ -264,6 +266,36 @@ struct MPVTransportFocusView: View {
             }
             .menuStyle(.button)
             .buttonStyle(PlayerTransportButtonStyle(item: item))
+        case .serverSubtitles:
+            Menu {
+                Picker(selection: serverSubtitleBinding) {
+                    ForEach(panelModel.serverSubtitles) { option in
+                        Text(verbatim: option.title).tag(option.id)
+                    }
+                } label: {
+                    Text(verbatim: item.title)
+                }
+                .pickerStyle(.inline)
+            } label: {
+                Text(verbatim: item.title)
+            }
+            .menuStyle(.button)
+            .buttonStyle(PlayerTransportButtonStyle(item: item))
+        case .serverAudio:
+            Menu {
+                Picker(selection: serverAudioBinding) {
+                    ForEach(panelModel.serverAudio) { option in
+                        Text(verbatim: option.title).tag(option.id)
+                    }
+                } label: {
+                    Text(verbatim: item.title)
+                }
+                .pickerStyle(.inline)
+            } label: {
+                Text(verbatim: item.title)
+            }
+            .menuStyle(.button)
+            .buttonStyle(PlayerTransportButtonStyle(item: item))
         case .engine:
             Menu {
                 Picker(selection: engineBinding) {
@@ -440,6 +472,24 @@ struct MPVTransportFocusView: View {
         Binding(
             get: { state.dialogueBoostDb },
             set: { db in state.setDialogueBoost?(db) })
+    }
+
+    private var serverAudioBinding: Binding<String> {
+        Binding(
+            get: { panelModel.serverAudio.first(where: \.isSelected)?.id ?? "" },
+            set: { id in
+                guard let option = panelModel.serverAudio.first(where: { $0.id == id }) else { return }
+                panelModel.onSelectServerAudio?(option)
+            })
+    }
+
+    private var serverSubtitleBinding: Binding<String> {
+        Binding(
+            get: { panelModel.serverSubtitles.first(where: \.isSelected)?.id ?? "off" },
+            set: { id in
+                guard let option = panelModel.serverSubtitles.first(where: { $0.id == id }) else { return }
+                panelModel.onSelectServerSubtitle?(option.group == .off ? nil : option)
+            })
     }
 
     private var subtitleBinding: Binding<String> {

@@ -11,6 +11,8 @@ import com.nuvio.app.features.library.sortLibraryItems
 import com.nuvio.app.features.library.toMetaPreview
 import com.nuvio.app.features.home.HomeCatalogSettingsRepository
 import com.nuvio.app.features.home.filterReleasedItems
+import com.nuvio.app.features.servers.ServerCatalog
+import com.nuvio.app.features.servers.serverMessage
 import com.nuvio.app.features.trakt.TraktPublicListSourceResolver
 import com.nuvio.app.features.watchprogress.CurrentDateProvider
 import kotlinx.coroutines.CancellationException
@@ -171,7 +173,7 @@ object CatalogRepository {
                         items = emptyList(),
                         isLoading = false,
                         nextSkip = null,
-                        errorMessage = error.message ?: resourceString("Unable to load catalog items.", StringKey.catalog_load_failed),
+                        errorMessage = error.serverMessage() ?: error.message ?: resourceString("Unable to load catalog items.", StringKey.catalog_load_failed),
                     )
                 },
             )
@@ -212,6 +214,8 @@ object CatalogRepository {
                         target = target,
                         page = requestedSkip.takeIf { it > 0 } ?: 1,
                     )
+
+                    is CatalogTarget.Server -> ServerCatalog.page(target, skip = requestedSkip)
 
                     is CatalogTarget.Library -> error(resourceString("Unable to load catalog items.", StringKey.catalog_load_failed))
                 }.withUnreleasedFilter(request.hideUnreleasedContent)

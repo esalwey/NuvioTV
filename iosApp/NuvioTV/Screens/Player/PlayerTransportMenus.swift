@@ -14,7 +14,7 @@ import SwiftUI
 
 /// One button of the transport bar.
 enum PlayerTransportItem: String, CaseIterable, Identifiable, Hashable {
-    case startOver, sources, playbackSpeed, aspect, subtitleTiming, engine, subtitles, audio
+    case startOver, sources, playbackSpeed, aspect, subtitleTiming, engine, serverSubtitles, serverAudio, subtitles, audio
 
     var id: String { rawValue }
 
@@ -38,6 +38,14 @@ enum PlayerTransportItem: String, CaseIterable, Identifiable, Hashable {
             return String(localized: "player.menu.engine",
                           defaultValue: "Player Engine",
                           comment: "Player transport-bar menu: switch between the native player and mpv (Native, mpv).")
+        case .serverSubtitles:
+            return String(localized: "player.menu.serverSubtitles",
+                          defaultValue: "Server Subtitles",
+                          comment: "Player transport-bar menu: the media server's own subtitles, burned into the transcoded video.")
+        case .serverAudio:
+            return String(localized: "player.menu.serverAudio",
+                          defaultValue: "Server Audio",
+                          comment: "Player transport-bar menu: the audio tracks the media server can transcode to.")
         case .subtitles: return String(localized: "Subtitles")
         case .audio: return String(localized: "Audio")
         }
@@ -53,6 +61,8 @@ enum PlayerTransportItem: String, CaseIterable, Identifiable, Hashable {
         case .aspect: return "aspectratio"
         case .subtitleTiming: return "clock.arrow.circlepath"
         case .engine: return "arrow.left.arrow.right"
+        case .serverSubtitles: return "captions.bubble.fill"
+        case .serverAudio: return "waveform"
         case .subtitles: return "captions.bubble"
         case .audio: return "speaker.wave.2"
         }
@@ -71,13 +81,19 @@ enum PlayerTransportMenus {
 
     /// The app-defined items in transport-bar order (`transportBarCustomMenuItems` on native).
     /// Start Over (PLY-A13) leads: a plain action, available on every title and both engines.
+    /// The Jellyfin / Emby entries (a transcode's burned-in subtitles and audio tracks) come after
+    /// the everyday ones, before the engine override and the system's own Subtitles and Audio buttons
+    /// they stand in for.
     static func customItems(canChooseSource: Bool, supportsSubtitleDelay: Bool,
-                            canSwitchEngine: Bool = false) -> [PlayerTransportItem] {
+                            canSwitchEngine: Bool = false,
+                            hasServerSubtitles: Bool = false, hasServerAudio: Bool = false) -> [PlayerTransportItem] {
         var items: [PlayerTransportItem] = [.startOver]
         if canChooseSource { items.append(.sources) }
         items.append(.playbackSpeed)
         items.append(.aspect)
         if supportsSubtitleDelay { items.append(.subtitleTiming) }
+        if hasServerSubtitles { items.append(.serverSubtitles) }
+        if hasServerAudio { items.append(.serverAudio) }
         // Last of the app's items, next to the system's own Subtitles and Audio: a rarely needed
         // override, kept out of the way of the everyday ones.
         if canSwitchEngine { items.append(.engine) }
@@ -87,9 +103,11 @@ enum PlayerTransportMenus {
     /// Everything the bar shows, in the system player's order: the app's items, then the built-in
     /// Subtitles and Audio buttons at the trailing end. The mpv chrome draws exactly this list.
     static func items(canChooseSource: Bool, supportsSubtitleDelay: Bool,
-                      canSwitchEngine: Bool = false) -> [PlayerTransportItem] {
+                      canSwitchEngine: Bool = false,
+                      hasServerSubtitles: Bool = false, hasServerAudio: Bool = false) -> [PlayerTransportItem] {
         customItems(canChooseSource: canChooseSource, supportsSubtitleDelay: supportsSubtitleDelay,
-                    canSwitchEngine: canSwitchEngine)
+                    canSwitchEngine: canSwitchEngine,
+                    hasServerSubtitles: hasServerSubtitles, hasServerAudio: hasServerAudio)
             + [.subtitles, .audio]
     }
 

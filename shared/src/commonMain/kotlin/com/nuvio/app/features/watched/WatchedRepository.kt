@@ -7,6 +7,7 @@ import com.nuvio.app.core.auth.AuthState
 import com.nuvio.app.features.details.MetaDetails
 import com.nuvio.app.features.details.MetaVideo
 import com.nuvio.app.features.profiles.ProfileRepository
+import com.nuvio.app.features.servers.ServerWatched
 import com.nuvio.app.core.tracking.ensureTrackingProvidersRegistered
 import com.nuvio.app.features.tracking.TrackingProviderId
 import com.nuvio.app.features.tracking.TrackingProviderRegistry
@@ -883,6 +884,16 @@ object WatchedRepository {
         )
     }
 
+    /** Applies marks that a media server reported: stored locally, never pushed to the account or trackers. */
+    internal fun markWatchedLocally(items: Collection<WatchedItem>) {
+        markWatched(items = items, trackerHistorySync = WatchedTrackerHistorySync.Skip, syncRemote = false)
+    }
+
+    /** Removes marks that a media server reported as unplayed: local only, no account or tracker delete. */
+    internal fun unmarkWatchedLocally(items: Collection<WatchedItem>) {
+        unmarkWatched(items = items, syncRemote = false)
+    }
+
     private fun markWatched(
         items: Collection<WatchedItem>,
         trackerHistorySync: WatchedTrackerHistorySync,
@@ -944,6 +955,10 @@ object WatchedRepository {
     }
 
     fun unmarkWatched(items: Collection<WatchedItem>) {
+        unmarkWatched(items = items, syncRemote = true)
+    }
+
+    private fun unmarkWatched(items: Collection<WatchedItem>, syncRemote: Boolean) {
         ensureLoaded()
         if (items.isEmpty()) return
         val source = activeSource
@@ -979,7 +994,7 @@ object WatchedRepository {
         if (removedItems.isNotEmpty()) {
             publish()
             persist()
-            pushDeleteToServer(items = removedItems, source = source)
+            if (syncRemote) pushDeleteToServer(items = removedItems, source = source)
         } else if (source.providerId != null) {
             // Nothing matched locally, but the title can still be watched on the provider under an
             // alternate id (that is what `providerExtraWatchedKeys` records). Republish to drop the
@@ -989,7 +1004,7 @@ object WatchedRepository {
                 publish()
                 persist()
             }
-            pushDeleteToServer(items = items.toList(), source = source)
+            if (syncRemote) pushDeleteToServer(items = items.toList(), source = source)
         }
     }
 
@@ -1125,6 +1140,8 @@ object WatchedRepository {
     ) {
         val profileId = currentProfileId
         val operationGeneration = profileGeneration
+        // A title marked on the account is mirrored to the media servers that hold it.
+        if (trackerHistorySync == WatchedTrackerHistorySync.Mirror) ServerWatched.mirror(items, played = true)
         accountScopeSnapshot().launch {
             runCatching {
                 if (items.isEmpty()) return@runCatching
@@ -1192,6 +1209,7 @@ object WatchedRepository {
         source: WatchProgressSource,
     ) {
         val profileId = currentProfileId
+        ServerWatched.mirror(items, played = false)
         accountScopeSnapshot().launch {
             runCatching {
                 if (items.isEmpty()) return@runCatching
@@ -1378,6 +1396,10 @@ object WatchedRepository {
         trackerHistorySync: WatchedTrackerHistorySync,
         source: WatchProgressSource,
     ): WatchedPushOutcome {
+        // Server titles never reach the account or the trackers: the server itself is their source of truth.
+        val (serverItems, items) = items.partition(ServerWatched::isServerItem)
+        if (trackerHistorySync == WatchedTrackerHistorySync.Mirror) ServerWatched.apply(serverItems, played = true)
+        if (items.isEmpty()) return WatchedPushOutcome(nuvioSyncSucceeded = true)
         var nuvioSyncSucceeded = false
         val succeededTrackerProviderIds = linkedSetOf<TrackingProviderId>()
         if (source.providerId == null) {
@@ -1414,6 +1436,9 @@ object WatchedRepository {
         items: Collection<WatchedItem>,
         source: WatchProgressSource,
     ) {
+        val (serverItems, items) = items.partition(ServerWatched::isServerItem)
+        ServerWatched.apply(serverItems, played = false)
+        if (items.isEmpty()) return
         if (source.providerId == null) {
             try {
                 syncAdapter.delete(profileId = profileId, items = items)

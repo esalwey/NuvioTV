@@ -183,6 +183,7 @@ object ProfileSettingsSync {
         ensureRepositoriesLoaded()
         ProviderCredentialSync.startObserving()
         TrackingSourceSettingsSyncService.startObserving()
+        MediaServerSync.startObserving()
         observeLocalChangesAndPush()
     }
 
@@ -196,6 +197,7 @@ object ProfileSettingsSync {
         ProviderCredentialSync.clearAccountState()
         TrackingSourceSettingsSyncService.clearAccountState()
         HomeCatalogSettingsSyncService.clearAccountState()
+        MediaServerSync.clearAccountState()
     }
 
     /**

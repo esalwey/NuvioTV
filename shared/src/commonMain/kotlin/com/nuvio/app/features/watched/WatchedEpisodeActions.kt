@@ -3,6 +3,7 @@ package com.nuvio.app.features.watched
 import com.nuvio.app.features.details.MetaDetails
 import com.nuvio.app.features.details.MetaVideo
 import com.nuvio.app.features.details.normalizeSeasonNumber
+import com.nuvio.app.features.servers.ServerItemRef
 import com.nuvio.app.features.details.sortedPlayableEpisodes
 import com.nuvio.app.features.watching.domain.WatchingContentRef
 import com.nuvio.app.features.watching.domain.WatchingReleasedEpisode
@@ -33,6 +34,8 @@ fun MetaDetails.toEpisodeWatchedItem(
         releaseInfo = releaseInfo,
         season = video.season,
         episode = video.episode,
+        // A media-server episode is written back to its server by this id (ServerWatched).
+        videoId = video.id.takeIf { ServerItemRef.isServerId(it) },
         markedAtEpochMs = markedAtEpochMs,
     )
 

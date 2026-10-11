@@ -9,6 +9,7 @@ import com.nuvio.app.core.network.SupabaseProvider
 import com.nuvio.app.core.i18n.StringKey
 import com.nuvio.app.core.i18n.resourceString
 import com.nuvio.app.core.sync.putSyncOriginClientId
+import com.nuvio.app.features.servers.ServerRepository
 import io.github.jan.supabase.postgrest.postgrest
 import io.github.jan.supabase.postgrest.rpc
 import kotlinx.coroutines.CancellationException
@@ -257,6 +258,7 @@ object ProfileRepository {
         if (AuthRepository.state.value.isAnonymous) {
             val remaining = _state.value.profiles.filter { it.profileIndex != profileIndex }
             ProfilePinCacheStorage.removePayload(profileIndex)
+            ServerRepository.removeProfile(profileIndex)
             _state.value = _state.value.copy(
                 profiles = remaining,
                 activeProfile = if (_state.value.activeProfile?.profileIndex == profileIndex) remaining.firstOrNull() else _state.value.activeProfile,
@@ -273,6 +275,7 @@ object ProfileRepository {
                 putSyncOriginClientId()
             }
             SupabaseProvider.client.postgrest.rpc("sync_delete_profile_data", params)
+            ServerRepository.removeProfile(profileIndex)
             pullProfiles()
         } catch (e: Throwable) {
             if (AuthRepository.signOutIfSessionInvalid(e, "Profile delete")) return

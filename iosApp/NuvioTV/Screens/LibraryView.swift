@@ -13,8 +13,10 @@ struct LibraryView: View {
     @StateObject private var model = LibraryViewModel()
     @StateObject private var cloud = CloudLibraryViewModel()
     @StateObject private var lists = LibraryListsViewModel()
+    @StateObject private var servers = LibraryServerViewModel()
     @Environment(\.posterStyle) private var posterStyle
     @State private var showingCloud = false
+    @State private var showingServers = false
     @State private var filePicker: CloudFilePickerRoute?
 
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
@@ -42,6 +44,7 @@ struct LibraryView: View {
     /// cloud library has been switched off (the source then explains how to turn it back on).
     private var cloudSourceAvailable: Bool { cloud.hasConnectedProvider || cloud.isDisabledByUser }
     private var showsCloud: Bool { showingCloud && cloudSourceAvailable }
+    private var showsServers: Bool { showingServers && servers.hasLibraries }
 
     var body: some View {
         NavigationStack {
@@ -55,14 +58,16 @@ struct LibraryView: View {
                     controlsRow
                     filtersRow
 
-                    if !showsCloud, model.isRemoteSource, let error = model.errorMessage {
+                    if !showsCloud, !showsServers, model.isRemoteSource, let error = model.errorMessage {
                         Label(error, systemImage: "exclamationmark.triangle.fill")
                             .font(Theme.Font.caption)
                             .foregroundStyle(.red)
                             .frame(maxWidth: 1100, alignment: .leading)
                     }
 
-                    if showsCloud {
+                    if showsServers {
+                        LibraryServerContentView(model: servers)
+                    } else if showsCloud {
                         cloudContent
                     } else if model.items.isEmpty {
                         if model.unfilteredCount > 0 {
@@ -100,7 +105,10 @@ struct LibraryView: View {
             .reportsScrollToTabBar(tab: "Library")
             .background(Theme.Palette.background.ignoresSafeArea())
             .navigationDestination(for: TitleRoute.self) { route in
-                DetailView(preview: route.preview)
+                TitleDestinationView(preview: route.preview)
+            }
+            .navigationDestination(for: CatalogRoute.self) { route in
+                CatalogGridView(route: route)
             }
             .navigationDestination(for: PersonRoute.self) { route in
                 PersonDetailView(personId: route.id, personName: route.name)
@@ -113,12 +121,17 @@ struct LibraryView: View {
             model.start()
             cloud.start()
             lists.start()
+            servers.start()
         }
         .onDisappear {
             model.stop()
             cloud.stop()
             // Manage Lists is a full-screen cover over this tab; keep its state flowing while it is up.
             if lists.dialog == nil { lists.stop() }
+            servers.stop()
+        }
+        .onChange(of: showingServers) { _, isOn in
+            servers.setActive(isOn)
         }
         .fullScreenCover(
             isPresented: Binding(
@@ -148,19 +161,30 @@ struct LibraryView: View {
     /// lands in the grid, and Up from the grid comes back here.
     @ViewBuilder
     private var controlsRow: some View {
-        let showsSort = !showsCloud && model.unfilteredCount > 0 && !model.availableSortOptions.isEmpty
-        let showsSource = !showsCloud && model.hasConnectedProvider
-        let showsList = !showsCloud && model.isRemoteSource && model.sections.count > 1
-        let showsSync = !showsCloud && model.isRemoteSource
-        let showsManage = !showsCloud && lists.canManage
-        if cloudSourceAvailable || showsSort || showsSource || showsList || showsSync || showsManage {
+        let isSaved = !showsCloud && !showsServers
+        let showsSort = isSaved && model.unfilteredCount > 0 && !model.availableSortOptions.isEmpty
+        let showsSource = isSaved && model.hasConnectedProvider
+        let showsList = isSaved && model.isRemoteSource && model.sections.count > 1
+        let showsSync = isSaved && model.isRemoteSource
+        let showsManage = isSaved && lists.canManage
+        if cloudSourceAvailable || servers.hasLibraries || showsSort || showsSource || showsList || showsSync || showsManage {
             HStack(spacing: Theme.Spacing.md) {
-                if cloudSourceAvailable {
-                    FilterPill(title: String(localized: "Saved"), isSelected: !showingCloud) {
+                if cloudSourceAvailable || servers.hasLibraries {
+                    FilterPill(title: String(localized: "Saved"), isSelected: isSaved) {
                         showingCloud = false
+                        showingServers = false
                     }
-                    FilterPill(title: String(localized: "Debrid Cloud"), isSelected: showingCloud) {
+                }
+                if cloudSourceAvailable {
+                    FilterPill(title: String(localized: "Debrid Cloud"), isSelected: showsCloud) {
                         showingCloud = true
+                        showingServers = false
+                    }
+                }
+                if servers.hasLibraries {
+                    FilterPill(title: String(localized: "Servers"), isSelected: showsServers) {
+                        showingServers = true
+                        showingCloud = false
                     }
                 }
                 if showsSource {
@@ -190,7 +214,7 @@ struct LibraryView: View {
     /// values that leave something on screen (the shared faceting).
     @ViewBuilder
     private var filtersRow: some View {
-        if !showsCloud && model.unfilteredCount > 0 {
+        if !showsCloud && !showsServers && model.unfilteredCount > 0 {
             HStack(spacing: Theme.Spacing.md) {
                 if !model.typeOptions.isEmpty {
                     typeMenu

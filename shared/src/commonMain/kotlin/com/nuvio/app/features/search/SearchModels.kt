@@ -1,5 +1,6 @@
 package com.nuvio.app.features.search
 
+import com.nuvio.app.features.catalog.CatalogTarget
 import com.nuvio.app.features.home.MetaPreview
 import com.nuvio.app.features.home.HomeCatalogSection
 
@@ -54,6 +55,8 @@ data class DiscoverCatalogOption(
     val genreOptions: List<String> = emptyList(),
     val genreRequired: Boolean = false,
     val supportsPagination: Boolean = false,
+    /// Set for a Jellyfin / Emby library; the grid then pages through `ServerCatalog` instead of an add-on.
+    val server: CatalogTarget.Server? = null,
 )
 
 data class DiscoverUiState(

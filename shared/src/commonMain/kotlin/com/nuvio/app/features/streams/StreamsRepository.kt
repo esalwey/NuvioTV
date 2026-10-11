@@ -16,6 +16,8 @@ import com.nuvio.app.features.player.PlayerSettingsRepository
 import com.nuvio.app.features.plugins.PluginScraperHostProvider
 import com.nuvio.app.features.plugins.pluginContentId
 import com.nuvio.app.features.plugins.PluginsUiState
+import com.nuvio.app.features.servers.ServerStreamSource
+import com.nuvio.app.features.servers.ServerStreams
 import com.nuvio.app.features.tmdb.TmdbService
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
@@ -60,6 +62,8 @@ object StreamsRepository {
         val installedAddonOrder: List<String>,
         val streamBadgeRules: StreamBadgeRules,
         val debridSettings: DebridSettings,
+        val serverSources: Map<String, ServerStreamSource> = emptyMap(),
+        val preferredGroupIds: Set<String> = emptySet(),
     )
 
     private var retryContext: AddonRetryContext? = null
@@ -196,8 +200,12 @@ object StreamsRepository {
             return
         }
 
-        val installedAddons = AddonRepository.uiState.value.addons.enabledAddons()
-        val pluginScrapers = if (FeaturePolicyProvider.policy.pluginsEnabled) {
+        // A `srv1:` id names one file on one Jellyfin / Emby server: no add-on or plugin can answer it.
+        val isNativeServerRequest = ServerStreams.isNativeRequest(videoId)
+        val serverSources = ServerStreams.sources(type, videoId, season, episode, forceRefresh)
+        val preferredGroupIds = serverSources.filter { it.preferred }.mapTo(mutableSetOf()) { it.addonId }
+        val installedAddons = if (isNativeServerRequest) emptyList() else AddonRepository.uiState.value.addons.enabledAddons()
+        val pluginScrapers = if (FeaturePolicyProvider.policy.pluginsEnabled && !isNativeServerRequest) {
             PluginScraperHostProvider.host.getEnabledScrapersForType(type)
         } else {
             emptyList()
@@ -207,7 +215,7 @@ object StreamsRepository {
             groupByRepository = pluginUiState.groupStreamsByRepository,
         )
 
-        if (installedAddons.isEmpty() && pluginProviderGroups.isEmpty()) {
+        if (installedAddons.isEmpty() && pluginProviderGroups.isEmpty() && serverSources.isEmpty()) {
             _uiState.value = StreamsUiState(
                 requestToken = requestToken,
                 isAnyLoading = false,
@@ -312,7 +320,7 @@ object StreamsRepository {
             return
         }
 
-        if (streamAddons.isEmpty() && pluginProviderGroups.isEmpty()) {
+        if (streamAddons.isEmpty() && pluginProviderGroups.isEmpty() && serverSources.isEmpty()) {
             _uiState.value = StreamsUiState(
                 requestToken = requestToken,
                 isAnyLoading = false,
@@ -337,6 +345,8 @@ object StreamsRepository {
             installedAddonOrder = installedAddonOrder,
             streamBadgeRules = streamBadgeRules,
             debridSettings = debridSettings,
+            serverSources = serverSources.associateBy { it.addonId },
+            preferredGroupIds = preferredGroupIds,
         )
         val initialGroups = StreamAutoPlaySelector.orderAddonStreams(streamAddons.map { addon ->
             AddonStreamGroup(
@@ -352,7 +362,7 @@ object StreamsRepository {
                 streams = emptyList(),
                 isLoading = true,
             )
-        }, installedAddonOrder)
+        } + serverSources.map { it.loadingGroup() }, installedAddonOrder, preferredGroupIds)
         val isInitiallyLoading = initialGroups.any { it.isLoading }
         _uiState.value = StreamsUiState(
             requestToken = requestToken,
@@ -372,7 +382,8 @@ object StreamsRepository {
                 .toMutableMap()
             val pluginFirstErrorByAddonId = mutableMapOf<String, String>()
             val totalTasks = streamAddons.size +
-                pluginProviderGroups.sumOf { it.scrapers.size }
+                pluginProviderGroups.sumOf { it.scrapers.size } +
+                serverSources.size
 
             val installedAddonNames = installedAddonOrder.toSet()
             val installedAddonIds = streamAddons.map { it.addonId }.toSet()
@@ -454,6 +465,7 @@ object StreamsRepository {
                             if (currentGroup.addonId == group.addonId) group else currentGroup
                         },
                         installedOrder = installedAddonOrder,
+                        preferredGroupIds = preferredGroupIds,
                     )
                     val anyLoading = updated.any { it.isLoading }
                     current.copy(
@@ -555,6 +567,10 @@ object StreamsRepository {
                 }
             }
 
+            serverSources.forEach { source ->
+                launch { publishCompletion(StreamLoadCompletion.Addon(source.load())) }
+            }
+
             pluginProviderGroups.forEach { providerGroup ->
                 val includeScraperNameInSubtitle = false
                 providerGroup.scrapers.forEach { scraper ->
@@ -640,6 +656,7 @@ object StreamsRepository {
                                     }
                                 },
                                 installedOrder = installedAddonOrder,
+                                preferredGroupIds = preferredGroupIds,
                             )
                             val anyLoading = updated.any { it.isLoading }
                             current.copy(
@@ -764,6 +781,7 @@ object StreamsRepository {
      */
     fun retryAddon(addonId: String): Boolean {
         val context = retryContext ?: return false
+        context.serverSources[addonId]?.let { return retryServerSource(context, it) }
         val target = context.targets[addonId] ?: return false
         val current = _uiState.value
         if (current.requestToken != context.requestToken) return false
@@ -817,6 +835,52 @@ object StreamsRepository {
                     val updated = StreamAutoPlaySelector.orderAddonStreams(
                         groups = state.groups.map { if (it.addonId == addonId) presented else it },
                         installedOrder = context.installedAddonOrder,
+                        preferredGroupIds = context.preferredGroupIds,
+                    )
+                    val anyLoading = updated.any { it.isLoading }
+                    state.copy(
+                        groups = updated,
+                        isAnyLoading = anyLoading,
+                        emptyStateReason = updated.toEmptyStateReason(anyLoading),
+                    )
+                }
+            }
+        }
+        return true
+    }
+
+    /** The picker's Retry on a failed media-server row: asks that one server again. */
+    private fun retryServerSource(context: AddonRetryContext, source: ServerStreamSource): Boolean {
+        val addonId = source.addonId
+        val current = _uiState.value
+        if (current.requestToken != context.requestToken) return false
+        val group = current.groups.firstOrNull { it.addonId == addonId } ?: return false
+        if (group.isLoading) return true
+
+        retryJobs.remove(addonId)?.cancel()
+        _uiState.update { state ->
+            if (state.requestToken != context.requestToken) {
+                state
+            } else {
+                state.copy(
+                    groups = state.groups.map {
+                        if (it.addonId == addonId) it.copy(isLoading = true, error = null) else it
+                    },
+                    isAnyLoading = true,
+                    emptyStateReason = null,
+                )
+            }
+        }
+        retryJobs[addonId] = scope.launch {
+            val presented = presentAddonGroup(source.load(), context.streamBadgeRules, context.debridSettings)
+            _uiState.update { state ->
+                if (state.requestToken != context.requestToken) {
+                    state
+                } else {
+                    val updated = StreamAutoPlaySelector.orderAddonStreams(
+                        groups = state.groups.map { if (it.addonId == addonId) presented else it },
+                        installedOrder = context.installedAddonOrder,
+                        preferredGroupIds = context.preferredGroupIds,
                     )
                     val anyLoading = updated.any { it.isLoading }
                     state.copy(

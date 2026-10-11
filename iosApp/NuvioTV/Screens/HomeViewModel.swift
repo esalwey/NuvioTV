@@ -206,6 +206,16 @@ final class HomeViewModel: ObservableObject {
     private let cinemetaManifestUrl = "https://v3-cinemeta.strem.io/manifest.json"
 
     private var addonWatcher: FlowWatcher?
+    /// Jellyfin / Emby connections: their libraries are Home rows next to the add-on catalogs, so a
+    /// change in which libraries are shown re-syncs the row definitions and re-fetches (see
+    /// `onServersChanged`).
+    private var serverWatcher: FlowWatcher?
+    /// What the server rows were last built from (`nil` until the first emission, which only
+    /// records it: the add-on path has already built the rows from the loaded connections).
+    private var lastServerSignature: String?
+    /// The ready add-on set of the last refresh, so a server change can rebuild without waiting
+    /// for an add-on emission.
+    private var lastReadyAddons: [ManagedAddon] = []
     /// Addon-wipe guard (2026-08-28): watches `AddonRepository.serverPullSettled` so a gated seed
     /// (see `maybeSeedDefaultAddon()`) gets retried once the signed-in account's first pull lands.
     private var seedGateWatcher: FlowWatcher?
@@ -742,6 +752,12 @@ final class HomeViewModel: ObservableObject {
             self.onAddonsChanged(state)
         }
 
+        // Media servers → their library rows (additive to the add-on catalogs).
+        serverWatcher = FlowWatcherKt.watch(MediaServersController.shared.state) { [weak self] emitted in
+            guard let self, self.pipelineGeneration == gen, let state = emitted as? MediaServersUiState else { return }
+            self.onServersChanged(state)
+        }
+
         // Addon-wipe guard (2026-08-28): covers the signed-in fresh-account case. The addon list's
         // own empty-state emission is gated by `maybeSeedDefaultAddon()` while the first server pull
         // hasn't settled yet, so nothing re-evaluates the seed once that emission has already come
@@ -948,6 +964,7 @@ final class HomeViewModel: ObservableObject {
             HomeHeroProbe.log(String(format: "vm stop id=%d sinceLaunch=%dms", vmId, HomeHeroProbe.sinceLaunchMs))
         }
         addonWatcher?.cancel()
+        serverWatcher?.cancel()
         seedGateWatcher?.cancel()
         homeWatcher?.cancel()
         noSourcesSyncWatcher?.cancel()
@@ -958,6 +975,9 @@ final class HomeViewModel: ObservableObject {
         collectionsWatcher?.cancel()
         catalogSettingsWatcher?.cancel()
         addonWatcher = nil
+        serverWatcher = nil
+        lastServerSignature = nil
+        lastReadyAddons = []
         seedGateWatcher = nil
         homeWatcher = nil
         noSourcesSyncWatcher = nil
@@ -1286,6 +1306,7 @@ final class HomeViewModel: ObservableObject {
 
         // Only addons whose manifest has actually loaded can contribute catalogs.
         let ready = AddonModelsKt.enabledAddons(state.addons).filter { $0.manifest != nil }
+        lastReadyAddons = ready
         // Terminal manifest failure with nothing ready and nothing still fetching → surface it.
         // Pending keeps the existing "Setting up your catalogs…" placeholder (already not a false
         // empty state); Retry re-marks the addons refreshing, which clears this again.
@@ -1376,6 +1397,26 @@ final class HomeViewModel: ObservableObject {
         HomeRepository.shared.refresh(addons: ready, force: route == .refresh)
     }
 
+    /// A server was added, removed, enabled or disabled, or a library was turned on or off: the
+    /// shared catalog builds one Home row per selected library (and a "Continue watching" row per
+    /// server), so the row definitions are re-synced and Home re-fetches. Unrelated emissions (a
+    /// sign-in in progress, a status change) leave the signature alone and do nothing.
+    private func onServersChanged(_ state: MediaServersUiState) {
+        let signature = state.servers
+            .filter { $0.enabled }
+            .map { server in
+                let libraries = server.libraries.filter { $0.selected }.map { $0.id }.joined(separator: ",")
+                return "\(server.id)#\(server.useCatalogMetadata)#\(server.supportsWatchStateImport)#\(libraries)"
+            }
+            .joined(separator: "|")
+        defer { lastServerSignature = signature }
+        if !signature.isEmpty, lastServerSignature != signature { MediaServersController.shared.warm() }
+        guard let previous = lastServerSignature, previous != signature else { return }
+        guard !lastReadyAddons.isEmpty else { return }
+        HomeCatalogSettingsRepository.shared.syncCatalogs(addons: lastReadyAddons)
+        HomeRepository.shared.refresh(addons: lastReadyAddons, force: true)
+    }
+
     /// BUG-35 (beta.12): a catalog row scrolled into view — ask the shared repo to localize its
     /// leading items (bounded, session-deduped; see `HomeRepository.requestRowEnrichment`).
     func rowAppeared(sectionKey: String) {
@@ -1455,6 +1496,10 @@ enum ContinueWatchingDirectPlay {
     /// The source to replay for `entry`, or nil (see the type's doc for the rules).
     static func sourceURL(for entry: WatchProgressEntry, now: Date, windowSec: TimeInterval) -> URL? {
         guard !ContinueWatchingNextUpModel.isNextUp(entry), entry.isResumable else { return nil }
+        // A Jellyfin / Emby session link is per playback (it carries the session and expires with it):
+        // the picker opens instead, and preparing the file there also fetches the server's resume point.
+        let providerAddonId: String? = entry.providerAddonId
+        guard !ServerStreams.shared.isServerSourceId(addonId: providerAddonId) else { return nil }
         let stored: String? = entry.lastSourceUrl
         guard let raw = stored?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty,
               let url = URL(string: raw),

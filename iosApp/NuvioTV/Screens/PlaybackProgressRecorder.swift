@@ -58,7 +58,7 @@ final class PlaybackProgressRecorder {
         lastStreamTitle: context.streamTitle,
         lastStreamSubtitle: context.streamSubtitle,
         pauseDescription: context.synopsis,
-        lastSourceUrl: context.url.absoluteString
+        lastSourceUrl: context.recordedSourceUrl
     )
 
     /// PLY-4: the last periodic tick, and whether it was playing — a pause pushes the position to

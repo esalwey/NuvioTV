@@ -1057,6 +1057,18 @@ final class NextEpisodeEngine: ObservableObject {
     /// stream resolves asynchronously first (the panel may dismiss; playback switches when the
     /// link lands, ~1s for cached torrents, and a failed resolve leaves playback untouched).
     func playSource(_ stream: StreamItem) -> Bool {
+        // A Jellyfin / Emby file: the server opens a session for it first, then it switches like any link.
+        if ServerStreamPreparer.needsPreparation(stream) {
+            ServerStreamPreparer.prepare(stream, savedAtEpochMs: 0) { [weak self] result in
+                guard case .success(let prepared) = result else { return }
+                guard let self, !self.handedOff else {
+                    ServerPlayback.shared.stop(url: prepared.url.absoluteString)
+                    return
+                }
+                self.switchToSource(stream: prepared.stream, url: prepared.url)
+            }
+            return true
+        }
         let direct: String? = stream.playableDirectUrl
         if let direct, !direct.isEmpty, let url = URL(string: direct) {
             switchToSource(stream: stream, url: url)
@@ -1362,6 +1374,8 @@ final class NextEpisodeEngine: ObservableObject {
     private func allStreams(_ groups: [AddonStreamGroup]) -> [StreamItem] {
         groups.flatMap { group in
             group.streams.filter {
+                // A media-server file is prepared when it is picked.
+                if $0.serverTarget != nil { return true }
                 let direct: String? = $0.playableDirectUrl
                 // Never hand off to the file that is playing right now: an addon that misreads the
                 // next episode's id answers with the current episode's streams.
@@ -1467,6 +1481,23 @@ final class NextEpisodeEngine: ObservableObject {
     /// Direct links are ready as they are; debrid results resolve to a direct link now (the old
     /// play-time resolve), so the hand-off itself is instant.
     private func resolve(_ stream: StreamItem, for target: SearchTarget) {
+        if ServerStreamPreparer.needsPreparation(stream) {
+            let generation = searchGeneration
+            ServerStreamPreparer.prepare(stream, savedAtEpochMs: 0) { [weak self] result in
+                guard let self, generation == self.searchGeneration, !self.cancelled, !self.handedOff else {
+                    if case .success(let prepared) = result { ServerPlayback.shared.stop(url: prepared.url.absoluteString) }
+                    return
+                }
+                switch result {
+                case .success(let prepared):
+                    self.streamReady(stream: prepared.stream, url: prepared.url)
+                case .failure:
+                    self.selectedStream = nil          // reopen finishWithoutStream's guard
+                    self.finishWithoutStream()
+                }
+            }
+            return
+        }
         let direct: String? = stream.playableDirectUrl
         if let direct, !direct.isEmpty, let url = URL(string: direct) {
             streamReady(stream: stream, url: url)
