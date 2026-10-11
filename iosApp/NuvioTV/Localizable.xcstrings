@@ -3930,7 +3930,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ajoutez-en un dans Paramètres → Sources de contenu → Add-ons."
+            "value": "Ajoutez-en un dans Réglages → Sources de contenu → Add-ons."
           }
         }
       }
@@ -7941,7 +7941,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vérifiez votre connexion et que Trakt est connecté dans Paramètres."
+            "value": "Vérifiez votre connexion et que Trakt est connecté dans Réglages."
           }
         },
         "it": {
@@ -9168,7 +9168,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Les commentaires proviennent de Trakt. Connectez votre compte dans Paramètres pour les lire."
+            "value": "Les commentaires proviennent de Trakt. Connectez votre compte dans Réglages pour les lire."
           }
         },
         "it": {
@@ -9542,7 +9542,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Connectez un compte dans les paramètres."
+            "value": "Connectez un compte dans les réglages."
           }
         },
         "it": {
@@ -9576,7 +9576,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Connectez-en un dans Paramètres → Compte et services → Debrid, ou activez « Résoudre les streams avec Debrid »."
+            "value": "Connectez-en un dans Réglages → Compte et services → Debrid, ou activez « Résoudre les streams avec Debrid »."
           }
         },
         "it": {
@@ -14602,7 +14602,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Saisissez l’URL du backend fournie par l’administrateur de votre serveur. Nuvio lit /.well-known/nuvio sur ce serveur pour découvrir ses paramètres."
+            "value": "Saisissez l’URL du backend fournie par l’administrateur de votre serveur. Nuvio lit /.well-known/nuvio sur ce serveur pour découvrir ses réglages."
           }
         },
         "it": {
@@ -19339,7 +19339,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Gardez cet écran Paramètres ouvert pendant que vous effectuez des modifications."
+            "value": "Gardez cet écran Réglages ouvert pendant que vous effectuez des modifications."
           }
         },
         "it": {
@@ -20682,7 +20682,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chargement des paramètres de sous-titres…"
+            "value": "Chargement des réglages de sous-titres…"
           }
         },
         "it": {
@@ -21674,7 +21674,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Identifiants du fournisseur manquants — reconnectez-vous dans Paramètres → Debrid."
+            "value": "Identifiants du fournisseur manquants — reconnectez-vous dans Réglages → Debrid."
           }
         },
         "it": {
@@ -23266,7 +23266,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Aucun stream lisible. Installez un add-on de streaming, ou connectez un compte debrid dans Paramètres pour lire les résultats torrent."
+            "value": "Aucun stream lisible. Installez un add-on de streaming, ou connectez un compte debrid dans Réglages pour lire les résultats torrent."
           }
         },
         "it": {
@@ -35201,7 +35201,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Paramètres"
+            "value": "Réglages"
           }
         },
         "it": {
@@ -35235,7 +35235,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Paramètres copiés"
+            "value": "Réglages copiés"
           }
         },
         "it": {
@@ -35269,7 +35269,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Style des paramètres"
+            "value": "Style des réglages"
           }
         },
         "it": {
@@ -36622,7 +36622,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Rechercher dans les paramètres"
+            "value": "Rechercher dans les réglages"
           }
         },
         "it": {
@@ -42695,7 +42695,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ce stream nécessite un compte debrid. Connectez-en un dans Paramètres → Debrid."
+            "value": "Ce stream nécessite un compte debrid. Connectez-en un dans Réglages → Debrid."
           }
         },
         "it": {
@@ -46581,7 +46581,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Votre session %@ a expiré. Reconnectez-vous dans Paramètres → Compte et services → Debrid."
+            "value": "Votre session %@ a expiré. Reconnectez-vous dans Réglages → Compte et services → Debrid."
           }
         },
         "it": {
@@ -46849,7 +46849,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "paramètres des add-ons modifiés"
+            "value": "réglages des add-ons modifiés"
           }
         },
         "it": {
@@ -46951,7 +46951,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "api.nuvio.tv est le serveur officiel. Utilisez « Utiliser le serveur officiel » dans les Paramètres pour revenir en arrière."
+            "value": "api.nuvio.tv est le serveur officiel. Utilisez « Utiliser le serveur officiel » dans les Réglages pour revenir en arrière."
           }
         },
         "it": {
@@ -51248,7 +51248,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Les modèles définissent le nom et la description de chaque résultat debrid. Pour saisir des modèles multilignes, utilisez la configuration à distance (Paramètres › Avancé) depuis un téléphone ou un ordinateur."
+            "value": "Les modèles définissent le nom et la description de chaque résultat debrid. Pour saisir des modèles multilignes, utilisez la configuration à distance (Réglages › Avancé) depuis un téléphone ou un ordinateur."
           }
         },
         "it": {
