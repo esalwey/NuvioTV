@@ -514,12 +514,12 @@ struct DebridStreamsSettingsView: View {
         )
     }
 
-    private func summary(required: Int, excluded: Int) -> String {
-        switch (required, excluded) {
+    private func summary(required requiredCount: Int, excluded excludedCount: Int) -> String {
+        switch (requiredCount, excludedCount) {
         case (0, 0): return String(localized: "No filters")
-        case (let required, 0): return String(localized: "\(required) required")
-        case (0, let excluded): return String(localized: "\(excluded) hidden")
-        case (let required, let excluded): return String(localized: "\(required) required \u{00B7} \(excluded) hidden")
+        case (_, 0): return String(localized: "\(requiredCount) required")
+        case (0, _): return String(localized: "\(excludedCount) hidden")
+        default: return String(localized: "\(requiredCount) required \u{00B7} \(excludedCount) hidden")
         }
     }
 

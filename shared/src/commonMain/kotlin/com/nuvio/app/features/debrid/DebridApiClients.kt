@@ -709,6 +709,7 @@ internal suspend fun fetchTorboxCloudPages(
     val items = mutableListOf<TorboxCloudItemDto>()
     var offset = 0
     var limit = 100
+    var pages = 0
     while (true) {
         val response = fetchPage(offset, limit)
         // Retry only a locally truncated response, never an API or decoding error.
@@ -725,8 +726,13 @@ internal suspend fun fetchTorboxCloudPages(
             return response.copy(body = envelope.copy(data = items), rawBody = "")
         }
         offset += page.size
+        // A server that ignores offset/limit would repeat the same page for ever.
+        pages += 1
+        if (pages >= TORBOX_CLOUD_MAX_PAGES) return response.copy(body = envelope.copy(data = items), rawBody = "")
     }
 }
+
+private const val TORBOX_CLOUD_MAX_PAGES = 500
 
 private inline fun <reified T> RawHttpResponse.decodeBody(): T? {
     if (body.isBlank() || T::class == Unit::class) return null
