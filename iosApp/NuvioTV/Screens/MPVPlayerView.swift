@@ -250,6 +250,8 @@ final class MPVTVPlayerViewController: UIViewController {
         state.selectAudio = { [weak self] id in self?.selectAudio(id) }
         state.selectSubtitle = { [weak self] id in self?.selectSubtitle(id) }
         state.setSpeed = { [weak self] speed in self?.setSpeed(speed) }
+        state.aspectMode = PlayerOverlaySettings.shared.aspectMode
+        state.setAspectMode = { [weak self] mode in self?.setAspectMode(mode) }
         state.setSubtitleDelay = { [weak self] seconds in self?.setSubtitleDelay(seconds) }
         state.setAudioDelay = { [weak self] seconds in self?.setAudioDelay(seconds) }
         state.replay = { [weak self] in self?.replay() }

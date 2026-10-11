@@ -14,7 +14,7 @@ import SwiftUI
 
 /// One button of the transport bar.
 enum PlayerTransportItem: String, CaseIterable, Identifiable, Hashable {
-    case startOver, sources, playbackSpeed, subtitleTiming, subtitles, audio
+    case startOver, sources, playbackSpeed, aspect, subtitleTiming, subtitles, audio
 
     var id: String { rawValue }
 
@@ -26,6 +26,10 @@ enum PlayerTransportItem: String, CaseIterable, Identifiable, Hashable {
                           comment: "Player transport-bar button: go back to the beginning of the video (0:00).")
         case .sources: return String(localized: "Sources")
         case .playbackSpeed: return String(localized: "Playback Speed")
+        case .aspect:
+            return String(localized: "player.menu.aspect",
+                          defaultValue: "Aspect Ratio",
+                          comment: "Player transport-bar menu: how the picture fills the screen (Fit, Fill, Stretch).")
         case .subtitleTiming:
             return String(localized: "player.menu.subtitleTiming",
                           defaultValue: "Subtitle Timing",
@@ -42,6 +46,7 @@ enum PlayerTransportItem: String, CaseIterable, Identifiable, Hashable {
         case .startOver: return "backward.end"
         case .sources: return "rectangle.stack"
         case .playbackSpeed: return "speedometer"
+        case .aspect: return "aspectratio"
         case .subtitleTiming: return "clock.arrow.circlepath"
         case .subtitles: return "captions.bubble"
         case .audio: return "speaker.wave.2"
@@ -53,8 +58,9 @@ enum PlayerTransportItem: String, CaseIterable, Identifiable, Hashable {
 }
 
 enum PlayerTransportMenus {
-    /// Speeds offered, the system player's range.
-    static let rates: [Float] = [0.5, 0.75, 1, 1.25, 1.5, 2]
+    /// Speeds offered: 0.25x to 2x in eight steps (the shared `PlaybackSpeedPolicy.steps`, which
+    /// also bounds what is remembered per title).
+    static let rates: [Float] = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2]
     /// Timing offsets offered (ms; positive = later), subtitles and — mpv only — audio.
     static let delays: [Int] = [-2000, -1000, -500, -250, 0, 250, 500, 1000, 2000]
 
@@ -64,6 +70,7 @@ enum PlayerTransportMenus {
         var items: [PlayerTransportItem] = [.startOver]
         if canChooseSource { items.append(.sources) }
         items.append(.playbackSpeed)
+        items.append(.aspect)
         if supportsSubtitleDelay { items.append(.subtitleTiming) }
         return items
     }

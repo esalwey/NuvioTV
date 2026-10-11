@@ -614,6 +614,12 @@ extension MPVTVPlayerViewController {
         if let storedMs = PlayerTrackPreferenceStorage.shared.loadSubtitleDelayMs(videoId: context.videoId) {
             setSubtitleDelay(Double(storedMs.intValue) / 1000.0)
         }
+        // The title's remembered speed (1x is never stored) and the chosen aspect ratio.
+        if let storedSpeed = PlayerTrackPreferenceStorage.shared.loadPlaybackSpeed(contentId: context.parentMetaId)?.floatValue,
+           storedSpeed > 0 {
+            setSpeed(Double(storedSpeed))
+        }
+        applyAspectMode(state.aspectMode)
         // LANG-13: the audio delay is a property of this Apple TV's sound setup (soundbar, AV
         // receiver), so one value is kept per device and applied to every file.
         let storedAudioDelay = UserDefaults.standard.double(forKey: Self.audioDelayDefaultsKey)
@@ -808,10 +814,31 @@ extension MPVTVPlayerViewController {
 
     // MARK: - Playback speed & A/V-subtitle timing
 
+    /// Applies a speed picked in the transport bar and remembers it for this title (normal speed
+    /// forgets it); `onFileLoaded()` replays it on the next playback of the title. The replay's
+    /// own save is a same-value no-op.
     func setSpeed(_ speed: Double) {
         guard mpv != nil else { return }
         setMpvDouble("speed", speed)
         state.playbackSpeed = speed
+        PlayerTrackPreferenceStorage.shared.savePlaybackSpeed(contentId: context.parentMetaId, speed: Float(speed))
+    }
+
+    // MARK: - Aspect ratio
+
+    /// Aspect Ratio menu: applies the mode to the running core and remembers Fit / Fill.
+    func setAspectMode(_ mode: PlayerAspectMode) {
+        state.aspectMode = mode
+        mode.remember()
+        applyAspectMode(mode)
+    }
+
+    /// Fit, Fill and Stretch through mpv's own `panscan` and `keepaspect`: the Metal layer keeps
+    /// filling the view, so the drawable size (and HDR output) is untouched.
+    func applyAspectMode(_ mode: PlayerAspectMode) {
+        guard mpv != nil else { return }
+        setMpvDouble("panscan", mode.mpvPanscan)
+        setFlag("keepaspect", mode.mpvKeepsAspect)
     }
 
     /// Single source of truth for subtitle re-timing on the mpv path: applies to the running core,

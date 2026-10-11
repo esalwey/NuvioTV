@@ -8,7 +8,7 @@ import UIKit
 // (`.overFullScreen`, the video keeps playing underneath) and SwiftUI's focus engine takes over,
 // exactly where AVPlayerViewController hands focus to its own controls:
 //  - Up (or a swipe up) with the bar showing → the transport buttons: the app's items (Sources,
-//    Playback Speed, Subtitle Timing — the native screen's `transportBarCustomMenuItems`, same
+//    Playback Speed, Aspect Ratio, Subtitle Timing — the native screen's `transportBarCustomMenuItems`, same
 //    order, labels and symbols) then Subtitles and Audio, each a system menu with checkmarks.
 //  - Down (or a swipe down) → the content tabs (Info, Episodes, Chapters, Stream Info), the
 //    focused tab's content under the bar.
@@ -228,6 +228,21 @@ struct MPVTransportFocusView: View {
             }
             .menuStyle(.button)
             .buttonStyle(PlayerTransportButtonStyle(item: item))
+        case .aspect:
+            Menu {
+                Picker(selection: aspectBinding) {
+                    ForEach(PlayerAspectMode.allCases) { mode in
+                        Text(verbatim: mode.title).tag(mode)
+                    }
+                } label: {
+                    Text(verbatim: item.title)
+                }
+                .pickerStyle(.inline)
+            } label: {
+                Text(verbatim: item.title)
+            }
+            .menuStyle(.button)
+            .buttonStyle(PlayerTransportButtonStyle(item: item))
         case .subtitleTiming:
             Menu {
                 Picker(selection: subtitleDelayBinding) {
@@ -303,6 +318,12 @@ struct MPVTransportFocusView: View {
         Binding(
             get: { Float(state.playbackSpeed) },
             set: { rate in state.setSpeed?(Double(rate)) })
+    }
+
+    private var aspectBinding: Binding<PlayerAspectMode> {
+        Binding(
+            get: { state.aspectMode },
+            set: { mode in state.setAspectMode?(mode) })
     }
 
     private var subtitleDelayBinding: Binding<Int> {

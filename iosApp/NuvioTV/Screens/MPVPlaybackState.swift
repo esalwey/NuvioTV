@@ -53,6 +53,8 @@ final class MPVPlaybackState: ObservableObject {
 
     /// Playback-settings panel state (speed, subtitle/audio delay, diagnostics).
     @Published var playbackSpeed: Double = 1.0
+    /// How the picture fills the screen (the transport bar's Aspect Ratio menu).
+    @Published var aspectMode: PlayerAspectMode = .fit
     @Published var subtitleDelaySec: Double = 0
     @Published var audioDelaySec: Double = 0
     @Published var showStreamInfo: Bool = false
@@ -75,6 +77,7 @@ final class MPVPlaybackState: ObservableObject {
     var selectAudio: ((Int) -> Void)?
     var selectSubtitle: ((Int) -> Void)?
     var setSpeed: ((Double) -> Void)?
+    var setAspectMode: ((PlayerAspectMode) -> Void)?
     var setSubtitleDelay: ((Double) -> Void)?
     var setAudioDelay: ((Double) -> Void)?
     var replay: (() -> Void)?

@@ -33,6 +33,9 @@ struct PlaybackSettingsPane: View {
     /// Automatic Skipping, Anime Skip and the IntroDB key (shared `PlayerSettingsRepository`).
     @StateObject private var skip = SkipSettingsModel()
 
+    /// Loading screen, parental guide and clock switches (shared `PlayerSettingsRepository`).
+    @ObservedObject private var playerInterface = PlayerOverlaySettings.shared
+
     var body: some View {
         Group {
             sections
@@ -121,6 +124,27 @@ struct PlaybackSettingsPane: View {
 
         if model.skipIntroEnabled {
             SkipSourcesSection(skip: skip)
+        }
+
+        SettingsSection(String(localized: "Player Interface")) {
+            SettingsToggleRow(
+                title: String(localized: "Show Loading Screen"),
+                subtitle: String(localized: "Show a spinner while a video opens. When off, the screen stays black until the first frame."),
+                isOn: Binding(get: { playerInterface.showLoadingOverlay },
+                              set: { playerInterface.setShowLoadingOverlay($0) })
+            )
+            SettingsToggleRow(
+                title: String(localized: "Show Parental Guide"),
+                subtitle: String(localized: "Briefly list the content advisories at the start of a video, when the title has any."),
+                isOn: Binding(get: { playerInterface.showParentalGuide },
+                              set: { playerInterface.setShowParentalGuide($0) })
+            )
+            SettingsToggleRow(
+                title: String(localized: "Show Clock and End Time"),
+                subtitle: String(localized: "Show the time and when the video will end while the playback controls are on screen."),
+                isOn: Binding(get: { playerInterface.osdClockEnabled },
+                              set: { playerInterface.setOsdClockEnabled($0) })
+            )
         }
 
         // Up Next (NE-6/SET-1). Every row is this Apple TV's own (the phone's synced auto-play

@@ -1999,7 +1999,7 @@ struct DetailView: View {
         }
     }
 
-    /// Severity strings come back as the labels we supplied (`parentalGuideLabels`).
+    /// Severity strings come back as the labels we supplied (`ParentalGuideLoader.labels`).
     private func severityColor(_ severity: String) -> Color {
         switch severity {
         case "Severe": return .red

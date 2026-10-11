@@ -111,6 +111,8 @@ struct MPVPlayerScreen: View {
     @StateObject private var chromeModel = MPVChromeModel()
     /// The first frame is on screen: until then the shared loading view stands in (PLY-A12).
     @State private var firstFrameShown = false
+    /// The parental guide shown as playback starts (Settings > Playback > Player Interface).
+    @StateObject private var parental = ParentalGuidePresenter()
 
     init(context: PlaybackContext,
          upNext: NextEpisodeEngine,
@@ -211,6 +213,15 @@ struct MPVPlayerScreen: View {
             AutoSkipToastOverlay(toast: state.autoSkipToast) { expired in
                 if state.autoSkipToast?.id == expired.id { state.autoSkipToast = nil }
             }
+
+            // The time and when the video ends, with the transport chrome (same pill as the
+            // native screen).
+            PlayerClockOverlay(chromeVisible: clockShown,
+                               remainingSec: state.durationSec > 0 ? max(state.durationSec - state.positionSec, 0) : nil,
+                               rate: state.playbackSpeed)
+
+            // The parental guide, top-leading, once the first frame is up and the chrome is away.
+            ParentalGuideHost(presenter: parental, chromeVisible: clockShown)
         }
         .animation(PlayerChipStyle.animation, value: state.skipPrompt)
         .animation(PlayerChipStyle.animation, value: upNext.phase)
@@ -233,6 +244,7 @@ struct MPVPlayerScreen: View {
                 panelAdapter = MPVPlayerPanelAdapter(state: state, model: panelModel, context: context)
             }
             wireUpNext()
+            parental.prepare(context: context)
             // libmpv renders into a bare Metal layer, so tvOS doesn't know video is playing and
             // its idle timer fires the screensaver mid-movie (device report). Hold the idle timer
             // while playback is active — mirroring AVPlayerViewController, which does this
@@ -247,6 +259,7 @@ struct MPVPlayerScreen: View {
         .onChange(of: state.isBuffering) { _, buffering in
             guard !buffering, !firstFrameShown else { return }
             withAnimation(.easeInOut(duration: 0.25)) { firstFrameShown = true }
+            parental.firstFrameShown()
         }
         .onChange(of: state.positionSec) { _, position in
             upNext.onProgress(positionSec: position, durationSec: state.durationSec)
@@ -281,6 +294,12 @@ struct MPVPlayerScreen: View {
     private var chromeShown: Bool {
         firstFrameShown && !state.playbackErrorShown && !state.panelOpen
             && (state.controlsVisible || state.pauseChromeShown)
+    }
+
+    /// The clock pill rides with the chrome, including the focus layer that replaces the passive bar.
+    private var clockShown: Bool {
+        firstFrameShown && !state.playbackErrorShown
+            && (state.controlsVisible || state.pauseChromeShown || state.panelOpen)
     }
 
     /// Bottom inset of the bottom-trailing prompts (Up Next card, skip chip): the screen-edge inset,

@@ -43,6 +43,9 @@ final class NativePlayerHostController: UIViewController, UIGestureRecognizerDel
     /// beat later, after that action had its turn â€” the engine then acts only if none ran.
     var onSelectPress: (() -> Int?)?
     var onSelectSettled: ((Int) -> Void)?
+    /// The system transport bar is about to appear (true) or go away (false) — the clock pill
+    /// follows it.
+    var onTransportBarVisibility: ((Bool) -> Void)?
     private var swallowMenuRelease = false
     private(set) var panelHost: PlayerPanelPresenting?
     private var downPress: UITapGestureRecognizer!
@@ -58,6 +61,7 @@ final class NativePlayerHostController: UIViewController, UIGestureRecognizerDel
         super.viewDidLoad()
         view.backgroundColor = .black
         view.accessibilityIdentifier = "player.native"
+        playerVC.delegate = self
         addChild(playerVC)
         playerVC.view.frame = view.bounds
         playerVC.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
@@ -186,6 +190,14 @@ final class NativePlayerHostController: UIViewController, UIGestureRecognizerDel
 
     func closePanel(animated: Bool) {
         panelHost?.close(animated: animated)
+    }
+}
+
+extension NativePlayerHostController: AVPlayerViewControllerDelegate {
+    func playerViewController(_ playerViewController: AVPlayerViewController,
+                              willTransitionToVisibilityOfTransportBar visible: Bool,
+                              with coordinator: any AVPlayerViewControllerAnimationCoordinator) {
+        onTransportBarVisibility?(visible)
     }
 }
 

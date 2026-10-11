@@ -59,7 +59,13 @@ struct NativePlayerScreen: View {
     /// "Intro skipped": the confirmation shown for a moment after a segment was skipped on its own.
     @State private var autoSkipToast: AutoSkipToast?
     /// Playback speed picked in the transport bar (1 = normal).
-    @State private var playbackRate: Float = 1
+    @State private var playbackRate: Float
+    /// How the picture fills the screen (the transport bar's Aspect Ratio menu).
+    @State private var aspectMode: PlayerAspectMode
+    /// Feeds the clock pill (remaining time, system transport bar visibility).
+    @StateObject private var clock = PlayerClockModel()
+    /// The parental guide shown as playback starts (Settings > Playback > Player Interface).
+    @StateObject private var parental = ParentalGuidePresenter()
     /// The end screen's cover was closed with Menu: leave for the details page once it's gone.
     @State private var endScreenClosedByMenu = false
     @Environment(\.dismiss) private var dismiss
@@ -80,6 +86,10 @@ struct NativePlayerScreen: View {
         self.onPickNextSource = onPickNextSource
         self.canSwitchStreams = canSwitchStreams
         self.onChooseAnotherSource = onChooseAnotherSource
+        // The title's remembered speed (1x is never stored) and the remembered aspect choice.
+        _playbackRate = State(initialValue: PlayerTrackPreferenceStorage.shared
+            .loadPlaybackSpeed(contentId: context.parentMetaId)?.floatValue ?? 1)
+        _aspectMode = State(initialValue: PlayerOverlaySettings.shared.aspectMode)
         _coordinator = StateObject(wrappedValue: NativePlaybackCoordinator(context: context, engineNote: routingNote))
         // Still the source of the Stream Info rows and of the subtitle-timing support flag, now
         // that the swipe-down panel it used to feed is gone on this engine (D3).
@@ -108,6 +118,7 @@ struct NativePlayerScreen: View {
                         menu: TransportMenuState(
                             canChooseSource: onChooseAnotherSource != nil,
                             rate: playbackRate,
+                            aspect: aspectMode,
                             supportsSubtitleDelay: panelModel.supportsSubtitleDelay,
                             subtitleDelayMs: coordinator.subtitleDelayMs),
                         chapters: skipSegments,
@@ -127,6 +138,8 @@ struct NativePlayerScreen: View {
                             Self.perform(action, on: upNext)
                         },
                         onSetRate: { rate in setPlaybackRate(rate) },
+                        onTransportBarVisibility: { [weak clock] visible in clock?.transportBarVisible = visible },
+                        onSetAspect: { mode in setAspectMode(mode) },
                         onSetSubtitleDelay: { [weak coordinator] ms in coordinator?.setSubtitleDelay(ms: ms) },
                         onStartOver: { [weak coordinator] in coordinator?.startOver() },
                         onChooseSource: { [weak upNext] in
@@ -171,6 +184,12 @@ struct NativePlayerScreen: View {
             AutoSkipToastOverlay(toast: autoSkipToast) { expired in
                 if autoSkipToast?.id == expired.id { autoSkipToast = nil }
             }
+
+            // The time and when the video ends, with the system transport bar (same pill as mpv).
+            if coordinator.phase == .playing {
+                NativeClockOverlay(model: clock, isPaused: coordinator.isPaused, rate: Double(playbackRate))
+                NativeParentalGuideOverlay(presenter: parental, clock: clock, isPaused: coordinator.isPaused)
+            }
         }
         .animation(PlayerChipStyle.animation, value: upNext.phase)
         .onChange(of: coordinator.isPaused) { _, paused in
@@ -205,10 +224,13 @@ struct NativePlayerScreen: View {
             coordinator.onTick = { [weak adapter] _, _ in
                 adapter?.onTick()
             }
-            coordinator.onPositionTick = { [weak upNext] position, duration in
+            coordinator.onPositionTick = { [weak upNext, weak clock, weak parental] position, duration in
+                clock?.update(position: position, duration: duration)
+                parental?.firstFrameShown()
                 upNext?.onProgress(positionSec: position, durationSec: duration)
                 updateSkipPrompt(position: position, durationSec: duration)
             }
+            parental.prepare(context: context)
             upNext.playerAttached()
             upNext.setPaused(false)
             upNext.onExitRequested = exitAction
@@ -240,9 +262,18 @@ struct NativePlayerScreen: View {
     /// switches at once.
     private func setPlaybackRate(_ rate: Float) {
         playbackRate = rate
+        // Remembered for this title; normal speed forgets it.
+        PlayerTrackPreferenceStorage.shared.savePlaybackSpeed(contentId: context.parentMetaId, speed: rate)
         guard let player = coordinator.player else { return }
         player.defaultRate = rate
         if player.rate != 0 { player.rate = rate }
+    }
+
+    /// Aspect Ratio menu: the picture's gravity follows (`AVPlayerContainer`); Fit / Fill are
+    /// remembered.
+    private func setAspectMode(_ mode: PlayerAspectMode) {
+        aspectMode = mode
+        mode.remember()
     }
 
     /// The content tabs under the scrubber, built once per player controller (their SwiftUI views
@@ -455,6 +486,7 @@ enum UpNextAction: String {
 private struct TransportMenuState: Equatable {
     var canChooseSource: Bool
     var rate: Float
+    var aspect: PlayerAspectMode
     var supportsSubtitleDelay: Bool
     var subtitleDelayMs: Int
 
@@ -484,6 +516,8 @@ private struct AVPlayerContainer: UIViewControllerRepresentable {
     let onSkip: (SkipPrompt) -> Void
     let onUpNextAction: (UpNextAction) -> Void
     let onSetRate: (Float) -> Void
+    let onSetAspect: (PlayerAspectMode) -> Void
+    let onTransportBarVisibility: (Bool) -> Void
     let onSetSubtitleDelay: (Int) -> Void
     /// Start Over (PLY-A13): back to 0:00.
     let onStartOver: () -> Void
@@ -506,6 +540,7 @@ private struct AVPlayerContainer: UIViewControllerRepresentable {
     func makeUIViewController(context: Context) -> NativePlayerHostController {
         let host = NativePlayerHostController()
         host.playerVC.player = player
+        host.playerVC.videoGravity = menu.aspect.videoGravity
         player.defaultRate = menu.rate
         // Decision D3: the system content tabs replace the app's swipe-down panel on this engine —
         // `onOpenPanel` stays nil, so Down and the down swipe belong to the system player (and to
@@ -517,6 +552,7 @@ private struct AVPlayerContainer: UIViewControllerRepresentable {
         host.claimsDownPress = downPressClaimed
         host.onSelectPress = onSelectPress
         host.onSelectSettled = onSelectSettled
+        host.onTransportBarVisibility = onTransportBarVisibility
         return host
     }
 
@@ -534,6 +570,9 @@ private struct AVPlayerContainer: UIViewControllerRepresentable {
         if context.coordinator.allowedSubtitleLanguages != allowedSubtitleLanguages {
             context.coordinator.allowedSubtitleLanguages = allowedSubtitleLanguages
             controller.allowedSubtitleOptionLanguages = allowedSubtitleLanguages
+        }
+        if controller.videoGravity != menu.aspect.videoGravity {
+            controller.videoGravity = menu.aspect.videoGravity
         }
         if context.coordinator.menu != menu {
             context.coordinator.menu = menu
@@ -571,6 +610,13 @@ private struct AVPlayerContainer: UIViewControllerRepresentable {
                          state: abs(rate - current) < 0.01 ? .on : .off) { _ in setRate(rate) }
             }
             return UIMenu(title: item.title, image: image, options: [.singleSelection], children: speeds)
+        case .aspect:
+            let setAspect = onSetAspect
+            let current = menu.aspect
+            let modes = PlayerAspectMode.allCases.map { mode in
+                UIAction(title: mode.title, state: mode == current ? .on : .off) { _ in setAspect(mode) }
+            }
+            return UIMenu(title: item.title, image: image, options: [.singleSelection], children: modes)
         case .subtitleTiming:
             let setDelay = onSetSubtitleDelay
             let selected = menu.subtitleDelayMs
