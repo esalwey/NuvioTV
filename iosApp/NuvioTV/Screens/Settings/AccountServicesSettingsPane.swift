@@ -65,6 +65,8 @@ struct AccountServicesSettingsPane: View {
             SettingsSection(String(localized: "Debrid")) {
                 debridSection
             }
+
+            MediaServersSettingsSection()
         }
         // BUG-21 follow-up: verify each connected provider's stored credential the moment the
         // pane opens, so an expired token reads "Session expired" instead of "Connected".

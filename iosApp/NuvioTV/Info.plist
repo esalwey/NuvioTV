@@ -9,6 +9,11 @@
 		<key>NSAllowsArbitraryLoads</key>
 		<true/>
 	</dict>
+	<!-- Jellyfin and Emby servers live on the home network (Settings > Account & Services >
+	     Media Servers). Without a usage string the system's local-network prompt has no
+	     explanation to show. NSAllowsArbitraryLoads above already covers their plain-HTTP API. -->
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Nuvio connects to Jellyfin and Emby servers on your home network so you can browse and play your own library.</string>
 	<!-- External-player handoff (FEAT-5): canOpenURL() silently returns false for any scheme
 	     not declared here, and the shared ExternalPlayerPlatform gates its player list on that
 	     probe — so this list IS the tvOS player allowlist. Every declared player automatically
