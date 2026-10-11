@@ -640,53 +640,25 @@ extension NativePlaybackCoordinator {
         return out
     }
 
-    /// Subtitle appearance on the native engine (LANG-06): the user's Settings → Subtitles style
-    /// becomes the item's `textStyleRules`. Only values that differ from the default style are set,
-    /// so an untouched style leaves the system caption appearance (Accessibility) in charge.
-    /// Sampled per item, like the mpv engine applies it per file.
+    /// Subtitle appearance on the native engine (LANG-06): the user's Settings > Subtitles style
+    /// becomes the item's `textStyleRules`, described IN FULL by the shared `SubtitleRenderStyle`
+    /// (colour, explicit background clear or box, edge style, size, bold), exactly what the mpv
+    /// engine applies. A rule that only carried the non-default values used to leave the rest to the
+    /// system caption profile, which can draw a dark box behind the text: the same settings looked
+    /// different on the two engines. The system profile values the viewer marked as overriding
+    /// still win (AVFoundation applies them on top of the rule), as they do on mpv through
+    /// `SystemCaptionStyle`. Sampled per item, like the mpv engine applies it per file.
     func applySubtitleAppearance(to item: AVPlayerItem) {
-        guard let style = playerSettings?.subtitleStyle else { return }
-        var attributes: [String: Any] = [:]
-        if style.textColor != Self.defaultTextARGB {
-            attributes[kCMTextMarkupAttribute_ForegroundColorARGB as String] = Self.argbComponents(style.textColor)
-        }
-        let backgroundAlpha = (style.backgroundColor >> 24) & 0xFF
-        if backgroundAlpha > 0 {
-            attributes[kCMTextMarkupAttribute_CharacterBackgroundColorARGB as String] =
-                Self.argbComponents(style.backgroundColor)
-        }
-        if style.bold {
-            attributes[kCMTextMarkupAttribute_BoldStyle as String] = true
-        }
-        if style.fontSizeSp > 0, style.fontSizeSp != Self.defaultFontSizeSp {
-            // Relative size in percent of the default caption size (Small 78 % … X-Large 167 %).
-            let percent = Double(style.fontSizeSp) / Double(Self.defaultFontSizeSp) * 100
-            attributes[kCMTextMarkupAttribute_RelativeFontSize as String] = max(50, min(200, percent))
-        }
-        if !style.outlineEnabled {
-            attributes[kCMTextMarkupAttribute_CharacterEdgeStyle as String] = kCMTextMarkupCharacterEdgeStyle_None as String
-        } else if style.outlineColor != Self.defaultOutlineARGB {
-            attributes[kCMTextMarkupAttribute_CharacterEdgeStyle as String] = kCMTextMarkupCharacterEdgeStyle_Uniform as String
-        }
-        guard !attributes.isEmpty, let rule = AVTextStyleRule(textMarkupAttributes: attributes) else {
+        // Settings not hydrated yet: the shared defaults, never the bare system profile.
+        let style = SubtitleRenderStyle(playerSettings?.subtitleStyle)
+        let attributes = style.avTextMarkupAttributes()
+        guard let rule = AVTextStyleRule(textMarkupAttributes: attributes) else {
+            print("[NativePlayer] subtitle style rule rejected (\(attributes.count) attributes)")
             item.textStyleRules = nil
             return
         }
         item.textStyleRules = [rule]
-        print("[NativePlayer] subtitle style rules: \(attributes.count) attribute(s), size \(style.fontSizeSp)")
-    }
-
-    /// `SubtitleStyleState` defaults (shared `SubtitleAudioModels.kt`): white text, black outline,
-    /// 18 sp.
-    private static let defaultTextARGB: Int64 = 0xFFFFFFFF
-    private static let defaultOutlineARGB: Int64 = 0xFF000000
-    private static let defaultFontSizeSp: Int32 = 18
-
-    /// 0xAARRGGBB → [A, R, G, B] in 0…1, the form CoreMedia's text-markup colour attributes take.
-    private static func argbComponents(_ argb: Int64) -> [NSNumber] {
-        let a = Double((argb >> 24) & 0xFF) / 255, r = Double((argb >> 16) & 0xFF) / 255
-        let g = Double((argb >> 8) & 0xFF) / 255, b = Double(argb & 0xFF) / 255
-        return [a, r, g, b].map { NSNumber(value: $0) }
+        print("[NativePlayer] subtitle style rule: size \(String(format: "%.1f", style.heightPercent))% box \(style.drawsBox) outline \(style.outlineEnabled)")
     }
 
     // MARK: - Audio track display names

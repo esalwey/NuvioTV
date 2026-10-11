@@ -670,8 +670,9 @@ private struct SubtitleAppearanceControls: View {
         (String(localized: "Off"), 0x00000000), (String(localized: "Semi"), 0x80000000), (String(localized: "Solid"), 0xFF000000)
     ]
     /// LANG-11 Subtitle Position: `SubtitleStyleState.bottomOffset` presets (shared default 20,
-    /// the phone's slider runs 0-200 in steps of 5). mpv maps it to `sub-pos` = 100 - offset/10
-    /// (MPVPlayerView+Tracks `applySubtitleStyle`); a value set on the phone between presets is
+    /// the phone's slider runs 0-200 in steps of 5). mpv maps it to `sub-pos` through
+    /// `SubtitleRenderStyle.mpvSubPos` (a 5 % bottom margin at the default, one point per 10
+    /// units); a value set on the phone between presets is
     /// shown as its number.
     private let positions: [(name: String, offset: Int32)] = [
         (String(localized: "settings.subtitles.position.lowest", defaultValue: "Lowest", comment: "Subtitle position preset: at the bottom edge"), 0),

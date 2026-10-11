@@ -675,45 +675,27 @@ extension MPVTVPlayerViewController {
 
     // MARK: - Subtitle appearance (mirrors the mobile libmpv mapping)
 
-    /// Push the user's subtitle style into libmpv. Colors are `SubtitleColor` argb longs (0xAARRGGBB);
-    /// the size/outline/border-style formulas match `PlayerEngine.android`'s `applySubtitleStyle`.
+    /// Push the user's subtitle style into libmpv, through the `SubtitleRenderStyle` the native
+    /// engine builds its `AVTextStyleRule` from (one mapping for both, so they cannot drift).
+    /// Colors are `SubtitleColor` argb longs (0xAARRGGBB). `sub-ass-override=no` keeps styled ASS
+    /// events as authored; the style applies to plain-text cues, which is what AVPlayer's
+    /// text-style rule covers as well.
     func applySubtitleStyle() {
-        guard mpv != nil, let style = playerSettings?.subtitleStyle else { return }
+        guard mpv != nil, let state = playerSettings?.subtitleStyle else { return }
+        let style = SubtitleRenderStyle(state)
         setMpvString("sub-ass-override", "no")
-        setMpvString("sub-color", mpvColorString(style.textColor))
-        setMpvString("sub-back-color", mpvColorString(style.backgroundColor))
-        setMpvString("sub-outline-color", mpvColorString(style.outlineColor))
-        setMpvString("sub-border-color", mpvColorString(style.outlineColor))
-        setMpvString("sub-border-style", subtitleBorderStyle(style))
+        setMpvString("sub-color", SubtitleRenderStyle.mpvColor(style.textARGB))
+        setMpvString("sub-back-color", SubtitleRenderStyle.mpvColor(style.backgroundARGB))
+        setMpvString("sub-outline-color", SubtitleRenderStyle.mpvColor(style.outlineARGB))
+        setMpvString("sub-border-color", SubtitleRenderStyle.mpvColor(style.outlineARGB))
+        setMpvString("sub-border-style", style.mpvBorderStyle)
         setMpvString("sub-bold", style.bold ? "yes" : "no")
-        setMpvInt("sub-font-size", subtitleFontSize(style))
-        let outline = subtitleOutlineSize(style)
-        setMpvInt("sub-outline-size", outline)
-        setMpvInt("sub-border-size", outline)
-        setMpvInt("sub-pos", Int64(max(0, min(100, 100 - Int(style.bottomOffset) / 10))))
-        setMpvString("sub-filter-sdh", style.stripSdh ? "yes" : "no")
-        setMpvString("sub-filter-sdh-harder", style.stripSdh ? "yes" : "no")
-    }
-
-    private func mpvColorString(_ argb: Int64) -> String {
-        let a = (argb >> 24) & 0xFF, r = (argb >> 16) & 0xFF, g = (argb >> 8) & 0xFF, b = argb & 0xFF
-        return String(format: "#%02X%02X%02X%02X", a, r, g, b)
-    }
-
-    private func subtitleFontSize(_ s: SubtitleStyleState) -> Int64 {
-        let scaled = Int(Double(s.fontSizeSp) * (55.0 / 18.0))
-        return Int64(max(36, min(122, scaled)))
-    }
-
-    private func subtitleOutlineSize(_ s: SubtitleStyleState) -> Int64 {
-        guard s.outlineEnabled else { return 0 }
-        return Int64(max(1, Int(Double(s.outlineWidth) * 1.5)))
-    }
-
-    private func subtitleBorderStyle(_ s: SubtitleStyleState) -> String {
-        if s.outlineEnabled { return "outline-and-shadow" }
-        let backgroundAlpha = (s.backgroundColor >> 24) & 0xFF
-        return backgroundAlpha > 0 ? "opaque-box" : "outline-and-shadow"
+        setMpvInt("sub-font-size", style.mpvFontSize)
+        setMpvInt("sub-outline-size", style.mpvOutlineSize)
+        setMpvInt("sub-border-size", style.mpvOutlineSize)
+        setMpvInt("sub-pos", style.mpvSubPos)
+        setMpvString("sub-filter-sdh", state.stripSdh ? "yes" : "no")
+        setMpvString("sub-filter-sdh-harder", state.stripSdh ? "yes" : "no")
     }
 
     #if DEBUG
