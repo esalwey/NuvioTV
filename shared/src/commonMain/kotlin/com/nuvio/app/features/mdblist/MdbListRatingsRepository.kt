@@ -9,7 +9,9 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 /**
@@ -25,9 +27,9 @@ internal class MdbListRatingsRepository(
     private data class RequestKey(
         val mediaType: String,
         val imdbId: String,
-        val apiKey: String,
+        val credential: MdbListRatingsCredential,
     ) {
-        // The key is a secret: never let a stray log line print it.
+        // The credential is a secret: never let a stray log line print it.
         override fun toString(): String = "RequestKey($mediaType, $imdbId)"
     }
 
@@ -41,11 +43,11 @@ internal class MdbListRatingsRepository(
     suspend fun getRatings(
         mediaType: String,
         imdbId: String,
-        apiKey: String,
+        credential: MdbListRatingsCredential,
         providers: List<String>,
     ): List<MetaExternalRating> {
         if (providers.isEmpty()) return emptyList()
-        val key = RequestKey(mediaType, imdbId, apiKey)
+        val key = RequestKey(mediaType, imdbId, credential)
         val deferred = synchronized(lock) {
             cache[key]?.let { return selectRatings(it, providers) }
             inFlight[key] ?: CompletableDeferred<List<MetaExternalRating>>().also { created ->
@@ -79,7 +81,7 @@ internal class MdbListRatingsRepository(
             batchScheduled = false
             pending.toList().also { pending.clear() }
         }
-        requests.groupBy { (key, _) -> key.mediaType to key.apiKey }.values.forEach { group ->
+        requests.groupBy { (key, _) -> key.mediaType to key.credential }.values.forEach { group ->
             group.chunked(MAX_BATCH_SIZE).forEach { fetchBatch(it) }
         }
     }
@@ -89,9 +91,9 @@ internal class MdbListRatingsRepository(
         val first = batch.firstOrNull()?.first ?: return
         try {
             val ratings = if (batch.size == 1) {
-                mapOf(first.imdbId to parseMdbListRatings(client.getMedia(first.mediaType, first.imdbId, first.apiKey)))
+                mapOf(first.imdbId to parseMdbListRatings(client.getMedia(first.mediaType, first.imdbId, first.credential)))
             } else {
-                parseMdbListRatingsBatch(client.getMediaBatch(first.mediaType, batch.map { it.first.imdbId }, first.apiKey))
+                parseMdbListRatingsBatch(client.getMediaBatch(first.mediaType, batch.map { it.first.imdbId }, first.credential))
             }
             synchronized(lock) {
                 batch.forEach { (key, deferred) ->
@@ -104,11 +106,14 @@ internal class MdbListRatingsRepository(
                 }
             }
         } catch (error: Throwable) {
+            // An account switch cancels the request without cancelling this coroutine: that is
+            // "no ratings", not a cancellation of the callers.
+            val cancelled = error is CancellationException && !currentCoroutineContext().isActive
             if (error !is CancellationException) log.w { "MDBList ratings request failed for ${batch.size} items" }
             synchronized(lock) {
                 batch.forEach { (key, deferred) ->
                     if (inFlight[key] === deferred) inFlight.remove(key)
-                    if (error is CancellationException) deferred.completeExceptionally(error)
+                    if (cancelled) deferred.completeExceptionally(error)
                     else deferred.complete(emptyList())
                 }
             }

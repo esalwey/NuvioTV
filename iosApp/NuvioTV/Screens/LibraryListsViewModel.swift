@@ -3,7 +3,7 @@ import Foundation
 import SharedCore
 
 /// Drives "Manage Lists" for the library on screen: create, rename, change privacy, delete and
-/// reorder the user's own lists (Trakt personal lists).
+/// reorder the user's own lists (Trakt personal lists, MDBList lists).
 ///
 /// The shared `LibraryListManagementController` is the state machine (which dialog is open, the
 /// draft, pending and error states, and "the profile or source changed, drop the draft"); this

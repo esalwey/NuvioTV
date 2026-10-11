@@ -23,11 +23,13 @@ class MdbListRatingsRepositoryTest {
         postJson = { url, body -> requests += url to body; respond(body) },
     )
 
+    private val key = MdbListRatingsCredential.ApiKey("key")
+
     private fun repository() = MdbListRatingsRepository(client)
 
     @Test
     fun oneTitleUsesOneSingleRequestForEveryProviderAndKeepsCertification() = runBlocking {
-        val ratings = repository().getRatings("movie", "tt1", "key", providers)
+        val ratings = repository().getRatings("movie", "tt1", key, providers)
 
         assertEquals(listOf("imdb", "tomatoes", "audience"), ratings.map { it.source })
         assertEquals(listOf("tomatoes"), ratings.filter { it.isCertified }.map { it.source })
@@ -42,8 +44,8 @@ class MdbListRatingsRepositoryTest {
     fun changingProvidersReadsTheCachedResponseInTheRequestedOrder() = runBlocking {
         val repository = repository()
 
-        assertEquals(listOf("imdb"), repository.getRatings("movie", "tt1", "key", listOf("imdb")).map { it.source })
-        val reordered = repository.getRatings("movie", "tt1", "key", listOf("audience", "imdb"))
+        assertEquals(listOf("imdb"), repository.getRatings("movie", "tt1", key, listOf("imdb")).map { it.source })
+        val reordered = repository.getRatings("movie", "tt1", key, listOf("audience", "imdb"))
 
         assertEquals(listOf("audience", "imdb"), reordered.map { it.source })
         assertEquals(1, requests.size)
@@ -52,8 +54,8 @@ class MdbListRatingsRepositoryTest {
     @Test
     fun concurrentRequestsForTheSameTitleShareOneLookup() = runBlocking {
         val repository = repository()
-        val imdb = async(start = CoroutineStart.UNDISPATCHED) { repository.getRatings("movie", "tt1", "key", listOf("imdb")) }
-        val tomatoes = async(start = CoroutineStart.UNDISPATCHED) { repository.getRatings("movie", "tt1", "key", listOf("tomatoes")) }
+        val imdb = async(start = CoroutineStart.UNDISPATCHED) { repository.getRatings("movie", "tt1", key, listOf("imdb")) }
+        val tomatoes = async(start = CoroutineStart.UNDISPATCHED) { repository.getRatings("movie", "tt1", key, listOf("tomatoes")) }
 
         assertEquals("imdb", imdb.await().single().source)
         assertEquals("tomatoes", tomatoes.await().single().source)
@@ -65,7 +67,7 @@ class MdbListRatingsRepositoryTest {
         respond = { batch(listOf("tt2", "tt1")) }
         val repository = repository()
         val results = listOf("tt1", "tt2").map { id ->
-            async(start = CoroutineStart.UNDISPATCHED) { id to repository.getRatings("movie", id, "key", listOf("imdb")).single().value }
+            async(start = CoroutineStart.UNDISPATCHED) { id to repository.getRatings("movie", id, key, listOf("imdb")).single().value }
         }.awaitAll().toMap()
 
         assertEquals(1.0, results.getValue("tt1"))
@@ -78,7 +80,7 @@ class MdbListRatingsRepositoryTest {
     fun batchesRespectTheTwoHundredTitleLimit() = runBlocking {
         val repository = repository()
         val all = (1..405).map { index ->
-            async(start = CoroutineStart.UNDISPATCHED) { repository.getRatings("movie", "tt$index", "key", listOf("imdb")) }
+            async(start = CoroutineStart.UNDISPATCHED) { repository.getRatings("movie", "tt$index", key, listOf("imdb")) }
         }.awaitAll()
 
         assertTrue(all.all { it.size == 1 })
@@ -90,7 +92,7 @@ class MdbListRatingsRepositoryTest {
     fun differentMediaTypesUseSeparateBatches() = runBlocking {
         val repository = repository()
         listOf("movie", "show").flatMap { type ->
-            listOf("tt1", "tt2").map { id -> async(start = CoroutineStart.UNDISPATCHED) { repository.getRatings(type, id, "key", listOf("imdb")) } }
+            listOf("tt1", "tt2").map { id -> async(start = CoroutineStart.UNDISPATCHED) { repository.getRatings(type, id, key, listOf("imdb")) } }
         }.awaitAll()
 
         assertEquals(
@@ -103,21 +105,21 @@ class MdbListRatingsRepositoryTest {
     fun failedResponsesAreNotCachedSoTheNextOpenRetries() = runBlocking {
         val repository = repository()
         respond = { throw IllegalStateException("Unavailable") }
-        assertTrue(repository.getRatings("movie", "tt1", "key", providers).isEmpty())
+        assertTrue(repository.getRatings("movie", "tt1", key, providers).isEmpty())
         respond = { "invalid json" }
-        assertTrue(repository.getRatings("movie", "tt1", "key", providers).isEmpty())
+        assertTrue(repository.getRatings("movie", "tt1", key, providers).isEmpty())
         respond = { media("tt1") }
 
-        assertEquals(3, repository.getRatings("movie", "tt1", "key", providers).size)
+        assertEquals(3, repository.getRatings("movie", "tt1", key, providers).size)
         assertEquals(3, requests.size)
     }
 
     @Test
     fun clearingTheCacheForgetsStoredRatings() = runBlocking {
         val repository = repository()
-        repository.getRatings("movie", "tt1", "key", providers)
+        repository.getRatings("movie", "tt1", key, providers)
         repository.clearCache()
-        repository.getRatings("movie", "tt1", "key", providers)
+        repository.getRatings("movie", "tt1", key, providers)
 
         assertEquals(2, requests.size)
     }

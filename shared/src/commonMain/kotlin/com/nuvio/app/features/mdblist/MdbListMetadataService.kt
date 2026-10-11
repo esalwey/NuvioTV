@@ -31,8 +31,7 @@ object MdbListMetadataService {
         fallbackItemId: String,
         settings: MdbListSettings,
     ): Boolean {
-        if (!settings.enabled) return false
-        if (settings.apiKey.trim().isBlank()) return false
+        if (!settings.isActive) return false
         if (settings.enabledProvidersInPriorityOrder().isEmpty()) return false
         return extractImdbId(meta.id) != null ||
             extractImdbId(fallbackItemId) != null ||
@@ -47,7 +46,7 @@ object MdbListMetadataService {
         if (!shouldFetchForMeta(meta, fallbackItemId, settings)) {
             return meta.copy(externalRatings = emptyList())
         }
-        val apiKey = settings.apiKey.trim()
+        val credential = settings.credential ?: return meta.copy(externalRatings = emptyList())
 
         val imdbId = extractImdbId(meta.id)
             ?: extractImdbId(fallbackItemId)
@@ -60,7 +59,7 @@ object MdbListMetadataService {
         val ratings = ratingsRepository.getRatings(
             mediaType = mediaType,
             imdbId = imdbId,
-            apiKey = apiKey,
+            credential = credential,
             providers = enabledProviders,
         )
 

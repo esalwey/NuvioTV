@@ -75,6 +75,7 @@ jobs:
       TRAKT_CLIENT_ID: ${{ secrets.TRAKT_CLIENT_ID }}
       TRAKT_CLIENT_SECRET: ${{ secrets.TRAKT_CLIENT_SECRET }}
       SIMKL_CLIENT_ID: ${{ secrets.SIMKL_CLIENT_ID }}
+      MDBLIST_CLIENT_ID: ${{ secrets.MDBLIST_CLIENT_ID }}
       INTRODB_API_URL: ${{ secrets.INTRODB_API_URL }}
     steps:
       - name: Check runtime config secrets

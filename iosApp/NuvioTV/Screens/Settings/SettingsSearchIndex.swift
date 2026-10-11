@@ -127,6 +127,9 @@ enum SettingsSearchIndex {
             ["scrobble", "history", "connect", "anime"])
         add(.accountServices, simkl, "animeId", String(localized: "Anime ID Preference"),
             ["simkl", "mal", "myanimelist", "kitsu", "imdb"])
+        let mdblistAccount = String(localized: "MDBList")
+        add(.accountServices, mdblistAccount, "mdblistAccount", String(localized: "MDBList"),
+            ["scrobble", "history", "watchlist", "lists", "connect", "sync", "library"])
         let details = String(localized: "Details & Continue Watching")
         add(.accountServices, details, "moreLikeThis", String(localized: "More Like This Source"),
             ["recommendations", "similar", "suggestions"])
@@ -349,14 +352,14 @@ enum SettingsSearchIndex {
             ["mdblist", "scores", "order", "rating visibility"])
         let library = String(localized: "Library & Watch Progress")
         add(.contentSources, library, "librarySource", String(localized: "Library Source"),
-            ["trakt", "simkl", "nuvio", "watchlist"])
+            ["trakt", "simkl", "mdblist", "nuvio", "watchlist"])
         add(.contentSources, library, "watchProgressSource", String(localized: "Watch Progress Source"),
-            ["trakt", "simkl", "nuvio", "continue watching", "history"])
+            ["trakt", "simkl", "mdblist", "nuvio", "continue watching", "history"])
         let searchSources = String(localized: "Search Sources")
         add(.contentSources, searchSources, "searchSources", String(localized: "Search Sources"),
             ["catalogs", "search", "addons"])
-        add(.contentSources, searchSources, "hideDiscover", String(localized: "Hide Discover"),
-            ["search", "browse"])
+        add(.contentSources, searchSources, "hideDiscover", String(localized: "Discover"),
+            ["search", "browse", "hide", "sidebar", "off"])
         add(.contentSources, searchSources, "recentSearches", String(localized: "Recent Searches"),
             ["search", "history"])
         let plugins = String(localized: "Plugins")

@@ -69,10 +69,40 @@ final class SearchViewModel: ObservableObject {
     @Published private(set) var history: [String] = []
     /// Shared Discover state: type/catalog/genre options + a paginated item grid.
     @Published private(set) var discover: DiscoverUiState?
-    /// UX-8: the user hid the whole Discover section (synced home-catalog setting). Seeded from
-    /// the repository snapshot so the very first frame is right, then live via the watcher.
-    @Published private(set) var hideDiscover = HomeCatalogSettingsRepository.shared.snapshot().hideDiscover
+    /// UX-8: Discover is not shown on this surface (synced home-catalog setting): hidden entirely,
+    /// or living in the other place (the sidebar for the Search tab, Search for the Discover tab).
+    /// Seeded from the repository so the very first frame is right, then live via the watcher.
+    @Published private(set) var hideDiscover: Bool
     private var catalogSettingsWatcher: FlowWatcher?
+
+    /// Which screen the model drives: the Search tab (search field, results, and Discover below
+    /// the field when Discover is set to "In Search"), or the Discover sidebar tab (the Discover
+    /// browser alone, when Discover is set to "In Sidebar").
+    enum Surface {
+        case search
+        case discover
+    }
+
+    let surface: Surface
+
+    init(surface: Surface = .search) {
+        self.surface = surface
+        // Loading the snapshot hydrates the stored settings into `uiState`.
+        _ = HomeCatalogSettingsRepository.shared.snapshot()
+        let state = HomeCatalogSettingsRepository.shared.uiState.value_ as? HomeCatalogSettingsUiState
+        _hideDiscover = Published(
+            initialValue: state.map { SearchViewModel.discoverHidden(on: surface, state: $0) } ?? (surface == .discover)
+        )
+    }
+
+    /// `hideDiscover` is true for both "Off" and "In Sidebar", so it is exactly "not in Search";
+    /// the Discover tab shows Discover only for "In Sidebar".
+    private static func discoverHidden(on surface: Surface, state: HomeCatalogSettingsUiState) -> Bool {
+        switch surface {
+        case .search: return state.hideDiscover
+        case .discover: return state.discoverLocation != DiscoverLocation.inSidebar
+        }
+    }
 
     private var addonWatcher: FlowWatcher?
     /// Jellyfin / Emby libraries are searched and browsed next to the add-on catalogs; a change in
@@ -144,8 +174,8 @@ final class SearchViewModel: ObservableObject {
             guard let self, !self.stopped else { return }
             guard let state = emitted as? HomeCatalogSettingsUiState else { return }
             let wasHidden = self.hideDiscover
-            self.hideDiscover = state.hideDiscover
-            if wasHidden && !state.hideDiscover {
+            self.hideDiscover = Self.discoverHidden(on: self.surface, state: state)
+            if wasHidden && !self.hideDiscover {
                 self.lastDiscoverAddonSignature = nil
                 self.refreshDiscoverIfNeeded()
             }

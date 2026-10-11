@@ -11,7 +11,7 @@ typealias NuvioLibraryItem = LibraryItem
 /// lifecycle coordinator).
 ///
 /// Besides the sorted items it owns the Library screen's view state: the active source
-/// (Nuvio / Trakt / Simkl), the remote list ("section") being shown, the Type / Genre / Year /
+/// (Nuvio / Trakt / Simkl / MDBList), the remote list ("section") being shown, the Type / Genre / Year /
 /// Watched filters and the manual sync. Filtering and faceting are the shared
 /// `LibraryFilteringKt.filterLibraryItems`; sorting is the shared `sortLibraryItems`.
 @MainActor
@@ -29,7 +29,8 @@ final class LibraryViewModel: ObservableObject {
     @Published private(set) var sourceMode: LibrarySourceMode = .local
     @Published private(set) var isTraktConnected = false
     @Published private(set) var isSimklConnected = false
-    /// Lists of the active remote source (Trakt lists, Simkl statuses). Empty for the local library.
+    @Published private(set) var isMdbListConnected = false
+    /// Lists of the active remote source (Trakt lists, Simkl statuses, MDBList lists). Empty for the local library.
     @Published private(set) var sections: [LibrarySection] = []
     @Published private(set) var selectedSectionKey: String?
     @Published private(set) var isLoading = false
@@ -49,7 +50,7 @@ final class LibraryViewModel: ObservableObject {
     @Published private(set) var unfilteredCount = 0
 
     var isRemoteSource: Bool { sourceMode != .local }
-    var hasConnectedProvider: Bool { isTraktConnected || isSimklConnected }
+    var hasConnectedProvider: Bool { isTraktConnected || isSimklConnected || isMdbListConnected }
     var isFiltering: Bool {
         selectedType != nil || selectedGenre != nil || selectedYear != nil || watchedFilter != .all
     }
@@ -64,6 +65,7 @@ final class LibraryViewModel: ObservableObject {
     private var displayWatcher: FlowWatcher?
     private var traktWatcher: FlowWatcher?
     private var simklWatcher: FlowWatcher?
+    private var mdbListWatcher: FlowWatcher?
     private var watchedWatcher: FlowWatcher?
     private var fullyWatchedWatcher: FlowWatcher?
 
@@ -111,6 +113,11 @@ final class LibraryViewModel: ObservableObject {
             guard let self, let state = emitted as? SimklAuthUiState else { return }
             self.isSimklConnected = state.mode == .connected
         }
+        MdbListAccountBridge.shared.ensureLoaded()
+        mdbListWatcher = FlowWatcherKt.watch(MdbListAccountBridge.shared.state) { [weak self] emitted in
+            guard let self, let state = emitted as? MdbListAccountUiState else { return }
+            self.isMdbListConnected = state.isConnected
+        }
         // The Watched filter follows the watched history live (a title marked watched from its
         // poster menu leaves the Unwatched list at once). Nothing to redo while it is off.
         WatchedRepository.shared.ensureLoaded()
@@ -135,6 +142,8 @@ final class LibraryViewModel: ObservableObject {
         traktWatcher = nil
         simklWatcher?.cancel()
         simklWatcher = nil
+        mdbListWatcher?.cancel()
+        mdbListWatcher = nil
         watchedWatcher?.cancel()
         watchedWatcher = nil
         fullyWatchedWatcher?.cancel()
@@ -172,6 +181,7 @@ final class LibraryViewModel: ObservableObject {
     func isConnected(_ mode: LibrarySourceMode) -> Bool {
         if mode == .trakt { return isTraktConnected }
         if mode == .simkl { return isSimklConnected }
+        if mode == .mdblist { return isMdbListConnected }
         return true
     }
 
@@ -290,6 +300,7 @@ final class LibraryViewModel: ObservableObject {
         ownListsWatcher?.cancel()
         traktWatcher?.cancel()
         simklWatcher?.cancel()
+        mdbListWatcher?.cancel()
         watchedWatcher?.cancel()
         fullyWatchedWatcher?.cancel()
     }

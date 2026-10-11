@@ -62,6 +62,7 @@ struct SettingsView: View {
     @StateObject private var model = SettingsViewModel()
     @StateObject private var trakt = TraktViewModel()
     @StateObject private var simkl = SimklViewModel()
+    @StateObject private var mdblist = MdbListViewModel()
     @StateObject private var debrid = DebridViewModel()
     @StateObject private var remote = RemoteSetupViewModel()
     @StateObject private var plugins = PluginsViewModel()
@@ -70,6 +71,7 @@ struct SettingsView: View {
     @State private var confirmingSignOut = false
     @State private var confirmingTraktDisconnect = false
     @State private var confirmingSimklDisconnect = false
+    @State private var confirmingMdbListDisconnect = false
     /// Provider id pending a debrid disconnect confirmation (drives the alert).
     @State private var debridDisconnectId: String?
     /// "Use the official server?" confirmation (self-hosted → api.nuvio.tv switch-back).
@@ -151,6 +153,7 @@ struct SettingsView: View {
             model.start()
             trakt.start()
             simkl.start()
+            mdblist.start()
             debrid.start()
             plugins.start()
             badges.start()
@@ -159,6 +162,7 @@ struct SettingsView: View {
             model.stop()
             trakt.stop()
             simkl.stop()
+            mdblist.stop()
             debrid.stop()
             plugins.stop()
             badges.stop()
@@ -187,6 +191,12 @@ struct SettingsView: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("Scrobbling stops and this Apple TV's Simkl authorization is cleared. Your Simkl history is untouched.")
+        }
+        .alert("Disconnect MDBList?", isPresented: $confirmingMdbListDisconnect) {
+            Button("Disconnect", role: .destructive) { mdblist.disconnect() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Watch updates from this profile stop and this Apple TV's MDBList authorization is revoked. Your MDBList history and lists are untouched.")
         }
         .alert(
             String(localized: "Disconnect debrid provider?", defaultValue: "Disconnect Debrid Provider?",
@@ -296,10 +306,12 @@ struct SettingsView: View {
                 model: model,
                 trakt: trakt,
                 simkl: simkl,
+                mdblist: mdblist,
                 debrid: debrid,
                 confirmingSignOut: $confirmingSignOut,
                 confirmingTraktDisconnect: $confirmingTraktDisconnect,
                 confirmingSimklDisconnect: $confirmingSimklDisconnect,
+                confirmingMdbListDisconnect: $confirmingMdbListDisconnect,
                 debridDisconnectId: $debridDisconnectId,
                 confirmingUseOfficial: $confirmingUseOfficial
             )

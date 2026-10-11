@@ -692,6 +692,8 @@ object MetaDetailsRepository {
         SimklAuthRepository.ensureLoaded()
         return buildString {
             append("${settings.enabled}:${settings.apiKey.trim()}:$providers")
+            // Connecting or disconnecting an MDBList account changes the ratings a title gets.
+            append("|mdblist_account=${settings.accountScope.takeUnless { settings.hasApiKey }}")
             append("|more_like=${traktSettings.moreLikeThisSource}:$traktAuthMode:${SimklAuthRepository.isAuthenticated.value}")
             append("|tmdb=${tmdbSettings.enabled}:${tmdbSettings.useMoreLikeThis}:${tmdbSettings.hasApiKey}:${tmdbSettings.language}")
         }

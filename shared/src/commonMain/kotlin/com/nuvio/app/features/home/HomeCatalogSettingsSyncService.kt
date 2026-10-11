@@ -50,6 +50,8 @@ data class SyncHomeCatalogPayload(
     @SerialName("hide_unreleased_content") val hideUnreleasedContent: Boolean = false,
     @SerialName("hide_catalog_underline") val hideCatalogUnderline: Boolean = false,
     @SerialName("hide_discover") val hideDiscover: Boolean = false,
+    /** Only means something together with `hide_discover`; clients that predate it never write it. */
+    @SerialName("discover_in_sidebar") val discoverInSidebar: Boolean = false,
     val items: List<SyncCatalogItem> = emptyList(),
 )
 
@@ -68,6 +70,7 @@ private const val HIDE_UNRELEASED_CONTENT_KEY = "hide_unreleased_content"
 private const val SHOW_CATALOG_TYPE_KEY = "show_catalog_type"
 private const val HIDE_CATALOG_UNDERLINE_KEY = "hide_catalog_underline"
 private const val HIDE_DISCOVER_KEY = "hide_discover"
+private const val DISCOVER_IN_SIDEBAR_KEY = "discover_in_sidebar"
 
 /**
  * Presence-gated decode: only the toggles the writing client actually modelled override
@@ -102,6 +105,11 @@ internal fun decodeHomeCatalogPayloadPreservingLocalDefaults(
             decoded.hideDiscover
         } else {
             localPayload.hideDiscover
+        },
+        discoverInSidebar = if (settingsJson.containsKey(DISCOVER_IN_SIDEBAR_KEY)) {
+            decoded.discoverInSidebar
+        } else {
+            localPayload.discoverInSidebar
         },
     )
 }.getOrNull()

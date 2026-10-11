@@ -13,9 +13,27 @@ data class MdbListSettings(
     val useMal: Boolean = true,
     /** Display / fetch order of the providers. Always a permutation of all known provider ids. */
     val providerOrder: List<String> = MdbListMetadataService.PROVIDER_PRIORITY_ORDER,
+    /** Set while an MDBList account is connected for the active profile. */
+    val accountScope: MdbListAuthScope? = null,
 ) {
+    /** True when the user typed an API key. A key overrides the connected account for ratings. */
     val hasApiKey: Boolean
         get() = apiKey.isNotBlank()
+
+    /** True when ratings can be fetched: an API key, or a connected MDBList account. */
+    val hasCredentials: Boolean
+        get() = hasApiKey || accountScope != null
+
+    val isActive: Boolean
+        get() = enabled && hasCredentials
+
+    internal val credential: MdbListRatingsCredential?
+        get() = apiKey.trim().takeIf { it.isNotEmpty() }?.let { MdbListRatingsCredential.ApiKey(it) }
+            ?: accountScope?.let { MdbListRatingsCredential.Account(it) }
+
+    internal fun withAccount(state: MdbListAuthState, profileId: Int): MdbListSettings = copy(
+        accountScope = state.scope.takeIf { state.isAuthenticated && it.profileId == profileId }
+    )
 
     fun isProviderEnabled(providerId: String): Boolean =
         when (providerId) {

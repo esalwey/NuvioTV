@@ -2,14 +2,15 @@ import Foundation
 import SwiftUI
 import SharedCore
 
-/// "Account & Services" category content: Sign In/Out, Trakt scrobbling, and Debrid resolver
-/// connections. Extracted from SettingsView.swift (Phase 2 HIG revamp file split) — logic and
+/// "Account & Services" category content: Sign In/Out, the Trakt, Simkl and MDBList trackers, and
+/// Debrid resolver connections. Extracted from SettingsView.swift (Phase 2 HIG revamp file split) — logic and
 /// wiring preserved verbatim, only regrouped into a per-category pane.
 struct AccountServicesSettingsPane: View {
     /// Trakt features, More Like This and Continue Watching preferences (mirrors of the shared settings).
     @ObservedObject var model: SettingsViewModel
     @ObservedObject var trakt: TraktViewModel
     @ObservedObject var simkl: SimklViewModel
+    @ObservedObject var mdblist: MdbListViewModel
     @ObservedObject var debrid: DebridViewModel
     @EnvironmentObject private var auth: AuthViewModel
     /// Active backend (official vs self-hosted) for the Server section.
@@ -21,10 +22,18 @@ struct AccountServicesSettingsPane: View {
     @Binding var confirmingTraktDisconnect: Bool
     /// Drives the shared Simkl-disconnect confirmation alert owned by SettingsView.
     @Binding var confirmingSimklDisconnect: Bool
+    /// Drives the shared MDBList-disconnect confirmation alert owned by SettingsView.
+    @Binding var confirmingMdbListDisconnect: Bool
     /// Provider id pending a debrid disconnect confirmation (drives the alert owned by SettingsView).
     @Binding var debridDisconnectId: String?
     /// Drives the shared "Use the official server?" confirmation alert owned by SettingsView.
     @Binding var confirmingUseOfficial: Bool
+
+    /// The tracker cards start collapsed on every visit (no persistence): a connected tracker is one
+    /// status line, and the connect flow or its extra rows open with a press.
+    @State private var traktExpanded = false
+    @State private var simklExpanded = false
+    @State private var mdblistExpanded = false
 
     var body: some View {
         Group {
@@ -68,11 +77,30 @@ struct AccountServicesSettingsPane: View {
             }
 
             SettingsSection(String(localized: "Trakt")) {
-                traktSection
+                TrackerDisclosureRow(title: String(localized: "Trakt"), summary: traktSummary, isExpanded: traktExpanded) {
+                    traktExpanded.toggle()
+                }
+                if traktExpanded {
+                    traktSection
+                }
             }
 
             SettingsSection(String(localized: "Simkl")) {
-                simklSection
+                TrackerDisclosureRow(title: String(localized: "Simkl"), summary: simklSummary, isExpanded: simklExpanded) {
+                    simklExpanded.toggle()
+                }
+                if simklExpanded {
+                    simklSection
+                }
+            }
+
+            SettingsSection(String(localized: "MDBList")) {
+                TrackerDisclosureRow(title: String(localized: "MDBList"), summary: mdblistSummary, isExpanded: mdblistExpanded) {
+                    mdblistExpanded.toggle()
+                }
+                if mdblistExpanded {
+                    mdblistSection
+                }
             }
 
             SettingsSection(String(localized: "Details & Continue Watching")) {
@@ -88,6 +116,47 @@ struct AccountServicesSettingsPane: View {
         // BUG-21 follow-up: verify each connected provider's stored credential the moment the
         // pane opens, so an expired token reads "Session expired" instead of "Connected".
         .onAppear { debrid.revalidateConnected() }
+    }
+
+    // MARK: - Tracker status lines (the collapsed card)
+
+    private var traktSummary: String {
+        trackerSummary(
+            configured: trakt.credentialsConfigured,
+            connected: trakt.isConnected,
+            username: trakt.username,
+            waiting: trakt.deviceUserCode != nil
+        )
+    }
+
+    private var simklSummary: String {
+        trackerSummary(
+            configured: simkl.credentialsConfigured,
+            connected: simkl.isConnected,
+            username: simkl.username,
+            waiting: simkl.deviceUserCode != nil
+        )
+    }
+
+    private var mdblistSummary: String {
+        trackerSummary(
+            configured: mdblist.credentialsConfigured,
+            connected: mdblist.isConnected,
+            username: mdblist.username,
+            waiting: mdblist.isWaitingForApproval
+        )
+    }
+
+    private func trackerSummary(configured: Bool, connected: Bool, username: String?, waiting: Bool) -> String {
+        if connected {
+            if let username, !username.isEmpty {
+                return String(localized: "Connected as \(username)")
+            }
+            return String(localized: "Connected")
+        }
+        if waiting { return String(localized: "Waiting for approval") }
+        if !configured { return String(localized: "Not available in this build") }
+        return String(localized: "Not connected")
     }
 
     /// The Server section: which backend this Apple TV talks to, plus the self-hosted discovery
@@ -341,6 +410,89 @@ struct AccountServicesSettingsPane: View {
         case "simkl": return String(localized: "Simkl")
         default: return String(localized: "TMDB")
         }
+    }
+
+    /// The MDBList card. Same states as Trakt and Simkl, with a QR code on the activation card, and
+    /// once connected: Sync Now, the lists that show in the library, and the ratings key note.
+    /// MDBList's API key flow for ratings lives in Content Sources and keeps working without an
+    /// account; an account makes the key optional.
+    @ViewBuilder
+    private var mdblistSection: some View {
+        if !mdblist.credentialsConfigured {
+            Text("MDBList account sign-in isn't configured in this build. Add MDBLIST_CLIENT_ID to local.properties, then rebuild the shared framework. An API key still works for ratings in Content Sources.")
+                .font(Theme.Font.caption)
+                .foregroundStyle(Theme.Palette.textSecondary)
+                .frame(maxWidth: 1100, alignment: .leading)
+        } else if mdblist.isConnected {
+            SettingsDestructiveRow(
+                title: String(localized: "Disconnect MDBList"),
+                subtitle: String(localized: "Connected as \(mdblist.username ?? "your MDBList account") \u{00B7} watched history is scrobbled automatically as you play."),
+                systemImage: "checkmark.circle.fill"
+            ) {
+                confirmingMdbListDisconnect = true
+            }
+
+            MdbListSyncNowRow(isSyncing: mdblist.isSyncing, lastSyncedAt: mdblist.lastSyncedAt) {
+                mdblist.syncNow()
+            }
+
+            if let syncError = mdblist.syncErrorMessage {
+                Text(syncError)
+                    .font(Theme.Font.caption)
+                    .foregroundStyle(.red)
+                    .frame(maxWidth: 1100, alignment: .leading)
+            }
+
+            SettingsLinkRow(
+                title: String(localized: "Library Lists"),
+                subtitle: String(localized: "Choose which MDBList lists appear in your library."),
+                systemImage: "list.bullet"
+            ) {
+                MdbListLibraryListsPage()
+            }
+
+            Text("Use MDBList as your Library Source or Watch Progress Source in Content Sources. Ratings use this account unless you enter an API key there.")
+                .font(Theme.Font.caption)
+                .foregroundStyle(Theme.Palette.textSecondary)
+                .frame(maxWidth: 1100, alignment: .leading)
+        } else if let code = mdblist.userCode {
+            MdbListActivationCard(
+                code: code,
+                verificationUrl: mdblist.verificationUrl ?? "https://mdblist.com/oauth/device/",
+                qrImage: mdblist.qrImage
+            ) {
+                mdblist.cancelActivation()
+            }
+        } else {
+            Text("Sync your watched history, resume points and lists with your MDBList account (movies and episodes are marked watched automatically).")
+                .font(Theme.Font.caption)
+                .foregroundStyle(Theme.Palette.textSecondary)
+                .frame(maxWidth: 1100, alignment: .leading)
+            SettingsActionRow(
+                title: mdblist.isWorking ? String(localized: "Requesting code\u{2026}") : String(localized: "Connect MDBList"),
+                subtitle: String(localized: "Shows a QR code and a short code to approve on your phone or computer."),
+                systemImage: "antenna.radiowaves.left.and.right"
+            ) {
+                mdblist.connect()
+            }
+            if let error = mdblist.errorMessage {
+                Text(error)
+                    .font(Theme.Font.caption)
+                    .foregroundStyle(.red)
+                    .frame(maxWidth: 1100, alignment: .leading)
+            }
+            if mdblist.revokeFailed {
+                Text("Disconnected on this device. Remove this app in your MDBList account settings to revoke its access.")
+                    .font(Theme.Font.caption)
+                    .foregroundStyle(Theme.Palette.textSecondary)
+                    .frame(maxWidth: 1100, alignment: .leading)
+            }
+        }
+
+        Text("Nuvio connects to MDBList for account authentication, watched history, playback progress, lists and ratings. Nuvio is not affiliated with or endorsed by MDBList.")
+            .font(Theme.Font.caption)
+            .foregroundStyle(Theme.Palette.textSecondary)
+            .frame(maxWidth: 1100, alignment: .leading)
     }
 
     // MARK: - Debrid (native TorBox/Premiumize resolution via the shared debrid stack)

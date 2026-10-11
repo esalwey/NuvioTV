@@ -262,15 +262,16 @@ struct LibraryView: View {
         }
     }
 
-    private static let sources: [LibrarySourceMode] = [.local, .trakt, .simkl]
+    private static let sources: [LibrarySourceMode] = [.local, .trakt, .simkl, .mdblist]
 
     private static func sourceLabel(_ mode: LibrarySourceMode) -> String {
         if mode == .trakt { return String(localized: "Trakt") }
         if mode == .simkl { return String(localized: "Simkl") }
+        if mode == .mdblist { return String(localized: "MDBList") }
         return String(localized: "Nuvio Library")
     }
 
-    /// The remote list being shown (a Trakt list, a Simkl status).
+    /// The remote list being shown (a Trakt list, a Simkl status, an MDBList list).
     private var listMenu: some View {
         let selected = model.sections.first(where: { $0.type == model.selectedSectionKey })
         return LibraryMenu(
@@ -289,7 +290,7 @@ struct LibraryView: View {
         }
     }
 
-    /// Create, rename, delete and reorder the user's own lists (Trakt). Only offered while the
+    /// Create, rename, delete and reorder the user's own lists (Trakt, MDBList). Only offered while the
     /// library on screen has lists of its own.
     private var manageListsButton: some View {
         Button {
@@ -536,7 +537,7 @@ struct LibraryView: View {
             ContentUnavailableView {
                 Label("This List Is Empty", systemImage: "books.vertical")
             } description: {
-                Text("Titles you add to this list on Trakt or Simkl appear here after a sync.")
+                Text("Titles you add to this list on Trakt, Simkl or MDBList appear here after a sync.")
             } actions: {
                 Button("Sync") { model.syncNow() }
                     .buttonStyle(.bordered)

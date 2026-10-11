@@ -61,40 +61,7 @@ struct ContentSourcesSettingsPane: View {
             }
 
             SettingsSection(String(localized: "Ratings (MDBList)")) {
-                Text("Add a free MDBList API key to show IMDb, TMDB, Rotten Tomatoes, Audience Score, Metacritic, Trakt, Letterboxd and MyAnimeList scores in a title's Details. Create one at mdblist.com \u{2192} Preferences \u{2192} API Access. Titles you open after enabling will show the ratings.")
-                    .font(Theme.Font.caption)
-                    .foregroundStyle(Theme.Palette.textSecondary)
-                    .frame(maxWidth: 1100, alignment: .leading)
-
-                if model.mdbListHasKey {
-                    SettingsToggleRow(
-                        title: String(localized: "MDBList Ratings"),
-                        subtitle: String(localized: "API key saved"),
-                        isOn: Binding(
-                            get: { model.mdbListEnabled },
-                            set: { model.setMdbListEnabled($0) }
-                        )
-                    )
-                    if model.mdbListEnabled {
-                        SettingsLinkRow(
-                            title: String(localized: "Ratings Providers"),
-                            subtitle: String(localized: "Choose which scores appear on a title and in what order.")
-                        ) {
-                            MdbListRatingsPage()
-                        }
-                    }
-                    SettingsDestructiveRow(
-                        title: String(localized: "Remove API Key"),
-                        subtitle: String(localized: "Clears the saved MDBList key and turns ratings off."),
-                        systemImage: "trash"
-                    ) {
-                        model.clearMdbListKey()
-                    }
-                } else {
-                    DebridKeyEntryRow(providerName: "MDBList", placeholder: String(localized: "MDBList API key")) {
-                        model.saveMdbListKey($0)
-                    }
-                }
+                ratingsSection
             }
 
             SettingsSection(String(localized: "Library & Watch Progress")) {
@@ -114,17 +81,102 @@ struct ContentSourcesSettingsPane: View {
         }
     }
 
+    /// MDBList ratings. A connected MDBList account supplies them with no key; a typed API key
+    /// overrides the account, and removing it falls back to the account. Without an account the
+    /// key is the only way in, exactly as before.
+    @ViewBuilder
+    private var ratingsSection: some View {
+        if model.mdbListUsesAccount {
+            Text("Ratings use your connected MDBList account to show IMDb, TMDB, Rotten Tomatoes, Audience Score, Metacritic, Trakt, Letterboxd and MyAnimeList scores in a title's Details. An API key overrides the account; remove it to use the account again.")
+                .font(Theme.Font.caption)
+                .foregroundStyle(Theme.Palette.textSecondary)
+                .frame(maxWidth: 1100, alignment: .leading)
+            SettingsToggleRow(
+                title: String(localized: "MDBList Ratings"),
+                subtitle: model.mdbListHasKey
+                    ? String(localized: "Using your API key")
+                    : String(localized: "Using your connected account"),
+                isOn: Binding(
+                    get: { model.mdbListEnabled },
+                    set: { model.setMdbListEnabled($0) }
+                )
+            )
+            if model.mdbListEnabled {
+                SettingsLinkRow(
+                    title: String(localized: "Ratings Providers"),
+                    subtitle: String(localized: "Choose which scores appear on a title and in what order.")
+                ) {
+                    MdbListRatingsPage()
+                }
+            }
+            if model.mdbListHasKey {
+                SettingsDestructiveRow(
+                    title: String(localized: "Remove API Key"),
+                    subtitle: String(localized: "Ratings use your connected MDBList account again."),
+                    systemImage: "trash"
+                ) {
+                    model.clearMdbListKey()
+                }
+            } else {
+                DebridKeyEntryRow(providerName: "MDBList", placeholder: String(localized: "Override ratings key (optional)")) {
+                    model.saveMdbListKey($0)
+                }
+            }
+        } else {
+            Text("Add a free MDBList API key to show IMDb, TMDB, Rotten Tomatoes, Audience Score, Metacritic, Trakt, Letterboxd and MyAnimeList scores in a title's Details. Create one at mdblist.com \u{2192} Preferences \u{2192} API Access. Titles you open after enabling will show the ratings.")
+                .font(Theme.Font.caption)
+                .foregroundStyle(Theme.Palette.textSecondary)
+                .frame(maxWidth: 1100, alignment: .leading)
+            Text("Or connect your MDBList account in Account & Services and skip the key.")
+                .font(Theme.Font.caption)
+                .foregroundStyle(Theme.Palette.textSecondary)
+                .frame(maxWidth: 1100, alignment: .leading)
+
+            if model.mdbListHasKey {
+                SettingsToggleRow(
+                    title: String(localized: "MDBList Ratings"),
+                    subtitle: String(localized: "API key saved"),
+                    isOn: Binding(
+                        get: { model.mdbListEnabled },
+                        set: { model.setMdbListEnabled($0) }
+                    )
+                )
+                if model.mdbListEnabled {
+                    SettingsLinkRow(
+                        title: String(localized: "Ratings Providers"),
+                        subtitle: String(localized: "Choose which scores appear on a title and in what order.")
+                    ) {
+                        MdbListRatingsPage()
+                    }
+                }
+                SettingsDestructiveRow(
+                    title: String(localized: "Remove API Key"),
+                    subtitle: String(localized: "Clears the saved MDBList key and turns ratings off."),
+                    systemImage: "trash"
+                ) {
+                    model.clearMdbListKey()
+                }
+            } else {
+                DebridKeyEntryRow(providerName: "MDBList", placeholder: String(localized: "MDBList API key")) {
+                    model.saveMdbListKey($0)
+                }
+            }
+        }
+    }
+
     /// Display names for the Library Source / Watch Progress Source pickers below, keyed by the
     /// shared repo's provider-neutral mode strings.
     private static let librarySourceLabels: [(name: String, code: String)] = [
         (String(localized: "Nuvio Library"), "local"),
         (String(localized: "Trakt"), "trakt"),
         (String(localized: "Simkl"), "simkl"),
+        (String(localized: "MDBList"), "mdblist"),
     ]
     private static let watchProgressSourceLabels: [(name: String, code: String)] = [
         (String(localized: "Nuvio Sync"), "nuvio_sync"),
         (String(localized: "Trakt"), "trakt"),
         (String(localized: "Simkl"), "simkl"),
+        (String(localized: "MDBList"), "mdblist"),
     ]
 
     /// Library Source (which backend the Library tab reads from) and Watch Progress Source (which
@@ -160,23 +212,43 @@ struct ContentSourcesSettingsPane: View {
         )
     }
 
+    private var discoverSubtitle: String {
+        switch model.discoverLocation {
+        case "off":
+            return String(localized: "Search shows only the search field and recent searches")
+        case "inSidebar":
+            return String(localized: "Discover is its own item in the sidebar. Search shows only the search field and recent searches")
+        default:
+            return String(localized: "Search shows the Discover section (types, catalogs, genres) below the field")
+        }
+    }
+
+    private static func discoverLocationName(forKey key: String) -> String {
+        switch key {
+        case "off": return String(localized: "Off")
+        case "inSidebar": return String(localized: "In Sidebar")
+        default: return String(localized: "In Search")
+        }
+    }
+
     /// FEAT-10: one toggle per search-capable catalog. Rows derive from the installed addons
     /// (SettingsViewModel's addon watcher), the disabled set is this profile's, on this Apple TV
     /// (SRC-2).
     @ViewBuilder
     private var searchSourcesSection: some View {
         // UX-8 (u/mrStevenx3, restated three times, finally "completely hide the Discover
-        // section"): one container-level toggle. Synced per profile — deliberately NOT under the
-        // "this Apple TV only" caption below, which describes the per-catalog rows.
-        SettingsToggleRow(
-            title: String(localized: "Hide Discover"),
-            subtitle: model.hideDiscover
-                ? String(localized: "Search shows only the search field and recent searches")
-                : String(localized: "Search shows the Discover section (types, catalogs, genres) below the field"),
-            isOn: Binding(
-                get: { model.hideDiscover },
-                set: { model.setHideDiscover($0) }
-            )
+        // section"): one container-level choice, now off / in Search / its own sidebar item.
+        // Synced per profile — deliberately NOT under the "this Apple TV only" caption below,
+        // which describes the per-catalog rows.
+        SettingsPickerRow(
+            title: String(localized: "Discover"),
+            subtitle: discoverSubtitle,
+            selection: Binding(
+                get: { model.discoverLocation },
+                set: { model.setDiscoverLocation($0) }
+            ),
+            options: ["off", "inSearch", "inSidebar"],
+            label: Self.discoverLocationName(forKey:)
         )
 
         // Upstream 7c1c6578 (#1934): per profile, stored on this Apple TV.

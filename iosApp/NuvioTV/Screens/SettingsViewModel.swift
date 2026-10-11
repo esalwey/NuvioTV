@@ -23,6 +23,9 @@ final class SettingsViewModel: ObservableObject {
     @Published private(set) var showCatalogType = true
     /// UX-8: hide the entire Discover section on the Search screen (synced; default off).
     @Published private(set) var hideDiscover = false
+    /// Where Discover lives: "off", "inSearch" (below the Search field) or "inSidebar" (its own
+    /// sidebar item). `SettingsPickerRow` selection key, not the raw Kotlin enum.
+    @Published private(set) var discoverLocation = "inSearch"
     /// Upstream 7c1c6578: keep and show recent searches (per profile, this Apple TV; default on).
     @Published private(set) var recentSearchesEnabled = true
     /// SET-2 / upstream 6fb46976b: rating visibility on detail pages (synced per profile).
@@ -40,6 +43,8 @@ final class SettingsViewModel: ObservableObject {
     /// load. The per-provider switches and their order live on the pushed `MdbListRatingsPage`.
     @Published private(set) var mdbListEnabled = false
     @Published private(set) var mdbListHasKey = false
+    /// An MDBList account is connected: ratings use it unless an API key overrides it.
+    @Published private(set) var mdbListUsesAccount = false
     /// Subtitle appearance (applied by the player on file load). Nil until settings load.
     @Published private(set) var subtitleStyle: SubtitleStyleState?
     /// Preferred track languages (player auto-selects a matching track on load).
@@ -76,13 +81,13 @@ final class SettingsViewModel: ObservableObject {
     /// Nil until the first search of this app session, or after `SearchViewModel.queryChanged`
     /// clears back to an empty query.
     @Published private(set) var lastSearchFanOut: String?
-    /// Which backend owns the Library tab: "local", "trakt", or "simkl". `SettingsPickerRow`
+    /// Which backend owns the Library tab: "local", "trakt", "simkl" or "mdblist". `SettingsPickerRow`
     /// selection key, not the raw Kotlin enum — mirrors `tmdbLanguageSelection`'s string-key
     /// pattern so the Content Sources pane's picker doesn't switch over the bridged enum in the
     /// view. Backed by the provider-neutral `TrackingSettingsRepository` facade (currently
     /// persists through the Trakt settings store — see the Kotlin object's doc comment).
     @Published private(set) var librarySourceMode = "trakt"
-    /// Which backend owns Continue Watching / watched history: "trakt", "simkl", or "nuvio_sync".
+    /// Which backend owns Continue Watching / watched history: "trakt", "simkl", "mdblist" or "nuvio_sync".
     @Published private(set) var watchProgressSource = "trakt"
     /// Settings → Detail Page (shared `MetaScreenSettingsRepository`, synced per profile). The
     /// sections are listed in the order the Apple TV shows them (`MetaScreenSectionLayout`).
@@ -191,6 +196,7 @@ final class SettingsViewModel: ObservableObject {
             guard let self, let state = emitted as? MdbListSettings else { return }
             self.mdbListEnabled = state.enabled
             self.mdbListHasKey = state.hasApiKey
+            self.mdbListUsesAccount = state.accountScope != nil
         }
 
         PosterCardStyleRepository.shared.ensureLoaded()
@@ -268,6 +274,7 @@ final class SettingsViewModel: ObservableObject {
             self.showCatalogType = state.showCatalogType
             self.heroEnabled = state.heroEnabled
             self.hideDiscover = state.hideDiscover
+            self.discoverLocation = Self.discoverLocationKey(state.discoverLocation)
         }
 
         // BUG-33 defect 1 instrumentation: the Search Sources pane's fan-out caption. Watches
@@ -516,9 +523,13 @@ final class SettingsViewModel: ObservableObject {
         MdbListSettingsRepository.shared.setEnabled(value: enabled)
     }
 
+    /// Removes the typed key. With a connected account ratings fall back to it and stay on;
+    /// without one there is nothing left to fetch with, so they turn off.
     func clearMdbListKey() {
         MdbListSettingsRepository.shared.setApiKey(value: "")
-        MdbListSettingsRepository.shared.setEnabled(value: false)
+        if !mdbListUsesAccount {
+            MdbListSettingsRepository.shared.setEnabled(value: false)
+        }
     }
 
     func setTmdbEnabled(_ enabled: Bool) {
@@ -549,6 +560,25 @@ final class SettingsViewModel: ObservableObject {
     /// home-catalog namespace, same channel as Show Catalog Type).
     func setHideDiscover(_ enabled: Bool) {
         HomeCatalogSettingsRepository.shared.setHideDiscover(enabled: enabled)
+    }
+
+    /// "off", "inSearch" or "inSidebar" → the shared `DiscoverLocation` (same string-key pattern as
+    /// the library source below). Per profile, cross-device synced with `setHideDiscover`'s switch.
+    func setDiscoverLocation(_ key: String) {
+        let location: DiscoverLocation
+        switch key {
+        case "off": location = .off
+        case "inSidebar": location = .inSidebar
+        default: location = .inSearch
+        }
+        HomeCatalogSettingsRepository.shared.setDiscoverLocation(location: location)
+    }
+
+    /// Compared with `==` rather than switched over, like `librarySourceModeKey`.
+    private static func discoverLocationKey(_ location: DiscoverLocation) -> String {
+        if location == .off { return "off" }
+        if location == .inSidebar { return "inSidebar" }
+        return "inSearch"
     }
 
     /// Upstream 7c1c6578 (#1934): off stops recording and hides the Recent Searches chips; the
@@ -766,18 +796,20 @@ final class SettingsViewModel: ObservableObject {
 
     // MARK: - Library Source / Watch Progress Source
 
-    /// "local", "trakt", or "simkl" → the shared `LibrarySourceMode`. Comparisons use `==` against
+    /// "local", "trakt", "simkl" or "mdblist" → the shared `LibrarySourceMode`. Comparisons use `==` against
     /// the bridged Kotlin enum rather than `switch` (same caution as `setCardDepthSurface`: Kotlin
     /// enum entries are not guaranteed to import as an exhaustively-switchable Swift enum).
     private static func librarySourceModeKey(_ mode: LibrarySourceMode) -> String {
         if mode == .trakt { return "trakt" }
         if mode == .simkl { return "simkl" }
+        if mode == .mdblist { return "mdblist" }
         return "local"
     }
 
     private static func watchProgressSourceKey(_ source: WatchProgressSource) -> String {
         if source == .trakt { return "trakt" }
         if source == .simkl { return "simkl" }
+        if source == .mdblist { return "mdblist" }
         return "nuvio_sync"
     }
 
@@ -789,6 +821,7 @@ final class SettingsViewModel: ObservableObject {
         switch key {
         case "trakt": mode = .trakt
         case "simkl": mode = .simkl
+        case "mdblist": mode = .mdblist
         default: mode = .local
         }
         TrackingSettingsRepository.shared.setLibrarySourceMode(source: mode)
@@ -799,6 +832,7 @@ final class SettingsViewModel: ObservableObject {
         switch key {
         case "trakt": source = .trakt
         case "simkl": source = .simkl
+        case "mdblist": source = .mdblist
         default: source = .nuvioSync
         }
         // Route through the repository/coordinator rather than writing the setting directly.

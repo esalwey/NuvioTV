@@ -20,7 +20,16 @@ import SharedCore
 /// bleed comes back on hardware, launch with `-debug.searchLegacyField YES` (or set it from a
 /// debug build) to get the plain-field fallback below without a rebuild.
 struct SearchView: View {
-    @StateObject private var model = SearchViewModel()
+    /// `.search` is the Search tab. `.discover` is the Discover sidebar tab: the same Discover
+    /// browser without the search field, shown when Discover is set to "In Sidebar".
+    let surface: SearchViewModel.Surface
+    @StateObject private var model: SearchViewModel
+
+    init(surface: SearchViewModel.Surface = .search) {
+        self.surface = surface
+        _model = StateObject(wrappedValue: SearchViewModel(surface: surface))
+    }
+
     @State private var query = ""
     /// SRC-1: explicit so opening a result can record the query before pushing it.
     @State private var path = NavigationPath()
@@ -78,7 +87,10 @@ struct SearchView: View {
 
     @ViewBuilder
     private var searchRoot: some View {
-        if Self.usesLegacyField {
+        if surface == .discover {
+            // The Discover tab has no search field: it is the Discover browser and nothing else.
+            scrollContent(showsLegacyField: false)
+        } else if Self.usesLegacyField {
             scrollContent(showsLegacyField: true)
         } else {
             scrollContent(showsLegacyField: false)
@@ -103,7 +115,11 @@ struct SearchView: View {
                 if showsLegacyField {
                     legacyField
                 }
-                if queryIsEmpty {
+                if surface == .discover {
+                    if !model.hideDiscover {
+                        discoverSection
+                    }
+                } else if queryIsEmpty {
                     historyChips
                     // UX-8: the user can hide the whole Discover section (synced per profile);
                     // the page is then the search field plus recent searches.
@@ -118,7 +134,7 @@ struct SearchView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .scrollClipDisabled()
-        .reportsScrollToTabBar(tab: "Search")
+        .reportsScrollToTabBar(tab: surface == .discover ? "Discover" : "Search")
         .background(Theme.Palette.background.ignoresSafeArea())
     }
 

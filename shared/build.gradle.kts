@@ -56,6 +56,9 @@ abstract class GenerateSharedRuntimeConfigsTask : DefaultTask() {
     abstract val simklAppName: Property<String>
 
     @get:Input
+    abstract val mdblistClientId: Property<String>
+
+    @get:Input
     abstract val premiumizeClientId: Property<String>
 
     @get:Input
@@ -132,6 +135,20 @@ abstract class GenerateSharedRuntimeConfigsTask : DefaultTask() {
                 |object SimklConfig {
                 |    const val CLIENT_ID = "${simklClientId.get()}"
                 |    const val APP_NAME = "${simklAppName.get()}"
+                |}
+                """.trimMargin()
+            )
+        }
+        // MDBList OAuth (device-code flow). Blank when the build has no MDBLIST_CLIENT_ID: the
+        // account card then says so, and the ratings API-key flow keeps working on its own.
+        outDir.resolve("com/nuvio/app/features/mdblist").apply {
+            mkdirs()
+            resolve("MdbListConfig.kt").writeText(
+                """
+                |package com.nuvio.app.features.mdblist
+                |
+                |object MdbListConfig {
+                |    const val CLIENT_ID = "${mdblistClientId.get()}"
                 |}
                 """.trimMargin()
             )
@@ -259,6 +276,7 @@ val generateSharedRuntimeConfigs = tasks.register<GenerateSharedRuntimeConfigsTa
     traktRedirectUri.set(sharedRuntimeConfigValue("TRAKT_REDIRECT_URI", "nuvio://auth/trakt"))
     simklClientId.set(sharedRuntimeConfigValue("SIMKL_CLIENT_ID"))
     simklAppName.set(sharedRuntimeConfigValue("SIMKL_APP_NAME", "nuvio"))
+    mdblistClientId.set(sharedRuntimeConfigValue("MDBLIST_CLIENT_ID"))
     premiumizeClientId.set(sharedRuntimeConfigValue("PREMIUMIZE_CLIENT_ID"))
     introDbUrl.set(sharedRuntimeConfigValue("INTRODB_API_URL"))
     imdbRatingsBaseUrl.set(sharedRuntimeConfigValue("IMDB_RATINGS_API_BASE_URL"))
@@ -357,6 +375,8 @@ kotlin {
         // a macOS simulator host) and, since the jvm() target above, :shared:jvmTest on any host.
         commonTest.dependencies {
             implementation(libs.kotlin.test)
+            // Virtual time for the MDBList auth / sync tests (device-code polling, retry back-off).
+            implementation(libs.kotlinx.coroutines.test)
         }
         // JUnit runner for kotlin-test on the jvm target (jvmMain itself needs no extra deps —
         // its actuals are plain java.* / java.time.* / java.net.*, see src/jvmMain).

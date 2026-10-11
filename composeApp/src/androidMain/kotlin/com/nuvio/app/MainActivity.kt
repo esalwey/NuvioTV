@@ -28,6 +28,8 @@ import com.nuvio.app.features.library.LibraryStorage
 import com.nuvio.app.features.details.MetaScreenSettingsStorage
 import com.nuvio.app.features.home.HomeCatalogSettingsStorage
 import com.nuvio.app.features.mdblist.MdbListSettingsStorage
+import com.nuvio.app.features.mdblist.PlatformMdbListAuthPersistence
+import com.nuvio.app.features.mdblist.PlatformMdbListSyncStorage
 import com.nuvio.app.features.notifications.EpisodeReleaseNotificationPlatform
 import com.nuvio.app.features.notifications.EpisodeReleaseNotificationsStorage
 import com.nuvio.app.features.player.PlayerSettingsStorage
@@ -113,6 +115,8 @@ class MainActivity : AppCompatActivity() {
         DebridSettingsStorage.initialize(applicationContext)
         TmdbSettingsStorage.initialize(applicationContext)
         MdbListSettingsStorage.initialize(applicationContext)
+        PlatformMdbListAuthPersistence.initialize(applicationContext)
+        PlatformMdbListSyncStorage.initialize(applicationContext)
         TraktAuthStorage.initialize(applicationContext)
         TraktCommentsStorage.initialize(applicationContext)
         TraktLibraryStorage.initialize(applicationContext)
