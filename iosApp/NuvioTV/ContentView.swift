@@ -150,6 +150,19 @@ struct ContentView: View {
         // STAB-10: `AppThemeModel` holds a synced theme change back while a full-screen cover
         // (the player, a deep link) is up, so this rebuild never tears a cover down mid-play.
         .id("\(appTheme.themeName)|\(uiFont)")
+        // Ambient Mode (Settings > Home Screen): an artwork slideshow after a stretch with no remote
+        // input. Attached OUTSIDE the `.id` boundary above so a theme rebuild never tears it down,
+        // and only armed while a profile is open. The slides come from what Home already loaded.
+        .ambientMode(
+            shellActive: auth.gate == .main && entered,
+            slides: { [home = self.home] in
+                AmbientSlideBuilder.slides(
+                    sections: home.sections,
+                    heroItems: home.heroItems,
+                    settings: AmbientModeSettingsModel.shared.settings
+                )
+            }
+        )
         .onAppear {
             auth.start()
             posterStyle.start()

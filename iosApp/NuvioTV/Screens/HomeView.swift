@@ -225,6 +225,12 @@ struct HomeView: View {
     /// UX-7: always-on focus-follows-backdrop. Owns the row-focused item (if any) that should
     /// take over the hero from the carousel.
     @StateObject private var focusModel = HomeHeroFocusModel()
+    /// Settings > Home Screen > Focused Item Gradient (device-local, default off).
+    @AppStorage(FocusGradientSetting.defaultsKey) private var focusGradientEnabled = false
+    /// What the gradient follows: the row-focused title, else whatever the hero is showing.
+    private var focusGradientArtwork: FocusGradientArtwork? {
+        (focusModel.focusedItem ?? displayHero).map { FocusGradientArtwork($0) }
+    }
     /// Wave H: turns the hero TARGET (`displayHero`) into the hero that is actually PAINTED, once
     /// its backdrop and logo are both resolved. Every hero renderer below reads
     /// `heroResolver.presented`, never `displayHero` — see `HeroArtResolver`.
@@ -637,6 +643,12 @@ struct HomeView: View {
         NavigationStack(path: $homePath) {
             ZStack(alignment: .top) {
                 Theme.Palette.background.ignoresSafeArea()
+
+                // Settings > Home Screen > Focused Item Gradient: the focused title's colors tint the
+                // background under everything else (hero artwork, scrim, rows paint over it).
+                if focusGradientEnabled {
+                    FocusGradientBackdrop(artwork: focusGradientArtwork)
+                }
 
                 #if DEBUG
                 // BUG-25 diagnostic (invisible, harness-readable): the env values Home renders with.

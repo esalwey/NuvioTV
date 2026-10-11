@@ -47,9 +47,32 @@ struct HomeScreenSettingsPane: View {
 
     @State private var renamingKey: String?
 
+    /// Blends the focused title's artwork colors into the Home (and collection folder) background.
+    /// Mirrors `FocusGradientSetting.defaultsKey`. Default OFF. Local-only, not synced.
+    @AppStorage(FocusGradientSetting.defaultsKey) private var focusGradientEnabled = false
+
+    /// Ambient Mode, for the summary on its link row.
+    @ObservedObject private var ambient = AmbientModeSettingsModel.shared
+
     var body: some View {
         continueWatchingSection
         homeRowsBody
+        ambientModeSection
+    }
+
+    // MARK: - Ambient Mode
+
+    private var ambientModeSection: some View {
+        SettingsSection(String(localized: "Idle")) {
+            SettingsLinkRow(
+                title: String(localized: "Ambient Mode"),
+                subtitle: ambient.settings.enabled
+                    ? String(localized: "After \(AmbientModeSettings.timeoutLabel(minutes: ambient.settings.timeoutMinutes))")
+                    : String(localized: "Off")
+            ) {
+                AmbientModeSettingsPage(model: model)
+            }
+        }
     }
 
     // MARK: - Continue Watching
@@ -309,6 +332,14 @@ struct HomeScreenSettingsPane: View {
                         ? String(localized: "The hero plays its trailer by itself, without waiting for focus")
                         : String(localized: "The hero shows artwork only"),
                     isOn: $heroTrailerAutoplay
+                )
+
+                SettingsToggleRow(
+                    title: String(localized: "Focused Item Gradient"),
+                    subtitle: focusGradientEnabled
+                        ? String(localized: "The focused title's colors tint the background behind the rows")
+                        : String(localized: "The background stays a flat dark"),
+                    isOn: $focusGradientEnabled
                 )
 
                 SettingsToggleRow(
