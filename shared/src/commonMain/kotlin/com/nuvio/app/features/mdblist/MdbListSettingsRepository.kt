@@ -20,6 +20,7 @@ object MdbListSettingsRepository {
     private var useLetterboxd = true
     private var useAudience = true
     private var useMal = true
+    private var providerOrder: List<String> = MdbListMetadataService.PROVIDER_PRIORITY_ORDER
 
     fun ensureLoaded() {
         if (hasLoaded) return
@@ -99,6 +100,17 @@ object MdbListSettingsRepository {
         MdbListMetadataService.clearCache()
     }
 
+    /** Persists a new provider order (normalized: unknown ids dropped, missing ones appended). */
+    fun setProviderOrder(order: List<String>) {
+        ensureLoaded()
+        val normalized = normalizeMdbListProviderOrder(order)
+        if (providerOrder == normalized) return
+        providerOrder = normalized
+        publish()
+        MdbListSettingsStorage.saveProviderOrder(encodeMdbListProviderOrder(normalized))
+        MdbListMetadataService.clearCache()
+    }
+
     private fun loadFromDisk() {
         hasLoaded = true
         apiKey = MdbListSettingsStorage.loadApiKey().orEmpty().trim()
@@ -111,6 +123,7 @@ object MdbListSettingsRepository {
         useLetterboxd = MdbListSettingsStorage.loadUseLetterboxd() ?: true
         useAudience = MdbListSettingsStorage.loadUseAudience() ?: true
         useMal = MdbListSettingsStorage.loadUseMal() ?: true
+        providerOrder = decodeMdbListProviderOrder(MdbListSettingsStorage.loadProviderOrder())
         publish()
     }
 
@@ -126,6 +139,7 @@ object MdbListSettingsRepository {
             useLetterboxd = useLetterboxd,
             useAudience = useAudience,
             useMal = useMal,
+            providerOrder = providerOrder,
         )
     }
 }

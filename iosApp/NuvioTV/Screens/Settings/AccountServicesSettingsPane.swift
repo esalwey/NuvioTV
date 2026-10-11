@@ -6,6 +6,8 @@ import SharedCore
 /// connections. Extracted from SettingsView.swift (Phase 2 HIG revamp file split) — logic and
 /// wiring preserved verbatim, only regrouped into a per-category pane.
 struct AccountServicesSettingsPane: View {
+    /// Trakt features, More Like This and Continue Watching preferences (mirrors of the shared settings).
+    @ObservedObject var model: SettingsViewModel
     @ObservedObject var trakt: TraktViewModel
     @ObservedObject var simkl: SimklViewModel
     @ObservedObject var debrid: DebridViewModel
@@ -47,6 +49,17 @@ struct AccountServicesSettingsPane: View {
                     ) {
                         confirmingSignOut = true
                     }
+                    // Sync codes talk to the official Nuvio backend's RPCs; a self-hosted server
+                    // may not carry them, so the entry is only offered on the official one.
+                    if !server.isCustom {
+                        SettingsLinkRow(
+                            title: String(localized: "Sync Code"),
+                            subtitle: String(localized: "Link another device to this account with a code and a PIN, and manage linked devices."),
+                            systemImage: "link"
+                        ) {
+                            SyncCodeSettingsPage()
+                        }
+                    }
                 }
             }
 
@@ -60,6 +73,10 @@ struct AccountServicesSettingsPane: View {
 
             SettingsSection(String(localized: "Simkl")) {
                 simklSection
+            }
+
+            SettingsSection(String(localized: "Details & Continue Watching")) {
+                discoverySection
             }
 
             SettingsSection(String(localized: "Debrid")) {
@@ -121,6 +138,32 @@ struct AccountServicesSettingsPane: View {
             ) {
                 confirmingTraktDisconnect = true
             }
+
+            // Trakt features (upstream's "Trakt features" group). The window only applies while
+            // Trakt owns Continue Watching, so otherwise the row stays but dimmed, with the reason.
+            let traktProgressActive = model.watchProgressSource == "trakt"
+            SettingsPickerRow(
+                title: String(localized: "Continue Watching Window"),
+                subtitle: traktProgressActive
+                    ? String(localized: "How much Trakt history Continue Watching considers.")
+                    : String(localized: "Available when Trakt is the Watch Progress source."),
+                selection: Binding(
+                    get: { model.continueWatchingDaysCap },
+                    set: { model.setContinueWatchingDaysCap($0) }
+                ),
+                options: Self.continueWatchingWindowOptions(including: model.continueWatchingDaysCap),
+                label: Self.continueWatchingWindowLabel
+            )
+            .disabled(!traktProgressActive)
+
+            SettingsToggleRow(
+                title: String(localized: "Comments"),
+                subtitle: String(localized: "Show Trakt reviews on a title's page."),
+                isOn: Binding(
+                    get: { model.traktCommentsEnabled },
+                    set: { model.setTraktCommentsEnabled($0) }
+                )
+            )
         } else if let code = trakt.deviceUserCode {
             TraktActivationCard(
                 code: code,
@@ -229,13 +272,73 @@ struct AccountServicesSettingsPane: View {
         }
 
         // Data-source attribution (upstream's `settings_licenses_attributions_simkl_body`, kept
-        // verbatim). Upstream shows it on its Licenses & Attributions page; tvOS has no such page,
-        // so the credit lives with the integration it describes and shows in every state — the
-        // claim is about the integration, not about being signed in.
+        // verbatim). Upstream shows it on its Licenses & Attributions page, and so does About here
+        // (`LicensesAttributionsPage`); the credit also stays with the integration it describes and
+        // shows in every state — the claim is about the integration, not about being signed in.
         Text("Nuvio connects to Simkl for account authentication, watchlists, watched history, playback progress, and scrobbling. Movie, TV, and anime tracking data is provided by Simkl. Nuvio is not affiliated with or endorsed by Simkl.")
             .font(Theme.Font.caption)
             .foregroundStyle(Theme.Palette.textSecondary)
             .frame(maxWidth: 1100, alignment: .leading)
+    }
+
+    // MARK: - Trakt Continue Watching window
+
+    /// Day counts the shared picker offers (`TraktContinueWatchingDaysOptions`; 0 = all history). A
+    /// value synced from another device that is not in the list is appended so it still shows.
+    private static func continueWatchingWindowOptions(including current: Int) -> [Int] {
+        let base = [14, 30, 60, 90, 180, 365, 0]
+        return base.contains(current) ? base : base + [current]
+    }
+
+    private static func continueWatchingWindowLabel(_ days: Int) -> String {
+        days == 0 ? String(localized: "All history") : String(localized: "\(days) days")
+    }
+
+    // MARK: - Details & Continue Watching
+
+    /// More Like This source and Show Unaired Next Up. The source row appears once Trakt or Simkl is
+    /// connected (before that TMDB is the only choice); a stored choice whose provider is not
+    /// connected reads as TMDB, which is what the shared repository falls back to as well.
+    @ViewBuilder
+    private var discoverySection: some View {
+        if trakt.isConnected || simkl.isConnected {
+            SettingsPickerRow(
+                title: String(localized: "More Like This Source"),
+                subtitle: String(localized: "Where recommendations on a title's page come from."),
+                selection: Binding(
+                    get: { effectiveMoreLikeThisSource },
+                    set: { model.setMoreLikeThisSource($0) }
+                ),
+                options: moreLikeThisOptions,
+                label: Self.moreLikeThisLabel
+            )
+        }
+
+        SettingsToggleRow(
+            title: String(localized: "Show Unaired Next Up"),
+            subtitle: String(localized: "Offer the next episode on a title's page before it has aired."),
+            isOn: Binding(
+                get: { model.showUnairedNextUp },
+                set: { model.setShowUnairedNextUp($0) }
+            )
+        )
+    }
+
+    private var moreLikeThisOptions: [String] {
+        ["tmdb"] + (trakt.isConnected ? ["trakt"] : []) + (simkl.isConnected ? ["simkl"] : [])
+    }
+
+    private var effectiveMoreLikeThisSource: String {
+        let stored = model.moreLikeThisSource
+        return moreLikeThisOptions.contains(stored) ? stored : "tmdb"
+    }
+
+    private static func moreLikeThisLabel(_ key: String) -> String {
+        switch key {
+        case "trakt": return String(localized: "Trakt")
+        case "simkl": return String(localized: "Simkl")
+        default: return String(localized: "TMDB")
+        }
     }
 
     // MARK: - Debrid (native TorBox/Premiumize resolution via the shared debrid stack)

@@ -110,6 +110,47 @@ internal fun restoringLegacyCredentials(
     return JsonObject(merged)
 }
 
+/** Outcome of [copyingProfileCredentials]: the payload to write plus the credentials it imported. */
+internal class CredentialCopyResult(
+    val payload: JsonObject,
+    /** Storage key -> value of every credential taken from the SOURCE (never the ones kept). */
+    val importedFromSource: Map<String, String>,
+)
+
+/**
+ * Profile "copy settings" merge for one feature payload: the SOURCE profile's settings replace the
+ * target's, except credentials. A credential the target already holds always survives; one it
+ * lacks is imported from the source only when [copyMissingCredentials] is on, and dropped
+ * otherwise. Features without credential keys are copied verbatim.
+ */
+internal fun copyingProfileCredentials(
+    feature: String,
+    sourcePayload: JsonObject,
+    targetPayload: JsonObject,
+    copyMissingCredentials: Boolean,
+): CredentialCopyResult {
+    val keys = profileCredentialKeys[feature].orEmpty()
+    if (keys.isEmpty()) return CredentialCopyResult(sourcePayload, emptyMap())
+    val merged = sourcePayload.filterKeys { it !in keys }.toMutableMap()
+    val imported = mutableMapOf<String, String>()
+    keys.forEach { key ->
+        val targetValue = targetPayload[key]?.takeUnless(::isBlankCredential)
+        if (targetValue != null) {
+            merged[key] = targetValue
+            return@forEach
+        }
+        if (!copyMissingCredentials) return@forEach
+        val sourceValue = sourcePayload[key]?.takeUnless(::isBlankCredential) ?: return@forEach
+        merged[key] = sourceValue
+        credentialContent(sourceValue)?.let { imported[key] = it }
+    }
+    return CredentialCopyResult(JsonObject(merged), imported)
+}
+
+/** The credential storage keys of [feature] (empty when it carries none). */
+internal fun profileCredentialKeysFor(feature: String): Set<String> =
+    profileCredentialKeys[feature].orEmpty()
+
 /**
  * A credential slot that exists but holds no usable value ("" or whitespace).
  *

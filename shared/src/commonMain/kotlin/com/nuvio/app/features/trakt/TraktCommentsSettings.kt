@@ -8,6 +8,13 @@ object TraktCommentsSettings {
     private val _enabled = MutableStateFlow(true)
     val enabled: StateFlow<Boolean> = _enabled.asStateFlow()
 
+    /** Plain read for Swift callers (no StateFlow unwrapping): loads from disk on first use. */
+    val isEnabled: Boolean
+        get() {
+            ensureLoaded()
+            return _enabled.value
+        }
+
     private var hasLoaded = false
 
     fun ensureLoaded() {

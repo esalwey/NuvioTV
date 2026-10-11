@@ -170,6 +170,33 @@ final class ProfilesViewModel: ObservableObject {
         }
     }
 
+    // MARK: - Copy settings
+
+    /// Replaces `target`'s settings with `source`'s (shared `ProfileSettingsSync`): appearance,
+    /// playback, language and provider options. Add-ons, plugins, Home layout, PIN, history,
+    /// library and OAuth sign-ins are never copied. A provider API key the target already has is
+    /// kept; `copyMissingKeys` also imports the ones it lacks. `completion(true)` once copied.
+    func copySettings(
+        from source: NuvioProfile,
+        to target: NuvioProfile,
+        copyMissingKeys: Bool,
+        completion: @escaping (Bool) -> Void
+    ) {
+        guard !isBusy else { completion(false); return }
+        isBusy = true
+        ProfileSettingsSync.shared.cloneProfileSettings(
+            sourceProfileId: source.profileIndex,
+            targetProfileId: target.profileIndex,
+            copyMissingCredentials: copyMissingKeys
+        ) { [weak self] copied, _ in
+            let ok = copied?.boolValue == true
+            DispatchQueue.main.async {
+                self?.isBusy = false
+                completion(ok)
+            }
+        }
+    }
+
     func deleteProfile(_ profile: NuvioProfile, completion: @escaping () -> Void = {}) {
         ProfileRepository.shared.deleteProfile(profileIndex: profile.profileIndex) { _ in
             DispatchQueue.main.async { completion() }

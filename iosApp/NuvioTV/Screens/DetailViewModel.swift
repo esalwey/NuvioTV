@@ -887,7 +887,11 @@ final class DetailViewModel: ObservableObject {
             watchedItems: latestWatchedItems,
             todayIsoDate: CurrentDateProvider.shared.todayIsoDate(),
             preferFurthestEpisode: latestCwPrefs?.upNextFromFurthestEpisode ?? true,
-            showUnairedNextUp: latestCwPrefs?.showUnairedNextUp ?? false,
+            // The live shared preference (default on), not a hard-coded false: the Continue Watching
+            // setting decides whether an unaired next episode may be offered here.
+            showUnairedNextUp: (latestCwPrefs
+                ?? (ContinueWatchingPreferencesRepository.shared.uiState.value_ as? ContinueWatchingPreferencesUiState))?
+                .showUnairedNextUp ?? true,
             allowRewatch: true
         )
     }

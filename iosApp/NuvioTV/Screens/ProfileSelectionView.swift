@@ -385,6 +385,17 @@ struct ProfileEditView: View {
     @State private var confirmingDelete = false
     /// STAB-09: the save push failed; the editor stays open with an alert.
     @State private var saveFailed = false
+    /// "Copy Settings From...": the source list, the confirmation for the chosen source, and the
+    /// result alert. Mirrors the system grammar: a list dialog, then a confirmation alert, then an
+    /// outcome alert, all dismissed by Menu.
+    @State private var choosingCopySource = false
+    @State private var pendingCopySource: NuvioProfile?
+    @State private var copyOutcome: CopyOutcome?
+
+    private enum CopyOutcome {
+        case copied(sourceName: String)
+        case failed
+    }
 
     /// A custom avatar URL set elsewhere (e.g. on mobile); preserved unless a catalog avatar or
     /// the color tile is picked here.
@@ -552,6 +563,20 @@ struct ProfileEditView: View {
                         }
                     }
 
+                    // Copy another profile's settings onto this one (existing profiles only, and
+                    // only when there is another profile to copy from).
+                    if liveProfile != nil, !copySources.isEmpty {
+                        Button {
+                            choosingCopySource = true
+                        } label: {
+                            Label("Copy Settings From\u{2026}", systemImage: "square.on.square")
+                                .font(Theme.Font.body)
+                        }
+                        .buttonStyle(.bordered)
+                        .buttonBorderShape(.capsule)
+                        .disabled(model.isBusy)
+                    }
+
                     // System bordered button, no brand fill (spec §5.5: the accent is not a
                     // button colour).
                     Button { save() } label: {
@@ -579,6 +604,44 @@ struct ProfileEditView: View {
         .fullScreenCover(item: $pinFlow) { flow in
             pinFlowView(flow)
         }
+        .confirmationDialog(
+            String(localized: "Copy Settings From"),
+            isPresented: $choosingCopySource,
+            titleVisibility: .visible
+        ) {
+            ForEach(copySources, id: \.profileIndex) { source in
+                Button(source.name) { pendingCopySource = source }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Choose the profile whose settings should replace \(target.profile?.name ?? "this profile")\u{2019}s.")
+        }
+        .alert(
+            String(localized: "Copy settings from \(pendingCopySource?.name ?? "")?"),
+            isPresented: Binding(
+                get: { pendingCopySource != nil },
+                set: { if !$0 { pendingCopySource = nil } }
+            )
+        ) {
+            Button(String(localized: "Copy Settings")) { copySettings(copyMissingKeys: false) }
+            Button(String(localized: "Copy Settings and Missing API Keys")) { copySettings(copyMissingKeys: true) }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Appearance, playback, language and provider options replace this profile\u{2019}s. API keys it already has are kept. Add-ons, Home layout, PIN, history, library and sign-ins such as Trakt are not changed.")
+        }
+        .alert(
+            copyOutcomeTitle,
+            isPresented: Binding(
+                get: { copyOutcome != nil },
+                set: { if !$0 { copyOutcome = nil } }
+            )
+        ) {
+            Button(String(localized: "profile.saveFailed.ok", defaultValue: "OK",
+                          comment: "Dismisses the alert shown when a profile could not be saved"),
+                   role: .cancel) {}
+        } message: {
+            Text(copyOutcomeMessage)
+        }
         .alert("Delete \(target.profile?.name ?? "")?", isPresented: $confirmingDelete) {
             Button("Delete", role: .destructive) {
                 if let profile = target.profile { model.deleteProfile(profile) { dismiss() } }
@@ -599,6 +662,38 @@ struct ProfileEditView: View {
             Text(String(localized: "profile.saveFailed.message",
                         defaultValue: "Your changes weren\u{2019}t saved. Check your connection and try again.",
                         comment: "Alert message when a profile edit or a new profile could not be saved to the account"))
+        }
+    }
+
+    // MARK: - Copy settings
+
+    /// Every other profile, as a source to copy from.
+    private var copySources: [NuvioProfile] {
+        guard let index = target.profile?.profileIndex else { return [] }
+        return model.profiles.filter { $0.profileIndex != index }
+    }
+
+    private func copySettings(copyMissingKeys: Bool) {
+        guard let source = pendingCopySource, let profile = liveProfile else { return }
+        pendingCopySource = nil
+        model.copySettings(from: source, to: profile, copyMissingKeys: copyMissingKeys) { copied in
+            copyOutcome = copied ? .copied(sourceName: source.name) : .failed
+        }
+    }
+
+    private var copyOutcomeTitle: String {
+        switch copyOutcome {
+        case .copied: return String(localized: "Settings Copied")
+        case .failed, .none: return String(localized: "Couldn\u{2019}t Copy Settings")
+        }
+    }
+
+    private var copyOutcomeMessage: String {
+        switch copyOutcome {
+        case .copied(let sourceName):
+            return String(localized: "\(target.profile?.name ?? "This profile") now uses the settings of \(sourceName).")
+        case .failed, .none:
+            return String(localized: "Nothing was changed. Check your connection and try again.")
         }
     }
 

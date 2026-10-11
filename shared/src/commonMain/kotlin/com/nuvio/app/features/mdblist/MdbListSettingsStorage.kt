@@ -23,6 +23,9 @@ expect object MdbListSettingsStorage {
     fun saveUseAudience(enabled: Boolean)
     fun loadUseMal(): Boolean?
     fun saveUseMal(enabled: Boolean)
+    /** Comma-separated provider ids (see `encodeMdbListProviderOrder`), null while never customised. */
+    fun loadProviderOrder(): String?
+    fun saveProviderOrder(order: String)
     fun exportToSyncPayload(): JsonObject
     fun replaceFromSyncPayload(payload: JsonObject)
 }

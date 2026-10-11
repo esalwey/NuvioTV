@@ -1,8 +1,10 @@
 package com.nuvio.app.features.settings
 
 import com.nuvio.app.core.ui.AppTheme
+import com.nuvio.app.core.ui.CustomThemeColors
 import com.nuvio.app.core.ui.NativeTabControllerProvider
-import com.nuvio.app.core.ui.nativeAccentHex
+import com.nuvio.app.core.ui.parseHexColor
+import com.nuvio.app.core.ui.resolvedNativeAccentHex
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -10,6 +12,9 @@ import kotlinx.coroutines.flow.asStateFlow
 object ThemeSettingsRepository {
     private val _selectedTheme = MutableStateFlow(AppTheme.WHITE)
     val selectedTheme: StateFlow<AppTheme> = _selectedTheme.asStateFlow()
+
+    private val _customThemeColors = MutableStateFlow(CustomThemeColors.Default)
+    val customThemeColors: StateFlow<CustomThemeColors> = _customThemeColors.asStateFlow()
 
     private val _amoledEnabled = MutableStateFlow(false)
     val amoledEnabled: StateFlow<Boolean> = _amoledEnabled.asStateFlow()
@@ -40,6 +45,24 @@ object ThemeSettingsRepository {
      */
     fun currentThemeName(): String = _selectedTheme.value.name
 
+    /**
+     * Synchronous identity of the effective theme for Swift: the enum name, or for
+     * [AppTheme.CUSTOM] `CUSTOM:<accent RRGGBB>:<focus RRGGBB>` so editing the custom color changes
+     * the key (and so remounts the app root) even though the selected theme stays CUSTOM.
+     */
+    fun currentThemeKey(): String {
+        val theme = _selectedTheme.value
+        if (theme != AppTheme.CUSTOM) return theme.name
+        val colors = _customThemeColors.value
+        return "CUSTOM:" + colors.accentHex.removePrefix("#") + ":" + colors.focusHex.removePrefix("#")
+    }
+
+    /** The stored custom accent as `#RRGGBB` (the editor's starting value). */
+    fun currentCustomThemeHex(): String = _customThemeColors.value.accentHex
+
+    /** Current app language code ("device" or a BCP 47 code), for Swift. */
+    fun currentAppLanguageCode(): String = _selectedAppLanguage.value.code
+
     fun onProfileChanged() {
         loadFromDisk()
     }
@@ -47,9 +70,10 @@ object ThemeSettingsRepository {
     fun clearLocalState() {
         hasLoaded = false
         _selectedTheme.value = AppTheme.WHITE
+        _customThemeColors.value = CustomThemeColors.Default
         _amoledEnabled.value = false
         _liquidGlassNativeTabBarEnabled.value = false
-        NativeTabControllerProvider.controller.publishAccentColor(AppTheme.WHITE.nativeTabAccentHex())
+        NativeTabControllerProvider.controller.publishAccentColor(AppTheme.WHITE.resolvedNativeAccentHex(CustomThemeColors.Default))
         NativeTabControllerProvider.controller.publishLiquidGlassEnabled(false)
         _selectedAppLanguage.value = AppLanguage.DEVICE
         _navBarStyle.value = NavBarStyle.ADAPTIVE
@@ -67,8 +91,10 @@ object ThemeSettingsRepository {
         } else {
             AppTheme.WHITE
         }
+        val custom = CustomThemeColors.decode(ThemeSettingsStoreProvider.store.loadCustomThemeColors())
+        _customThemeColors.value = custom
         _selectedTheme.value = theme
-        NativeTabControllerProvider.controller.publishAccentColor(theme.nativeTabAccentHex())
+        NativeTabControllerProvider.controller.publishAccentColor(theme.resolvedNativeAccentHex(custom))
         _amoledEnabled.value = ThemeSettingsStoreProvider.store.loadAmoledEnabled() ?: false
         val liquidGlassEnabled = ThemeSettingsStoreProvider.store.loadLiquidGlassNativeTabBarEnabled() ?: false
         _liquidGlassNativeTabBarEnabled.value = liquidGlassEnabled
@@ -84,7 +110,29 @@ object ThemeSettingsRepository {
         if (_selectedTheme.value == theme) return
         _selectedTheme.value = theme
         ThemeSettingsStoreProvider.store.saveSelectedTheme(theme.name)
-        NativeTabControllerProvider.controller.publishAccentColor(theme.nativeTabAccentHex())
+        NativeTabControllerProvider.controller.publishAccentColor(
+            theme.resolvedNativeAccentHex(_customThemeColors.value),
+        )
+    }
+
+    /** Stores [colors] and selects [AppTheme.CUSTOM]. */
+    fun setCustomTheme(colors: CustomThemeColors) {
+        ensureLoaded()
+        ThemeSettingsStoreProvider.store.saveCustomThemeColors(colors.encode())
+        _customThemeColors.value = colors
+        ThemeSettingsStoreProvider.store.saveSelectedTheme(AppTheme.CUSTOM.name)
+        _selectedTheme.value = AppTheme.CUSTOM
+        NativeTabControllerProvider.controller.publishAccentColor(AppTheme.CUSTOM.resolvedNativeAccentHex(colors))
+    }
+
+    /**
+     * Swift entry point of the Custom theme editor: a single `#RRGGBB` accent. Returns false (and
+     * changes nothing) when [hex] is not a valid color.
+     */
+    fun setCustomThemeHex(hex: String): Boolean {
+        val rgb = parseHexColor(hex) ?: return false
+        setCustomTheme(CustomThemeColors.solid(rgb))
+        return true
     }
 
     fun setAmoled(enabled: Boolean) {
@@ -102,6 +150,11 @@ object ThemeSettingsRepository {
         NativeTabControllerProvider.controller.publishLiquidGlassEnabled(enabled)
     }
 
+    /** Swift entry point: unknown codes resolve to [AppLanguage.DEVICE]. */
+    fun setAppLanguageCode(code: String) {
+        setAppLanguage(AppLanguage.fromCode(code))
+    }
+
     fun setAppLanguage(language: AppLanguage) {
         ensureLoaded()
         if (_selectedAppLanguage.value == language) return
@@ -117,6 +170,3 @@ object ThemeSettingsRepository {
         ThemeSettingsStoreProvider.store.saveNavBarStyle(style.key)
     }
 }
-
-private fun AppTheme.nativeTabAccentHex(): String =
-    this.nativeAccentHex

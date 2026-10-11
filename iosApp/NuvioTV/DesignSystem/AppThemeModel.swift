@@ -7,11 +7,16 @@ import UIKit
 /// `ThemeSettingsStore` adapter, profile-scoped, default CRIMSON) and applies it to the static
 /// palette. ContentView puts `.id(themeName)` on the root so a theme change rebuilds the tree,
 /// re-reading `Theme.Palette.accent`/`accentFocus` everywhere.
+///
+/// `themeName` is the repository's theme KEY: the enum name, or `CUSTOM:<accent>:<focus>` for the
+/// Custom theme, so editing the custom color re-identifies the root even though the selected theme
+/// stays CUSTOM. The custom colors are watched alongside the selected theme for that reason.
 @MainActor
 final class AppThemeModel: ObservableObject {
     @Published private(set) var themeName: String
 
     private var watcher: FlowWatcher?
+    private var customColorsWatcher: FlowWatcher?
     /// STAB-10: a theme that arrived while a full-screen cover was up (the player, a Top Shelf
     /// deep link, a file picker). Applying it then would re-identify the whole tree through
     /// `ContentView`'s `.id(themeName)` and tear the cover down mid-play, so it waits here and
@@ -27,7 +32,10 @@ final class AppThemeModel: ObservableObject {
     /// disk read the `start()` path performed moments later anyway.
     init() {
         ThemeSettingsRepository.shared.ensureLoaded()
-        let name = ThemeSettingsRepository.shared.currentThemeName()
+        // Snapshot the language this launch started with, so Appearance can tell when a change
+        // is still waiting for a restart.
+        AppLanguageSupport.captureLaunchLanguage()
+        let name = ThemeSettingsRepository.shared.currentThemeKey()
         themeName = name
         Theme.Palette.applyTheme(named: name)
     }
@@ -36,44 +44,56 @@ final class AppThemeModel: ObservableObject {
         guard watcher == nil else { return }
         ThemeSettingsRepository.shared.ensureLoaded()
         watcher = FlowWatcherKt.watch(ThemeSettingsRepository.shared.selectedTheme) { [weak self] emitted in
-            guard let self, let theme = emitted as? AppTheme else { return }
-            // H-1A (beta.15): guarded assignment, same pattern as `HomeHeroSettingsObserver`'s
-            // `heroEnabled` watcher (HomeView.swift, `start()` ~L1401) — a profile-scoped cloud
-            // sync pull can republish this SAME theme minutes after cold launch even though
-            // nothing visibly changed, and `@Published` fires `objectWillChange` on every
-            // assignment regardless of value equality. `ContentView` pins `.id(appTheme.themeName)`
-            // on its root, so an unconditional write here remounts the whole tree — and on Home
-            // that remount spins up a SECOND `HomeHeroFocusModel`/`HeroCrossfadeImage` instance,
-            // which is the "hero painted twice" report's actual root cause. Only assign — and only
-            // remount — when the incoming name genuinely differs.
-            //
-            // STAB-10: the palette is applied together with the remount (see `apply`), never
-            // ahead of it, so a deferred theme cannot half-repaint the screen under a cover.
-            guard self.themeName != theme.name else {
-                // A change and its revert both landed while a cover was up: nothing to apply.
-                self.pendingThemeName = nil
-                return
-            }
-            // STAB-10: never remount under a presented cover; apply once it closes.
-            if Self.isCoverPresented() {
-                self.pendingThemeName = theme.name
-                self.scheduleDeferredApply()
-                return
-            }
-            // Permanent recurrence tripwire: any future regression that reintroduces an
-            // unconditional theme republish shows up here as a `theme A→B` line minutes into a
-            // probe capture, well after the cold-launch head — exactly the signal H-1A's
-            // head-preserving ring buffer (`HomeHeroProbe`) was built to keep from being evicted.
-            if HomeHeroProbe.enabled {
-                HomeHeroProbe.log(String(format: "theme %@\u{2192}%@ sinceLaunch=%dms", self.themeName, theme.name, HomeHeroProbe.sinceLaunchMs))
-            }
-            self.apply(theme.name)
+            guard let self, emitted is AppTheme else { return }
+            self.themeKeyMayHaveChanged()
         }
+        // The Custom theme's color changes without the selected theme changing.
+        customColorsWatcher = FlowWatcherKt.watch(ThemeSettingsRepository.shared.customThemeColors) { [weak self] _ in
+            self?.themeKeyMayHaveChanged()
+        }
+    }
+
+    /// Re-reads the repository's theme key and applies it when it genuinely differs.
+    private func themeKeyMayHaveChanged() {
+        let key = ThemeSettingsRepository.shared.currentThemeKey()
+        // H-1A (beta.15): guarded assignment, same pattern as `HomeHeroSettingsObserver`'s
+        // `heroEnabled` watcher (HomeView.swift, `start()` ~L1401) - a profile-scoped cloud
+        // sync pull can republish this SAME theme minutes after cold launch even though
+        // nothing visibly changed, and `@Published` fires `objectWillChange` on every
+        // assignment regardless of value equality. `ContentView` pins `.id(appTheme.themeName)`
+        // on its root, so an unconditional write here remounts the whole tree - and on Home
+        // that remount spins up a SECOND `HomeHeroFocusModel`/`HeroCrossfadeImage` instance,
+        // which is the "hero painted twice" report's actual root cause. Only assign - and only
+        // remount - when the incoming key genuinely differs.
+        //
+        // STAB-10: the palette is applied together with the remount (see `apply`), never
+        // ahead of it, so a deferred theme cannot half-repaint the screen under a cover.
+        guard themeName != key else {
+            // A change and its revert both landed while a cover was up: nothing to apply.
+            pendingThemeName = nil
+            return
+        }
+        // STAB-10: never remount under a presented cover; apply once it closes.
+        if Self.isCoverPresented() {
+            pendingThemeName = key
+            scheduleDeferredApply()
+            return
+        }
+        // Permanent recurrence tripwire: any future regression that reintroduces an
+        // unconditional theme republish shows up here as a `theme A->B` line minutes into a
+        // probe capture, well after the cold-launch head - exactly the signal H-1A's
+        // head-preserving ring buffer (`HomeHeroProbe`) was built to keep from being evicted.
+        if HomeHeroProbe.enabled {
+            HomeHeroProbe.log(String(format: "theme %@\u{2192}%@ sinceLaunch=%dms", themeName, key, HomeHeroProbe.sinceLaunchMs))
+        }
+        apply(key)
     }
 
     func stop() {
         watcher?.cancel()
         watcher = nil
+        customColorsWatcher?.cancel()
+        customColorsWatcher = nil
         deferredApply?.cancel()
         deferredApply = nil
         pendingThemeName = nil
@@ -94,7 +114,7 @@ final class AppThemeModel: ObservableObject {
         deferredApply?.cancel()
         deferredApply = nil
         pendingThemeName = nil
-        let name = ThemeSettingsRepository.shared.currentThemeName()
+        let name = ThemeSettingsRepository.shared.currentThemeKey()
         guard themeName != name else { return }
         if HomeHeroProbe.enabled {
             HomeHeroProbe.log(String(format: "themeSeed %@\u{2192}%@ sinceLaunch=%dms", themeName, name, HomeHeroProbe.sinceLaunchMs))

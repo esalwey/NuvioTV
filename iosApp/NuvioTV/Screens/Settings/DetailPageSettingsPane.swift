@@ -68,22 +68,6 @@ struct DetailPageSettingsPane: View {
         }
 
         SettingsSection(
-            String(localized: "More Like This"),
-            footer: String(localized: "Simkl needs a connected Simkl account and Trakt a connected Trakt account; otherwise TMDB recommendations are used.")
-        ) {
-            SettingsPickerRow(
-                title: String(localized: "Recommendations From"),
-                subtitle: String(localized: "Where the More Like This row on a title's page comes from"),
-                selection: Binding(
-                    get: { model.moreLikeThisSource },
-                    set: { model.setMoreLikeThisSource($0) }
-                ),
-                options: ["trakt", "tmdb", "simkl"],
-                label: Self.sourceTitle
-            )
-        }
-
-        SettingsSection(
             String(localized: "Sections"),
             footer: String(localized: "Press and hold a section to move it up or down. Actions and Overview stay at the top of the page.")
         ) {
@@ -112,14 +96,6 @@ struct DetailPageSettingsPane: View {
             ) {
                 model.resetDetailLayout()
             }
-        }
-    }
-
-    private static func sourceTitle(_ key: String) -> String {
-        switch key {
-        case "tmdb": return String(localized: "TMDB")
-        case "simkl": return String(localized: "Simkl")
-        default: return String(localized: "Trakt")
         }
     }
 

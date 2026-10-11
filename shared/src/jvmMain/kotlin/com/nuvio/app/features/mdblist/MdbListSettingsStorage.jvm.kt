@@ -28,6 +28,7 @@ actual object MdbListSettingsStorage {
     private const val useLetterboxdKey = "mdblist_use_letterboxd"
     private const val useAudienceKey = "mdblist_use_audience"
     private const val useMalKey = "mdblist_use_mal"
+    private const val providerOrderKey = "mdblist_provider_order"
     private val syncKeys = listOf(
         enabledKey,
         apiKey,
@@ -39,6 +40,7 @@ actual object MdbListSettingsStorage {
         useLetterboxdKey,
         useAudienceKey,
         useMalKey,
+        providerOrderKey,
     )
 
     private val preferences: JvmSharedPreferences? = jvmSharedPreferences(preferencesName)
@@ -107,6 +109,16 @@ actual object MdbListSettingsStorage {
         saveBoolean(useMalKey, enabled)
     }
 
+    actual fun loadProviderOrder(): String? =
+        preferences?.getString(ProfileScopedKey.of(providerOrderKey), null)
+
+    actual fun saveProviderOrder(order: String) {
+        preferences
+            ?.edit()
+            ?.putString(ProfileScopedKey.of(providerOrderKey), order)
+            ?.apply()
+    }
+
     private fun loadBoolean(key: String): Boolean? =
         preferences?.let { sharedPreferences ->
             val scopedKey = ProfileScopedKey.of(key)
@@ -135,6 +147,7 @@ actual object MdbListSettingsStorage {
         loadUseLetterboxd()?.let { put(useLetterboxdKey, encodeSyncBoolean(it)) }
         loadUseAudience()?.let { put(useAudienceKey, encodeSyncBoolean(it)) }
         loadUseMal()?.let { put(useMalKey, encodeSyncBoolean(it)) }
+        loadProviderOrder()?.let { put(providerOrderKey, encodeSyncString(it)) }
     }
 
     actual fun replaceFromSyncPayload(payload: JsonObject) {
@@ -152,5 +165,6 @@ actual object MdbListSettingsStorage {
         payload.decodeSyncBoolean(useLetterboxdKey)?.let(::saveUseLetterboxd)
         payload.decodeSyncBoolean(useAudienceKey)?.let(::saveUseAudience)
         payload.decodeSyncBoolean(useMalKey)?.let(::saveUseMal)
+        payload.decodeSyncString(providerOrderKey)?.let(::saveProviderOrder)
     }
 }

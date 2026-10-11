@@ -39,6 +39,7 @@ import com.nuvio.app.features.watchprogress.ContinueWatchingPreferencesRepositor
 import io.github.jan.supabase.postgrest.postgrest
 import io.github.jan.supabase.postgrest.rpc
 import kotlin.concurrent.Volatile
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
@@ -56,7 +57,9 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.decodeFromJsonElement
 import kotlinx.serialization.json.encodeToJsonElement
@@ -395,10 +398,176 @@ object ProfileSettingsSync {
         }
     }
 
+    /**
+     * "Copy settings from..." : replaces [targetProfileId]'s settings with [sourceProfileId]'s, once.
+     *
+     * Copied: every feature of the settings blob (theme, poster/card style, player, stream badges,
+     * debrid / TMDB / MDBList options, details screen, collections display, Continue Watching,
+     * Trakt options). NOT copied, because they are not part of that blob or are account/device
+     * state: OAuth sessions, add-ons, plugins, Home layout, the profile PIN, history, library,
+     * downloads and the episode-alert opt-in.
+     *
+     * Provider API keys (debrid, TMDB, MDBList, AnimeSkip, IntroDB) are never replaced: the
+     * target's own keys are kept, and a key it lacks is imported only with
+     * [copyMissingCredentials]. For a signed-in account the imported keys are staged with
+     * [ProviderCredentialSync] so the target's next credential sync seeds them to the account.
+     *
+     * Order: everything is computed first; a signed-in account then pushes the target's blob and
+     * the local storages are only written when that push succeeded (so a failed copy changes
+     * nothing). Returns false when nothing was copied.
+     */
+    suspend fun cloneProfileSettings(
+        sourceProfileId: Int,
+        targetProfileId: Int,
+        copyMissingCredentials: Boolean,
+    ): Boolean {
+        if (sourceProfileId == targetProfileId) return false
+        val knownIds = ProfileRepository.state.value.profiles.map { it.profileIndex }
+        if (sourceProfileId !in knownIds || targetProfileId !in knownIds) return false
+        ensureRepositoriesLoaded()
+        return syncMutex.withLock {
+            try {
+                val source = withProfileScope(sourceProfileId) {
+                    readCopyableFeatures() to PlayerSettingsStorage.loadIntroDbApiKey()
+                }
+                val target = withProfileScope(targetProfileId) {
+                    readCopyableFeatures() to PlayerSettingsStorage.loadIntroDbApiKey()
+                }
+                val sourceFeatures = source.first
+                val targetFeatures = target.first
+                val imported = mutableMapOf<String, String>()
+                fun merge(feature: String, from: JsonObject, onto: JsonObject): JsonObject {
+                    val result = copyingProfileCredentials(feature, from, onto, copyMissingCredentials)
+                    imported += result.importedFromSource
+                    return result.payload
+                }
+                val copied = sourceFeatures.copy(
+                    playerSettings = merge(PROFILE_PLAYER_SETTINGS_FEATURE, sourceFeatures.playerSettings, targetFeatures.playerSettings),
+                    debridSettings = merge(PROFILE_DEBRID_SETTINGS_FEATURE, sourceFeatures.debridSettings, targetFeatures.debridSettings),
+                    tmdbSettings = merge(PROFILE_TMDB_SETTINGS_FEATURE, sourceFeatures.tmdbSettings, targetFeatures.tmdbSettings),
+                    mdbListSettings = merge(PROFILE_MDBLIST_SETTINGS_FEATURE, sourceFeatures.mdbListSettings, targetFeatures.mdbListSettings),
+                )
+                // IntroDB's key lives outside the player export (see applyRemoteBlob). The target's
+                // own key is never touched; a missing one is imported only on request.
+                val targetHasIntroDbKey = !target.second.isNullOrBlank()
+                val introDbKeyToImport: String? = if (!targetHasIntroDbKey && copyMissingCredentials) {
+                    source.second?.takeUnless(String::isBlank)
+                } else {
+                    null
+                }
+                if (introDbKeyToImport != null) imported["introdb_api_key"] = introDbKeyToImport
+
+                if (currentSettingsPullToken(targetProfileId) != null) {
+                    // Remote first: the target's other features (e.g. the episode-alert opt-in) and
+                    // any key this client does not model are preserved, only ours are overlaid.
+                    val remote = fetchRemoteSettingsJson(targetProfileId, SyncPlatformProvider.platform)
+                    val sanitized = copied.copy(
+                        playerSettings = withoutProfileCredentials(PROFILE_PLAYER_SETTINGS_FEATURE, copied.playerSettings),
+                        debridSettings = withoutProfileCredentials(PROFILE_DEBRID_SETTINGS_FEATURE, copied.debridSettings),
+                        tmdbSettings = withoutProfileCredentials(PROFILE_TMDB_SETTINGS_FEATURE, copied.tmdbSettings),
+                        mdbListSettings = withoutProfileCredentials(PROFILE_MDBLIST_SETTINGS_FEATURE, copied.mdbListSettings),
+                    )
+                    val overlay = (json.encodeToJsonElement(MobileProfileSettingsFeatures.serializer(), sanitized) as JsonObject)
+                        .filterKeys { it != "notifications_settings" }
+                    val existing = remote?.get("features") as? JsonObject ?: JsonObject(emptyMap())
+                    val merged = JsonObject(existing + overlay)
+                    val version = remote?.get("version") ?: JsonPrimitive(3)
+                    pushRawToRemoteLocked(
+                        targetProfileId,
+                        buildJsonObject {
+                            put("version", version)
+                            put("features", merged)
+                        },
+                    )
+                    if (imported.isNotEmpty()) {
+                        ProviderCredentialSync.stageLegacyBlobCredentials(targetProfileId, imported)
+                    }
+                }
+
+                val targetIsActive = ProfileRepository.activeProfileId == targetProfileId
+                if (targetIsActive) isApplyingRemoteBlob = true
+                try {
+                    withProfileScope(targetProfileId) {
+                        writeCopyableFeatures(copied)
+                        if (introDbKeyToImport != null) {
+                            PlayerSettingsStorage.saveIntroDbApiKey(introDbKeyToImport)
+                        }
+                    }
+                    if (targetIsActive) {
+                        notifyCopiedFeaturesChanged()
+                        skipNextPushSignature = currentObservedStateSignature()
+                    }
+                } finally {
+                    if (targetIsActive) isApplyingRemoteBlob = false
+                }
+                log.i { "cloneProfileSettings($sourceProfileId -> $targetProfileId) - done, ${imported.size} credential(s) imported" }
+                true
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                log.e(error) { "cloneProfileSettings($sourceProfileId -> $targetProfileId) - FAILED" }
+                false
+            }
+        }
+    }
+
+    /** Every copyable feature of the ACTIVE storage scope, credentials still included. */
+    private fun readCopyableFeatures(): MobileProfileSettingsFeatures = MobileProfileSettingsFeatures(
+        themeSettings = ThemeSettingsStoreProvider.store.exportToSyncPayload(),
+        posterCardStyleSettingsPayload = PosterCardStyleStorage.loadPayload().orEmpty().trim(),
+        cardDepthStyleSettingsPayload = CardDepthStyleStorage.loadPayload().orEmpty().trim(),
+        playerSettings = PlayerSettingsStorage.exportToSyncPayload(),
+        streamBadgeSettings = StreamBadgeSettingsStorage.exportToSyncPayload(),
+        debridSettings = DebridSettingsStorage.exportToSyncPayload(),
+        tmdbSettings = TmdbSettingsStorage.exportToSyncPayload(),
+        mdbListSettings = MdbListSettingsStorage.exportToSyncPayload(),
+        metaScreenSettingsPayload = MetaScreenSettingsStorage.loadPayload().orEmpty().trim(),
+        collectionMobileSettingsPayload = CollectionMobileSettingsStorage.loadPayload().orEmpty().trim(),
+        continueWatchingSettingsPayload = ContinueWatchingPreferencesStorage.loadPayload().orEmpty().trim(),
+        traktSettingsPayload = TraktSettingsStorage.loadPayload().orEmpty().trim(),
+        traktCommentsSettings = TraktCommentsStorage.exportToSyncPayload(),
+    )
+
+    /** Writes [features] into the ACTIVE storage scope only; repositories are NOT notified here. */
+    private fun writeCopyableFeatures(features: MobileProfileSettingsFeatures) {
+        ThemeSettingsStoreProvider.store.replaceFromSyncPayload(features.themeSettings)
+        PosterCardStyleStorage.savePayload(features.posterCardStyleSettingsPayload)
+        CardDepthStyleStorage.savePayload(features.cardDepthStyleSettingsPayload)
+        PlayerSettingsStorage.replaceFromSyncPayload(features.playerSettings)
+        StreamBadgeSettingsStorage.replaceFromSyncPayload(features.streamBadgeSettings)
+        DebridSettingsStorage.replaceFromSyncPayload(features.debridSettings)
+        TmdbSettingsStorage.replaceFromSyncPayload(features.tmdbSettings)
+        MdbListSettingsStorage.replaceFromSyncPayload(features.mdbListSettings)
+        MetaScreenSettingsStorage.savePayload(features.metaScreenSettingsPayload)
+        CollectionMobileSettingsStorage.savePayload(features.collectionMobileSettingsPayload)
+        ContinueWatchingPreferencesStorage.savePayload(features.continueWatchingSettingsPayload)
+        TraktSettingsStorage.savePayload(features.traktSettingsPayload)
+        TraktCommentsStorage.replaceFromSyncPayload(features.traktCommentsSettings)
+    }
+
+    /** Reloads the repositories whose storage [writeCopyableFeatures] just replaced (active target only). */
+    private fun notifyCopiedFeaturesChanged() {
+        ThemeSettingsRepository.onProfileChanged()
+        PosterCardStyleRepository.onProfileChanged()
+        CardDepthStyleRepository.onProfileChanged()
+        PlayerSettingsRepository.onProfileChanged()
+        StreamBadgeSettingsRepository.onProfileChanged()
+        DebridSettingsRepository.onProfileChanged()
+        TmdbSettingsRepository.onProfileChanged()
+        MdbListMetadataService.clearCache()
+        MdbListSettingsRepository.onProfileChanged()
+        MetaScreenSettingsRepository.onProfileChanged()
+        CollectionMobileSettingsRepository.onProfileChanged()
+        ContinueWatchingPreferencesRepository.onProfileChanged()
+        TraktSettingsRepository.onProfileChanged()
+        TraktCommentsSettings.onProfileChanged()
+    }
+
     @OptIn(FlowPreview::class)
     private fun observeLocalChangesAndPush() {
         val signatureFlows = listOf(
             ThemeSettingsRepository.selectedTheme.map { "theme" },
+            ThemeSettingsRepository.customThemeColors.map { "custom_theme_colors" },
             ThemeSettingsRepository.amoledEnabled.map { "amoled" },
             ThemeSettingsRepository.liquidGlassNativeTabBarEnabled.map { "liquid_glass_tab_bar" },
             ThemeSettingsRepository.navBarStyle.map { "nav_bar_style" },
@@ -487,10 +656,14 @@ object ProfileSettingsSync {
     }
 
     private suspend fun pushToRemoteLocked(profileId: Int, blob: MobileProfileSettingsBlob) {
+        pushRawToRemoteLocked(profileId, json.encodeToJsonElement(MobileProfileSettingsBlob.serializer(), blob))
+    }
+
+    private suspend fun pushRawToRemoteLocked(profileId: Int, settingsJson: JsonElement) {
         val params = buildJsonObject {
             put("p_profile_id", profileId)
             put("p_platform", SyncPlatformProvider.platform)
-            put("p_settings_json", json.encodeToJsonElement(MobileProfileSettingsBlob.serializer(), blob))
+            put("p_settings_json", settingsJson)
             putSyncOriginClientId()
         }
         SupabaseProvider.client.postgrest.rpc("sync_push_profile_settings_blob", params)
@@ -821,6 +994,7 @@ object ProfileSettingsSync {
 
     private fun currentObservedStateSignature(): String = listOf(
         "theme=${ThemeSettingsRepository.selectedTheme.value.name}",
+        "custom_theme_colors=${ThemeSettingsRepository.customThemeColors.value.encode()}",
         "amoled=${ThemeSettingsRepository.amoledEnabled.value}",
         "liquid_glass_tab_bar=${ThemeSettingsRepository.liquidGlassNativeTabBarEnabled.value}",
         "nav_bar_style=${ThemeSettingsRepository.navBarStyle.value.key}",

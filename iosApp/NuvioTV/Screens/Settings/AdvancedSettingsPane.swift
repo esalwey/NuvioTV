@@ -1,16 +1,53 @@
 import SwiftUI
 import SharedCore
 
-/// "Advanced" category content: the Remote Setup LAN config server. Extracted from
-/// SettingsView.swift (Phase 2 HIG revamp file split) — logic and wiring preserved verbatim, only
-/// regrouped into a per-category pane.
+/// "Advanced" category content: startup behaviour, cache housekeeping and the Remote Setup LAN
+/// config server. Remote Setup was extracted from SettingsView.swift (Phase 2 HIG revamp file
+/// split) — logic and wiring preserved verbatim, only regrouped into a per-category pane.
 struct AdvancedSettingsPane: View {
     @ObservedObject var remote: RemoteSetupViewModel
+    @StateObject private var advanced = AdvancedSettingsViewModel()
+    @State private var confirmingClearCache = false
 
     var body: some View {
-        SettingsSection(String(localized: "Remote Setup")) {
-            remoteSetupSection
+        Group {
+            SettingsSection(String(localized: "Startup")) {
+                SettingsToggleRow(
+                    title: String(localized: "Remember Last Profile"),
+                    subtitle: String(localized: "Open straight into the profile you used last instead of asking who is watching. Profiles locked with a PIN always ask."),
+                    isOn: Binding(
+                        get: { advanced.rememberLastProfile },
+                        set: { advanced.setRememberLastProfile($0) }
+                    )
+                )
+            }
+
+            SettingsSection(String(localized: "Cache")) {
+                SettingsDestructiveRow(
+                    title: String(localized: "Clear Continue Watching Cache"),
+                    subtitle: advanced.cacheCleared
+                        ? String(localized: "Cache cleared")
+                        : String(localized: "Removes cached Continue Watching data and refreshes your watch progress. Your history is kept."),
+                    systemImage: "arrow.triangle.2.circlepath"
+                ) {
+                    confirmingClearCache = true
+                }
+                .alert(String(localized: "Clear Continue Watching Cache?"), isPresented: $confirmingClearCache) {
+                    Button(String(localized: "Clear Cache"), role: .destructive) {
+                        advanced.clearContinueWatchingCache()
+                    }
+                    Button(String(localized: "Cancel"), role: .cancel) {}
+                } message: {
+                    Text("Continue Watching reloads its artwork and next episodes. Watch progress and history are not affected.")
+                }
+            }
+
+            SettingsSection(String(localized: "Remote Setup")) {
+                remoteSetupSection
+            }
         }
+        .onAppear { advanced.start() }
+        .onDisappear { advanced.stop() }
     }
 
     /// The Remote Setup section body: start/stop the LAN config server and, while it runs, show
