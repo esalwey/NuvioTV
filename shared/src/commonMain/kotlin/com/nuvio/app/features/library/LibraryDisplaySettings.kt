@@ -18,6 +18,8 @@ enum class LibrarySortOption {
     DEFAULT,
     ADDED_DESC,
     ADDED_ASC,
+    RELEASED_DESC,
+    RELEASED_ASC,
     TITLE_ASC,
     TITLE_DESC,
 }
@@ -125,6 +127,19 @@ fun sortLibraryItems(
         )
         LibrarySortOption.ADDED_ASC -> items.sortedWith(
             compareBy<LibraryItem> { it.savedAtEpochMs }
+                .thenBy { libraryTitleTieBreakKey(it) }
+                .thenBy { it.id },
+        )
+        // Items without a release year always sink to the bottom, in both directions.
+        LibrarySortOption.RELEASED_DESC -> items.sortedWith(
+            compareBy<LibraryItem> { libraryReleaseYear(it) == null }
+                .thenByDescending { libraryReleaseYear(it) ?: 0 }
+                .thenBy { libraryTitleTieBreakKey(it) }
+                .thenBy { it.id },
+        )
+        LibrarySortOption.RELEASED_ASC -> items.sortedWith(
+            compareBy<LibraryItem> { libraryReleaseYear(it) == null }
+                .thenBy { libraryReleaseYear(it) ?: 0 }
                 .thenBy { libraryTitleTieBreakKey(it) }
                 .thenBy { it.id },
         )
@@ -247,6 +262,12 @@ private fun libraryTitleTieBreakKey(item: LibraryItem): String =
     item.name
         .ifBlank { item.id }
         .lowercase()
+
+private val LibraryReleaseYearRegex = Regex("""\b(?:19|20)\d{2}\b""")
+
+/** The four-digit release year found in [LibraryItem.releaseInfo] ("2019", "2019–2021"), or null. */
+fun libraryReleaseYear(item: LibraryItem): Int? =
+    item.releaseInfo?.let { LibraryReleaseYearRegex.find(it)?.value }?.toIntOrNull()
 
 private fun libraryDisplayItemKey(item: LibraryItem): String =
     "${item.type.normalizedLibraryType()}:${item.id.trim()}"

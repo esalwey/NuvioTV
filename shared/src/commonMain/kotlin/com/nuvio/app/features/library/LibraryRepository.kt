@@ -242,6 +242,16 @@ object LibraryRepository {
         }
     }
 
+    /**
+     * User-initiated refresh of whatever backs the Library right now: the connected Trakt / Simkl
+     * provider (bypassing its cache) or the Nuvio account. Errors surface through
+     * [LibraryUiState.errorMessage], never as a thrown exception.
+     */
+    suspend fun syncNow() {
+        ensureLoaded()
+        pullFromServer(ProfileRepository.activeProfileId)
+    }
+
     private suspend fun pullLibraryDelta(
         token: LibraryProfileToken,
         profileId: Int,
