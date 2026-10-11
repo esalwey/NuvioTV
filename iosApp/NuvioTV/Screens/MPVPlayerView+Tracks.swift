@@ -863,6 +863,29 @@ extension MPVTVPlayerViewController {
         UserDefaults.standard.set(seconds, forKey: Self.audioDelayDefaultsKey)
     }
 
+    // MARK: - Volume boost & dialogue boost
+
+    /// Volume boost from the Audio menu: mpv's software volume (unity at 0 dB), remembered for the
+    /// next playbacks. `eventQueue` like the other live changes to the audio chain.
+    func setAudioGain(_ db: Int) {
+        guard mpv != nil else { return }
+        state.audioGainDb = db
+        MPVAudioSettings(output: .current, gainDb: db, dialogueDb: state.dialogueBoostDb).storeBoosts()
+        let percent = db > 0 ? MPVAudioSettings.volumePercent(gainDb: db) : 100
+        eventQueue.async { [weak self] in self?.setMpvDouble("volume", percent) }
+    }
+
+    /// Dialogue boost from the Audio menu: replaces mpv's audio filter with the centre-weighted
+    /// stereo downmix (or clears it at 0), remembered for the next playbacks.
+    func setDialogueBoost(_ db: Int) {
+        guard mpv != nil else { return }
+        state.dialogueBoostDb = db
+        MPVAudioSettings(output: .current, gainDb: state.audioGainDb, dialogueDb: db).storeBoosts()
+        let filter = MPVAudioSettings.audioFilter(dialogueDb: db,
+                                                  stereoOutput: MPVAudioSettings.isStereoOutput(.current))
+        eventQueue.async { [weak self] in self?.setMpvString("af", filter) }
+    }
+
     private func setMpvDouble(_ name: String, _ value: Double) {
         guard mpv != nil else { return }
         var v = value

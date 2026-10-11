@@ -36,6 +36,9 @@ struct PlaybackSettingsPane: View {
     /// Loading screen, parental guide and clock switches (shared `PlayerSettingsRepository`).
     @ObservedObject private var playerInterface = PlayerOverlaySettings.shared
 
+    /// Audio output layout and video tuning of the mpv player (device-local).
+    @StateObject private var mpvTuning = MPVTuningSettingsModel()
+
     var body: some View {
         Group {
             sections
@@ -78,18 +81,13 @@ struct PlaybackSettingsPane: View {
                 subtitle: String(localized: "Use the gpu-next (libplacebo) renderer for better HDR tone-mapping. Experimental \u{2014} Apple TV hardware only (ignored on the Simulator). Applies to the next video."),
                 isOn: Binding(get: { model.enhancedRenderer }, set: { model.setEnhancedRenderer($0) })
             )
-            SettingsToggleRow(
-                title: String(localized: "Native player (Dolby Vision & HDR)"),
-                subtitle: String(localized: "Play Dolby Vision, HDR10 and other compatible MKVs through the native AVPlayer engine for true DV output on Apple TV 4K; everything else stays on the mpv player. Profile 7 discs convert to 8.1 on the fly, and TrueHD/DTS-only audio plays as AAC 5.1."),
-                isOn: Binding(get: { model.nativeDolbyVision }, set: { model.setNativeDolbyVision($0) })
+            SettingsPickerRow(
+                title: String(localized: "Dolby Vision"),
+                subtitle: model.dolbyVisionMode.detail,
+                selection: Binding(get: { model.dolbyVisionMode }, set: { model.setDolbyVisionMode($0) }),
+                options: DolbyVisionMode.allCases,
+                label: { $0.title }
             )
-            if model.nativeDolbyVision {
-                SettingsToggleRow(
-                    title: String(localized: "Keep Profile 7 FEL on mpv"),
-                    subtitle: String(localized: "Profile 7 FEL releases carry enhancement data the 8.1 conversion must discard. Turn on to keep those files on the mpv player (plays as HDR10, nothing discarded) instead of native Dolby Vision. MEL releases convert losslessly and always play native."),
-                    isOn: Binding(get: { model.dvP7FelMpv }, set: { model.setDvP7FelMpv($0) })
-                )
-            }
             // FEAT-11
             SettingsToggleRow(
                 title: String(localized: "Trailer Sound by Default"),
@@ -145,6 +143,14 @@ struct PlaybackSettingsPane: View {
                 isOn: Binding(get: { playerInterface.osdClockEnabled },
                               set: { playerInterface.setOsdClockEnabled($0) })
             )
+        }
+
+        SettingsSection(
+            String(localized: "Audio and Video"),
+            footer: String(localized: "These apply to the mpv player, from the next video. The native player follows Audio Format in tvOS Settings \u{2192} Video and Audio. Volume Boost and Dialogue Boost are in the player's Audio menu.")
+        ) {
+            AudioOutputSettingsRow(tuning: mpvTuning)
+            VideoTuningSettingsLinkRow(tuning: mpvTuning)
         }
 
         // Up Next (NE-6/SET-1). Every row is this Apple TV's own (the phone's synced auto-play

@@ -254,6 +254,8 @@ final class MPVTVPlayerViewController: UIViewController {
         state.setAspectMode = { [weak self] mode in self?.setAspectMode(mode) }
         state.setSubtitleDelay = { [weak self] seconds in self?.setSubtitleDelay(seconds) }
         state.setAudioDelay = { [weak self] seconds in self?.setAudioDelay(seconds) }
+        state.setAudioGain = { [weak self] db in self?.setAudioGain(db) }
+        state.setDialogueBoost = { [weak self] db in self?.setDialogueBoost(db) }
         state.replay = { [weak self] in self?.replay() }
         state.reclaimFocus = { [weak self] in self?.becomeFirstResponder() }
         state.seekTo = { [weak self] seconds in
@@ -455,11 +457,10 @@ final class MPVTVPlayerViewController: UIViewController {
         }
         #endif
 
-        let options: [(String, String)] = [
+        var options: [(String, String)] = [
             ("vo", videoOutput),
             ("gpu-api", "vulkan"),
             ("gpu-context", "moltenvk"),
-            ("hwdec", "videotoolbox"),
             // On REAL Apple TV hardware ao_audiounit fails to init entirely: its channel-layout
             // query returns kAudioUnitErr_InvalidProperty (-10879) → ao=null → silence (the sim
             // worked because the Mac's stereo output answers the query). ao_avfoundation
@@ -467,7 +468,6 @@ final class MPVTVPlayerViewController: UIViewController {
             // fall back to audiounit. Requires MPVKit >= 0.41.0-n8.1.2 (PR #73 enabled the
             // avfoundation ao for tvOS; PROVEN working on Apple TV 4K 3rd gen 2026-07-02).
             ("ao", "avfoundation,audiounit"),
-            ("audio-channels", "auto"),
             ("audio-fallback-to-null", "yes"),
             ("vulkan-swap-mode", "fifo"),
             ("vulkan-queue-count", "1"),
@@ -483,8 +483,6 @@ final class MPVTVPlayerViewController: UIViewController {
             ("video-rotate", "no"),
             ("keep-open", "yes"),
             ("target-colorspace-hint", "yes"),
-            ("tone-mapping", "auto"),
-            ("hdr-compute-peak", "yes"),
             // LANG-02: no subtitle track unless the language plan picks one — `yes` turned on a
             // default track when nothing matched, so "Subtitles: Off" still showed subtitles.
             ("subs-fallback", "no"),
@@ -495,6 +493,13 @@ final class MPVTVPlayerViewController: UIViewController {
             // reconnects instead of ending the file, which read as "stream dropped".
             ("stream-lavf-o", "reconnect=1,reconnect_streamed=1,reconnect_delay_max=5"),
         ]
+        // Settings > Playback: audio output layout, volume/dialogue boosts (`MPVAudioSettings`) and
+        // video tuning (`MPVVideoSettings`). With nothing changed these are the values that used
+        // to be written out above: videotoolbox, auto channels, tone-mapping auto, peak detection on.
+        let audioSettings = MPVAudioSettings.current
+        MPVAudioSettings.prepareSession(for: audioSettings.output)
+        options.append(contentsOf: MPVVideoSettings.current.startupOptions())
+        options.append(contentsOf: audioSettings.startupOptions())
         for (key, value) in options {
             let status = mpv_set_option_string(mpv, key, value)
             if status < 0 {

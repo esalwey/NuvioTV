@@ -8,7 +8,7 @@ import SharedCore
 
 /// UserDefaults keys for device-local player tuning (Settings > Playback). Device-specific
 /// hardware knobs, deliberately NOT synced.
-enum PlayerTuning {
+nonisolated enum PlayerTuning {
     static let bufferMBKey = "player.bufferMB"
     static let readaheadSecKey = "player.readaheadSec"
     static let matchFrameRateKey = "player.matchFrameRate"
@@ -23,6 +23,26 @@ enum PlayerTuning {
     /// them to 8.1 (the conversion discards FEL enhancement data; MEL converts losslessly and is
     /// unaffected by this preference).
     static let dvP7FelMpvKey = "player.dvP7FelPreferMpv"
+    /// Dolby Vision picker value that the two keys above cannot express: play Dolby Vision files as
+    /// HDR10 on mpv (see `DolbyVisionMode.hdr10Only`). `DolbyVisionMode.store` keeps all three in step.
+    static let dvHdr10OnlyKey = "player.dvHdr10Only"
+    /// mpv audio output layout (`AudioOutputMode` raw value). Absent = Auto. Applies to the next playback.
+    static let audioOutputKey = "player.audio.output"
+    /// Software volume boost in dB (0, 3, 6, 10), remembered between playbacks (mpv engine).
+    static let audioGainDbKey = "player.audio.gainDb"
+    /// Dialogue boost in dB (0, 3, 6, 9): the centre channel's extra level in a stereo downmix (mpv engine).
+    static let dialogueBoostDbKey = "player.audio.dialogueDb"
+    /// mpv video tuning (Settings > Playback > Video). Device-local like the buffer knobs; absent
+    /// keys read as the defaults of `MPVVideoSettings`. Applies to the next playback.
+    static let videoToneMappingKey = "player.video.toneMapping"
+    static let videoHardwareDecodingKey = "player.video.hwdec"
+    static let videoHdrPeakKey = "player.video.hdrPeak"
+    static let videoDebandKey = "player.video.deband"
+    static let videoInterpolationKey = "player.video.interpolation"
+    static let videoBrightnessKey = "player.video.brightness"
+    static let videoContrastKey = "player.video.contrast"
+    static let videoSaturationKey = "player.video.saturation"
+    static let videoGammaKey = "player.video.gamma"
     /// Up Next (Settings → Playback → Next Episode) — device-local on purpose, see
     /// `UpNextPreferences` for the sync policy. Absent keys read as the tvOS defaults.
     /// Automatic next episode (default ON).

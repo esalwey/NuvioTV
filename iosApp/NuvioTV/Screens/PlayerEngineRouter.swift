@@ -33,14 +33,19 @@ nonisolated struct EngineDecision: Equatable, Sendable {
 nonisolated enum PlayerEngineRouter {
     /// Decide the engine for a probed stream. `nativeDVEnabled` is the Settings > Playback beta flag;
     /// `dvP7FelToMpv` is its FEL-fidelity sub-setting (send Profile 7 FEL files to mpv instead of
-    /// discarding their enhancement layer in the 8.1 conversion).
-    static func route(probe: ProbeResult?, nativeDVEnabled: Bool, dvP7FelToMpv: Bool = false) -> EngineDecision {
-        var decision = decide(probe: probe, nativeDVEnabled: nativeDVEnabled, dvP7FelToMpv: dvP7FelToMpv)
+    /// discarding their enhancement layer in the 8.1 conversion). `stripDolbyVision` is the "HDR10
+    /// Only" Dolby Vision mode: Dolby Vision files play on mpv, which shows their HDR10 layer
+    /// (Profile 5 has none and is left to the usual rules). All three come from `DolbyVisionMode`.
+    static func route(probe: ProbeResult?, nativeDVEnabled: Bool, dvP7FelToMpv: Bool = false,
+                      stripDolbyVision: Bool = false) -> EngineDecision {
+        var decision = decide(probe: probe, nativeDVEnabled: nativeDVEnabled, dvP7FelToMpv: dvP7FelToMpv,
+                              stripDolbyVision: stripDolbyVision)
         decision.dvProfile = probe?.dolbyVision?.profile
         return decision
     }
 
-    private static func decide(probe: ProbeResult?, nativeDVEnabled: Bool, dvP7FelToMpv: Bool) -> EngineDecision {
+    private static func decide(probe: ProbeResult?, nativeDVEnabled: Bool, dvP7FelToMpv: Bool,
+                               stripDolbyVision: Bool) -> EngineDecision {
         guard nativeDVEnabled else { return EngineDecision(engine: .mpv, reason: "native engine off") }
         guard let p = probe else { return EngineDecision(engine: .mpv, reason: "probe unavailable") }
         guard p.seekable else { return EngineDecision(engine: .mpv, reason: "source not seekable") }
@@ -62,6 +67,10 @@ nonisolated enum PlayerEngineRouter {
         // but only the single-track layout whose RPUs the probe could actually parse; anything else
         // (two-track BL+EL, no RPU found, unparseable RPU) stays on mpv.
         if let dv = p.dolbyVision {
+            // "HDR10 Only": mpv plays the HDR10 layer. Profile 5 has none, so it follows the rules below.
+            if stripDolbyVision, dv.profile != 5 {
+                return EngineDecision(engine: .mpv, reason: "DV P\(dv.profile) \u{2192} HDR10 (preference)")
+            }
             switch dv.profile {
             case 5, 8: break
             case 7:
@@ -176,6 +185,10 @@ extension PlayerEngineRouter {
         expect(route(probe: sample(dv: p7(.fel)), nativeDVEnabled: true).engine, .native, "DV P7 FEL → native by default")
         expect(route(probe: sample(dv: p7(.fel)), nativeDVEnabled: true, dvP7FelToMpv: true).engine, .mpv, "DV P7 FEL + fidelity pref → mpv")
         expect(route(probe: sample(dv: p7(.mel)), nativeDVEnabled: true, dvP7FelToMpv: true).engine, .native, "DV P7 MEL unaffected by FEL pref")
+        expect(route(probe: sample(dv: p81), nativeDVEnabled: true, stripDolbyVision: true).engine, .mpv, "DV P8.1 + HDR10 Only → mpv")
+        expect(route(probe: sample(dv: p7(.mel)), nativeDVEnabled: true, stripDolbyVision: true).engine, .mpv, "DV P7 MEL + HDR10 Only → mpv")
+        expect(route(probe: sample(dv: p5), nativeDVEnabled: true, stripDolbyVision: true).engine, .native, "DV P5 keeps Dolby Vision under HDR10 Only")
+        expect(route(probe: sample(hdr: .hdr10), nativeDVEnabled: true, stripDolbyVision: true).engine, .native, "plain HDR10 unaffected by HDR10 Only")
         expect(route(probe: sample(dv: p7(.mel), videoStreams: 2), nativeDVEnabled: true).engine, .mpv, "DV P7 two-track → mpv")
         expect(route(probe: sample(dv: p7(.missing)), nativeDVEnabled: true).engine, .mpv, "DV P7 without RPUs → mpv")
         expect(route(probe: sample(dv: p7(.unsupported)), nativeDVEnabled: true).engine, .mpv, "DV P7 unparseable RPU → mpv")

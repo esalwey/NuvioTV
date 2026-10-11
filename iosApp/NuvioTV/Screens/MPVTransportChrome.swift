@@ -300,6 +300,35 @@ struct MPVTransportFocusView: View {
                         Text(verbatim: String(localized: "Audio Delay"))
                     }
                 }
+                // Volume Boost and Dialogue Boost: the mpv engine's counterparts of the system
+                // player's Enhance Dialogue, as submenus so the track list stays short. Dialogue
+                // Boost mixes down to stereo, so it is offered only on a stereo output.
+                Menu {
+                    Picker(selection: audioGainBinding) {
+                        ForEach(MPVAudioSettings.gainChoices, id: \.self) { db in
+                            Text(verbatim: MPVAudioBoostTitle.gain(db)).tag(db)
+                        }
+                    } label: {
+                        Text(verbatim: String(localized: "Volume Boost"))
+                    }
+                    .pickerStyle(.inline)
+                } label: {
+                    Text(verbatim: String(localized: "Volume Boost"))
+                }
+                if MPVAudioSettings.isStereoOutput(.current) {
+                    Menu {
+                        Picker(selection: dialogueBoostBinding) {
+                            ForEach(MPVAudioSettings.dialogueChoices, id: \.self) { db in
+                                Text(verbatim: MPVAudioBoostTitle.dialogue(db)).tag(db)
+                            }
+                        } label: {
+                            Text(verbatim: String(localized: "Dialogue Boost"))
+                        }
+                        .pickerStyle(.inline)
+                    } label: {
+                        Text(verbatim: String(localized: "Dialogue Boost"))
+                    }
+                }
             } label: {
                 Text(verbatim: item.title)
             }
@@ -336,6 +365,18 @@ struct MPVTransportFocusView: View {
         Binding(
             get: { panelModel.audioDelayMs },
             set: { ms in panelModel.onAudioDelayChange?(ms) })
+    }
+
+    private var audioGainBinding: Binding<Int> {
+        Binding(
+            get: { state.audioGainDb },
+            set: { db in state.setAudioGain?(db) })
+    }
+
+    private var dialogueBoostBinding: Binding<Int> {
+        Binding(
+            get: { state.dialogueBoostDb },
+            set: { db in state.setDialogueBoost?(db) })
     }
 
     private var subtitleBinding: Binding<String> {

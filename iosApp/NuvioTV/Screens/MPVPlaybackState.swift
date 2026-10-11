@@ -57,6 +57,10 @@ final class MPVPlaybackState: ObservableObject {
     @Published var aspectMode: PlayerAspectMode = .fit
     @Published var subtitleDelaySec: Double = 0
     @Published var audioDelaySec: Double = 0
+    /// Volume boost (dB, 0 = off) and dialogue boost (dB, 0 = off) of the Audio menu, remembered
+    /// between playbacks (`MPVAudioSettings`).
+    @Published var audioGainDb: Int = MPVAudioSettings.current.gainDb
+    @Published var dialogueBoostDb: Int = MPVAudioSettings.current.dialogueDb
     @Published var showStreamInfo: Bool = false
     @Published var streamInfo: StreamInfoSnapshot?
     /// Engine routing decision from `PlayerEngineRouter`, shown as the Stream Info "Engine" row.
@@ -80,6 +84,8 @@ final class MPVPlaybackState: ObservableObject {
     var setAspectMode: ((PlayerAspectMode) -> Void)?
     var setSubtitleDelay: ((Double) -> Void)?
     var setAudioDelay: ((Double) -> Void)?
+    var setAudioGain: ((Int) -> Void)?
+    var setDialogueBoost: ((Int) -> Void)?
     var replay: (() -> Void)?
     var reclaimFocus: (() -> Void)?
     /// Exact seek to an absolute time (the Chapters tab).

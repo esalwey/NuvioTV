@@ -125,12 +125,15 @@ struct PlayerScreen: View {
 
         let url = context.url
         let requestHeaders = context.requestHeaders
-        let felToMpv = UserDefaults.standard.bool(forKey: PlayerTuning.dvP7FelMpvKey)
+        let dvMode = DolbyVisionMode.current
+        let felToMpv = dvMode.sendsP7FelToMpv
+        let stripDV = dvMode.stripsDolbyVision
         let timeoutSec = PlayerTuning.probeTimeoutSec
         // `.userInitiated`: the viewer is staring at the loading view while this runs.
         let result = await Task.detached(priority: .userInitiated) {
             let probe = MediaProbe.probe(url: url, timeoutSec: timeoutSec, requestHeaders: requestHeaders)
-            return PlayerEngineRouter.route(probe: probe, nativeDVEnabled: true, dvP7FelToMpv: felToMpv)
+            return PlayerEngineRouter.route(probe: probe, nativeDVEnabled: true, dvP7FelToMpv: felToMpv,
+                                          stripDolbyVision: stripDV)
         }.value
         // The detached probe runs to its deadline whatever happens here: a viewer who left meanwhile
         // (the `.task` was cancelled) gets no decision for a stream no longer asked for.
