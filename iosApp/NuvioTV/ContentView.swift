@@ -256,6 +256,9 @@ struct ContentView: View {
             }
         }
         .onOpenURL { url in
+            // A link that opens a cover over the slideshow must not leave it up to swallow the
+            // first press on that cover.
+            AmbientIdleController.shared.dismiss()
             if auth.gate == .main, entered {
                 // Infuse coming back from a hand-off (x-callback-url): recorded, never a deep link —
                 // parsing it as one would close a deep-link cover the viewer returns to.
