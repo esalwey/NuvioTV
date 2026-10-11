@@ -139,7 +139,10 @@ struct DetailLayout: Equatable {
         let lower = MetaScreenSectionLayout.shared.lowerSectionKeys(items: state.items).map { $0.name }
         self.init(
             lowerSectionNames: lower,
-            showsActions: Self.isOn("ACTIONS", in: state.items),
+            // The Play, Library and Watched buttons are the page's only guaranteed focusable
+            // content and `.defaultFocus` points at them, so they cannot be switched off here (a
+            // stored "off" synced from another client is ignored too). Settings offers no switch.
+            showsActions: true,
             showsOverview: Self.isOn("OVERVIEW", in: state.items),
             backgroundModeName: state.backgroundMode.name,
             episodeCardStyleName: state.episodeCardStyle.name,

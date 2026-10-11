@@ -162,7 +162,8 @@ struct DetailPageSettingsPane: View {
             footer: String(localized: "Press and hold a section to move it up or down. Actions and Overview stay at the top of the page.")
         ) {
             let movable = model.detailSections.filter { !Self.isHeaderSection($0) }
-            ForEach(model.detailSections, id: \.key.name) { item in
+            // Actions has no switch: it holds Play and the other buttons, the page's way in.
+            ForEach(model.detailSections.filter { $0.key.name != "ACTIONS" }, id: \.key.name) { item in
                 SettingsToggleRow(
                     title: item.title,
                     subtitle: item.description_,
