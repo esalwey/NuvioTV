@@ -17,6 +17,8 @@ struct AboutSettingsPane: View {
     @AppStorage(DeveloperMode.unlockedKey) private var developerUnlocked = false
     /// Presses on Version during this visit. Starts again from zero each time the pane appears.
     @State private var versionPresses = 0
+    /// Newest stable release on GitHub vs. this build; read-only (tvOS cannot self-update).
+    @StateObject private var updates = UpdateAvailability()
 
     var body: some View {
         SettingsSection(String(localized: "About")) {
@@ -47,8 +49,38 @@ struct AboutSettingsPane: View {
                 title: String(localized: "settings.about.sourceCode", defaultValue: "Source Code", comment: "About pane row title; the value is the public repository address"),
                 value: "github.com/esalwey/NuvioMobile"
             )
+            updateRow
+            SettingsLinkRow(
+                title: String(localized: "Licenses & Attributions"),
+                subtitle: String(localized: "Open-source licenses and the services Nuvio uses."),
+                systemImage: "doc.text"
+            ) {
+                LicensesAttributionsPage()
+            }
         }
         .onAppear { versionPresses = 0 }
+        .task { await updates.refresh(currentVersion: Self.marketingVersion) }
+    }
+
+    /// Shown only once the check has an answer; a failed or pending check leaves no row behind.
+    @ViewBuilder
+    private var updateRow: some View {
+        switch updates.status {
+        case .available(let version):
+            SettingsValueRow(
+                title: String(localized: "Update Available"),
+                value: String(localized: "Version \(version)"),
+                subtitle: String(localized: "Install it the same way you installed this build, through your sideload or signing service."),
+                systemImage: "arrow.down.circle"
+            )
+        case .upToDate:
+            SettingsValueRow(
+                title: String(localized: "Updates"),
+                value: String(localized: "Up to Date")
+            )
+        case .checking, .unknown:
+            EmptyView()
+        }
     }
 
     /// Shown under Version once the presses start to count, Android-style, so the unlock is

@@ -34,6 +34,11 @@ struct ContentView: View {
     /// (Settings → Switch Profile, via `\.switchProfile`) instead of as the launch gate: picking the running profile,
     /// or Menu, then goes straight back without a PIN, a repository fan-out or a cloud pull.
     @State private var switchingProfile = false
+    /// "Remember Last Profile": false until the cold-launch check has run once (it runs the first
+    /// time the profile gate is reached with a signed-in account). Until then the gate shows a
+    /// neutral spinner instead of the picker, so a remembered profile is entered without the
+    /// picker flashing first. Never reset: Switch Profile and a later sign-in always show the picker.
+    @State private var launchProfileChecked = false
     @State private var selectedTab = 0
     /// Which Settings category the split view is showing. Owned HERE, above the
     /// `.id(appTheme.themeName)` rebuild boundary, for exactly the reason `selectedTab` is: picking
@@ -83,6 +88,20 @@ struct ContentView: View {
         }
     }
 
+    /// Cold-launch half of "Remember Last Profile": enters the profile used last, with the same
+    /// steps as picking it (select, theme reseed BEFORE the shell mounts, `entered`), when the
+    /// setting is on and that profile has no PIN. Otherwise the picker simply shows.
+    private func resumeRememberedProfileIfAny() {
+        guard !launchProfileChecked else { return }
+        launchProfileChecked = true
+        guard !switchingProfile,
+              let profile = ProfileRepository.shared.profileToResumeAtLaunch() else { return }
+        profiles.start()
+        profiles.select(profile)
+        appTheme.reseedNow()
+        entered = true
+    }
+
     var body: some View {
         Group {
             switch auth.gate {
@@ -113,6 +132,13 @@ struct ContentView: View {
                         rootCoverActive: deepLink != nil
                     )
                     .environmentObject(auth)
+                } else if !launchProfileChecked {
+                    ZStack {
+                        Theme.Palette.background.ignoresSafeArea()
+                        ProgressView()
+                            .tint(Theme.Palette.accent)
+                    }
+                    .onAppear { resumeRememberedProfileIfAny() }
                 } else {
                     // `reseedNow()` BEFORE `entered = true`: the chosen profile's theme must be
                     // applied while only this picker is mounted, or MainTabView mounts under the

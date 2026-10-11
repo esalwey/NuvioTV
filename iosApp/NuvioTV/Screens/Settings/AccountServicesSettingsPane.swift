@@ -49,6 +49,17 @@ struct AccountServicesSettingsPane: View {
                     ) {
                         confirmingSignOut = true
                     }
+                    // Sync codes talk to the official Nuvio backend's RPCs; a self-hosted server
+                    // may not carry them, so the entry is only offered on the official one.
+                    if !server.isCustom {
+                        SettingsLinkRow(
+                            title: String(localized: "Sync Code"),
+                            subtitle: String(localized: "Link another device to this account with a code and a PIN, and manage linked devices."),
+                            systemImage: "link"
+                        ) {
+                            SyncCodeSettingsPage()
+                        }
+                    }
                 }
             }
 
@@ -261,9 +272,9 @@ struct AccountServicesSettingsPane: View {
         }
 
         // Data-source attribution (upstream's `settings_licenses_attributions_simkl_body`, kept
-        // verbatim). Upstream shows it on its Licenses & Attributions page; tvOS has no such page,
-        // so the credit lives with the integration it describes and shows in every state — the
-        // claim is about the integration, not about being signed in.
+        // verbatim). Upstream shows it on its Licenses & Attributions page, and so does About here
+        // (`LicensesAttributionsPage`); the credit also stays with the integration it describes and
+        // shows in every state — the claim is about the integration, not about being signed in.
         Text("Nuvio connects to Simkl for account authentication, watchlists, watched history, playback progress, and scrobbling. Movie, TV, and anime tracking data is provided by Simkl. Nuvio is not affiliated with or endorsed by Simkl.")
             .font(Theme.Font.caption)
             .foregroundStyle(Theme.Palette.textSecondary)
