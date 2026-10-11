@@ -35,6 +35,13 @@ struct StreamBadgesSection: View {
                 : String(localized: "Badge chips render below the stream description."),
             isOn: Binding(get: { badges.badgesOnTop }, set: { badges.setBadgesOnTop($0) })
         )
+        SettingsToggleRow(
+            title: String(localized: "Artwork Background"),
+            subtitle: badges.cinematicBackground
+                ? String(localized: "The title's artwork shows behind the source list.")
+                : String(localized: "The source list sits on the plain app background."),
+            isOn: Binding(get: { badges.cinematicBackground }, set: { badges.setCinematicBackground($0) })
+        )
 
         if badges.imports.isEmpty {
             Text("No badge packs imported yet.")

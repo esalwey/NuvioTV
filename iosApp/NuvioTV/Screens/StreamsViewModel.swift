@@ -43,6 +43,23 @@ final class StreamsViewModel: ObservableObject {
         let isRetrying: Bool
     }
 
+    /// One add-on in the picker's source filter row (All · each add-on), with where it stands.
+    struct SourceChip: Identifiable, Equatable {
+        enum Status: Equatable {
+            /// Still answering (or a Retry is out): more streams may come.
+            case loading
+            /// Answered with playable streams; `count` of them.
+            case ready
+            /// Failed or timed out (STAB-04); it has a Retry row.
+            case failed
+        }
+        let id: String           // addonId
+        let name: String
+        let status: Status
+        /// Playable streams listed for this add-on right now.
+        let count: Int
+    }
+
     /// STAB-07: the row pinned above the groups. Fixed once chosen, so it never swaps under focus.
     struct BestMatch {
         let groupId: String
@@ -60,6 +77,11 @@ final class StreamsViewModel: ObservableObject {
     @Published private(set) var groups: [Group] = []
     /// STAB-04: failed addons, in install order, rendered after the playable groups.
     @Published private(set) var failedGroups: [FailedGroup] = []
+    /// The source filter row's add-ons, in install order: those with playable streams, still
+    /// loading, or failed. An add-on that answered with nothing has no chip (mobile parity).
+    @Published private(set) var sources: [SourceChip] = []
+    /// The add-on the list is narrowed to; nil is "All". Cleared when that add-on leaves the row.
+    @Published private(set) var selectedAddonId: String?
     /// STAB-07: nil until every addon has answered (or the last-used source turns up).
     @Published private(set) var bestMatch: BestMatch?
     /// F10: the first addon group in install order that has playable streams — auto-expanded once.
@@ -168,6 +190,9 @@ final class StreamsViewModel: ObservableObject {
     var showFileSizeBadges: Bool { badgeSettings?.showFileSizeBadges ?? true }
     var showAddonLogo: Bool { badgeSettings?.showAddonLogo ?? false }
     var badgesOnTop: Bool { badgeSettings?.badgePlacement == .top }
+    /// Stream background setting (Cinematic = the title's artwork behind the list, Normal = the
+    /// plain background). Unset or not loaded yet reads as Cinematic, what the picker always was.
+    var cinematicBackground: Bool { badgeSettings?.backgroundMode != .normal }
 
     static func rowKey(groupId: String, index: Int) -> String { "\(groupId)#\(index)" }
 
@@ -484,6 +509,24 @@ final class StreamsViewModel: ObservableObject {
         return ordered
     }
 
+    /// Narrows the list to one add-on (its id), or back to every add-on (nil).
+    func selectSource(_ addonId: String?) {
+        guard selectedAddonId != addonId else { return }
+        selectedAddonId = addonId
+    }
+
+    /// The groups the list shows: all of them, or the selected add-on's.
+    var visibleGroups: [Group] {
+        guard let selectedAddonId else { return groups }
+        return groups.filter { $0.id == selectedAddonId }
+    }
+
+    /// The failed add-ons the list shows (same narrowing).
+    var visibleFailedGroups: [FailedGroup] {
+        guard let selectedAddonId else { return failedGroups }
+        return failedGroups.filter { $0.id == selectedAddonId }
+    }
+
     /// STAB-04: Retry on a failed addon row. Refetches that addon alone; falls back to a full
     /// reload when the repository can't (plugin group, or the request has been replaced).
     func retry(addonId: String) {
@@ -580,6 +623,8 @@ final class StreamsViewModel: ObservableObject {
         lastState = nil
         groups = []
         failedGroups = []
+        sources = []
+        selectedAddonId = nil
         bestMatch = nil
         topPickKey = nil
         frozenOrder = [:]
@@ -610,6 +655,7 @@ final class StreamsViewModel: ObservableObject {
 
         var playableGroups: [Group] = []
         var failed: [FailedGroup] = []
+        var chips: [SourceChip] = []
         // F10: walk install order; the first addon with playable streams is the one to expand,
         // unless an addon before it is still loading (it may still bring streams of its own).
         var expandTarget: String?
@@ -620,6 +666,9 @@ final class StreamsViewModel: ObservableObject {
             let playable = group.streams.filter { stream in
                 let direct: String? = stream.playableDirectUrl
                 if !(direct ?? "").isEmpty { return true }
+                // A stream that is only a YouTube id resolves on the device at click time.
+                let youTubeId: String? = stream.youTubeIdToResolve
+                if !(youTubeId ?? "").isEmpty { return true }
                 // Torrent / clientResolve results from installed addons resolve at click time
                 // through the in-app debrid connection (DirectDebridPlaybackResolver).
                 return debridEnabled && stream.isAddonDebridCandidate
@@ -640,6 +689,8 @@ final class StreamsViewModel: ObservableObject {
                     isLoading: group.isLoading,
                     qualitySummary: qualitySummary(ranked)
                 ))
+                chips.append(SourceChip(id: group.addonId, name: group.addonName,
+                                        status: group.isLoading ? .loading : .ready, count: ranked.count))
                 if !expandDecided { expandTarget = group.addonId; expandDecided = true }
             } else if group.streams.isEmpty, let error, !error.isEmpty, !group.isLoading {
                 failed.append(FailedGroup(
@@ -648,6 +699,7 @@ final class StreamsViewModel: ObservableObject {
                     message: Self.failureMessage(addonName: group.addonName, error: error),
                     isRetrying: false
                 ))
+                chips.append(SourceChip(id: group.addonId, name: group.addonName, status: .failed, count: 0))
             } else if retrying && group.isLoading {
                 // Keep the row (and its focus) in place while the retry runs.
                 let previous = failedGroups.first { $0.id == group.addonId }
@@ -660,10 +712,20 @@ final class StreamsViewModel: ObservableObject {
             } else if group.isLoading, !expandDecided {
                 expandDecided = true      // an earlier addon is still out: wait for it
             }
+            // Still out (or being retried) and not listed above: its chip spins until it answers.
+            if group.isLoading, !chips.contains(where: { $0.id == group.addonId }) {
+                chips.append(SourceChip(id: group.addonId, name: group.addonName, status: .loading, count: 0))
+            }
         }
         rowInfos = infos
         groups = playableGroups
         failedGroups = failed
+        if sources != chips { sources = chips }
+        // The selected add-on is gone from the row (it answered with nothing, or a new list): back
+        // to All. Not while something is still loading — a refresh briefly empties every group.
+        if let selected = selectedAddonId, !state.isAnyLoading, !chips.contains(where: { $0.id == selected }) {
+            selectedAddonId = nil
+        }
         if autoExpandGroupId == nil, let expandTarget { autoExpandGroupId = expandTarget }
         firstRowKey = groups.first.map { Self.rowKey(groupId: $0.id, index: 0) }
         updateBestMatch(allAnswered: !state.isAnyLoading)

@@ -22,11 +22,14 @@ final class CloudLibraryViewModel: ObservableObject {
     private var watcher: FlowWatcher?
 
     func start() {
-        guard watcher == nil else { return }
-        watcher = FlowWatcherKt.watch(CloudLibraryRepository.shared.uiState) { [weak self] emitted in
-            guard let self, let value = emitted as? CloudLibraryUiState else { return }
-            self.state = value
+        if watcher == nil {
+            watcher = FlowWatcherKt.watch(CloudLibraryRepository.shared.uiState) { [weak self] emitted in
+                guard let self, let value = emitted as? CloudLibraryUiState else { return }
+                self.state = value
+            }
         }
+        // Every appearance, not only the first: the Cloud Library switch lives in Settings, so the
+        // enabled flag (and the connected providers) may have changed since this tab last showed.
         CloudLibraryRepository.shared.ensureLoaded()
     }
 
@@ -44,6 +47,19 @@ final class CloudLibraryViewModel: ObservableObject {
     var providers: [CloudLibraryProviderState] { state?.providers ?? [] }
     var hasConnectedProvider: Bool { state?.hasConnectedProvider ?? false }
     var isRefreshing: Bool { state?.isRefreshing ?? false }
+
+    /// The cloud library is switched off (here, or by a setting synced from another device) while a
+    /// cloud-capable provider is connected. The Library offers a one-press way back instead of
+    /// silently hiding the source.
+    var isDisabledByUser: Bool {
+        guard let state, state.isEnabled == false else { return false }
+        return DebridSettingsRepository.shared.snapshot().hasCloudLibraryProvider
+    }
+
+    func enable() {
+        DebridSettingsRepository.shared.setCloudLibraryEnabled(value: true)
+        CloudLibraryRepository.shared.refresh()
+    }
 
     func play(item: CloudLibraryItem, file: CloudLibraryFile) {
         guard resolvingFileKey == nil else { return }

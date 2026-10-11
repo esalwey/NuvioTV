@@ -86,6 +86,16 @@ enum RemoteSetupWebPage {
   .toggle input:checked + span { background: var(--accent); }
   .toggle input:checked + span::after { left: 21px; }
   .empty { color: var(--dim); font-size: 14px; padding: 8px 2px; }
+  .fieldlabel { display: block; margin: 12px 0 4px; font-size: 14px; font-weight: 600; }
+  textarea {
+    width: 100%; min-height: 64px; background: var(--card2); border: 1px solid #2a3245;
+    border-radius: 8px; color: var(--text); font: 14px/1.4 ui-monospace, Menlo, Consolas, monospace;
+    padding: 10px 12px; resize: vertical;
+  }
+  details { margin-top: 12px; color: var(--dim); font-size: 13px; }
+  details summary { cursor: pointer; color: var(--text); }
+  .vars { margin-top: 8px; font: 12px/1.7 ui-monospace, Menlo, Consolas, monospace; word-break: break-word; }
+  .vars span { display: inline-block; background: var(--card2); border-radius: 6px; padding: 0 6px; margin: 0 4px 4px 0; }
 </style>
 </head>
 <body>
@@ -120,6 +130,23 @@ enum RemoteSetupWebPage {
     </div>
   </section>
 
+  <section id="debrid-section" style="display:none">
+    <h2>Debrid Result Format</h2>
+    <p class="hint">Templates control how each debrid result is named and described on the TV. Leave a field blank to keep the add-on's original text. Placeholders look like {stream.resolution}.</p>
+    <label class="fieldlabel" for="debrid-name">Name</label>
+    <textarea id="debrid-name" rows="2" autocapitalize="off" autocorrect="off" spellcheck="false"></textarea>
+    <label class="fieldlabel" for="debrid-description">Description</label>
+    <textarea id="debrid-description" rows="6" autocapitalize="off" autocorrect="off" spellcheck="false"></textarea>
+    <div class="addbar">
+      <button onclick="resetTemplates()">Reset to defaults</button>
+    </div>
+    <details>
+      <summary>Placeholders</summary>
+      <p>Add a condition for a fallback: {stream.resolution::exists["{stream.resolution} "||""]}</p>
+      <div class="vars" id="debrid-vars"></div>
+    </details>
+  </section>
+
   <section>
     <h2>API Keys</h2>
     <p class="hint">Optional. TMDB enriches titles (cast, studios, collections); MDBList adds IMDb/RT/Metacritic ratings. Keys are only sent when you enter one.</p>
@@ -145,6 +172,7 @@ let addons = [];   // {url, name, description, enabled, isNew}
 let badgePacks = [];      // source URLs already imported on the TV (read-only here)
 let stagedBadgeUrls = []; // pack URLs staged for import on Send
 let rows = [];     // {key, title, enabled, isCollection}
+let debrid = { available: false };       // templates as saved on the TV (see /api/state)
 
 const el = id => document.getElementById(id);
 const esc = s => (s || "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
@@ -166,6 +194,11 @@ async function load() {
     addons = (state.addons || []).map(a => ({ ...a, isNew: false }));
     rows = state.rows || [];
     badgePacks = state.badgePacks || [];
+    debrid = state.debrid || { available: false };
+    el("debrid-section").style.display = debrid.available ? "" : "none";
+    el("debrid-name").value = debrid.nameTemplate || "";
+    el("debrid-description").value = debrid.descriptionTemplate || "";
+    el("debrid-vars").innerHTML = (debrid.variables || []).map(v => `<span>{${esc(v)}}</span>`).join("");
     if (state.tmdbKeySet) el("tmdb-key").placeholder = "Saved on TV — enter to replace";
     if (state.mdblistKeySet) el("mdblist-key").placeholder = "Saved on TV — enter to replace";
     render();
@@ -226,6 +259,11 @@ function render() {
     </div>`).join("") : `<div class="empty">Rows appear after add-ons load.</div>`;
 }
 
+function resetTemplates() {
+  el("debrid-name").value = debrid.defaultNameTemplate || "";
+  el("debrid-description").value = debrid.defaultDescriptionTemplate || "";
+}
+
 function addBadgeUrl() {
   const input = el("badge-url");
   const url = input.value.trim();
@@ -263,6 +301,12 @@ async function apply() {
   if (tmdb) payload.tmdbKey = tmdb;
   if (mdbl) payload.mdblistKey = mdbl;
   if (stagedBadgeUrls.length) payload.badgeUrls = stagedBadgeUrls.slice();
+  if (debrid.available) {
+    // Only what changed, so an untouched field never overwrites a template edited on the TV.
+    const name = el("debrid-name").value, description = el("debrid-description").value;
+    if (name !== (debrid.nameTemplate || "")) payload.debridNameTemplate = name;
+    if (description !== (debrid.descriptionTemplate || "")) payload.debridDescriptionTemplate = description;
+  }
 
   try {
     const res = await fetch("/api/apply", {

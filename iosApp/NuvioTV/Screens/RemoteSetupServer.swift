@@ -39,6 +39,10 @@ final class RemoteSetupServer {
         let mdblistKey: String?
         /// Stream badge pack JSON URLs to import (staged additions only; removal happens on TV).
         let badgeUrls: [String]?
+        /// Debrid result name / description templates. Each is only sent when the user changed it
+        /// (a blank string is a real value: "use the add-on's original text").
+        let debridNameTemplate: String?
+        let debridDescriptionTemplate: String?
     }
 
     enum ChangeStatus: String {

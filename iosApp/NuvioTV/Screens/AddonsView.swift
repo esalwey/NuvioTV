@@ -163,6 +163,8 @@ private struct AddonsList: View {
                     isRefreshing: addon.isRefreshing,
                     errorMessage: addon.manifest == nil ? errorMessage : nil,
                     locked: model.managedByPrimary,
+                    canMoveUp: model.canMoveUp(addon),
+                    canMoveDown: model.canMoveDown(addon),
                     onToggle: {
                         if model.managedByPrimary {
                             showsManagedByPrimaryNotice = true
@@ -170,6 +172,8 @@ private struct AddonsList: View {
                             model.setEnabled(addon, !addon.enabled)
                         }
                     },
+                    onMoveUp: { model.moveUp(addon) },
+                    onMoveDown: { model.moveDown(addon) },
                     onRetry: { model.retry(addon) },
                     onRemove: { addonPendingRemoval = addon }
                 )
@@ -180,7 +184,8 @@ private struct AddonsList: View {
     }
 }
 
-/// A focusable add-on row. Select toggles enabled/disabled; long-press (context menu) removes.
+/// A focusable add-on row. Select toggles enabled/disabled; long-press (context menu) moves it up
+/// or down the install order, or removes it.
 /// A plain `Button` in a `List`, so the system draws the focus platter and inverts the labels.
 /// State is a filled checkmark versus an empty circle plus the "Enabled"/"Disabled" text, never
 /// colour alone.
@@ -194,7 +199,12 @@ private struct AddonRow: View {
     var errorMessage: String? = nil
     /// ADD-2: the profile uses the main profile's add-ons — no toggle, no remove.
     var locked: Bool = false
+    /// Position in the install order allows a move (false at the ends, and when locked).
+    var canMoveUp: Bool = false
+    var canMoveDown: Bool = false
     let onToggle: () -> Void
+    let onMoveUp: () -> Void
+    let onMoveDown: () -> Void
     let onRetry: () -> Void
     let onRemove: () -> Void
 
@@ -237,6 +247,15 @@ private struct AddonRow: View {
                 }
             }
             if !locked {
+                // Install order: the order catalogs and sources are asked in.
+                Button(action: onMoveUp) {
+                    Label("Move Up", systemImage: "arrow.up")
+                }
+                .disabled(!canMoveUp)
+                Button(action: onMoveDown) {
+                    Label("Move Down", systemImage: "arrow.down")
+                }
+                .disabled(!canMoveDown)
                 Button(role: .destructive, action: onRemove) {
                     Label("Remove Add-on", systemImage: "trash")
                 }

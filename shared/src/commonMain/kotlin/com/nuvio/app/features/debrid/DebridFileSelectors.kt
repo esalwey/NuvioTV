@@ -2,58 +2,31 @@ package com.nuvio.app.features.debrid
 
 import com.nuvio.app.features.streams.StreamClientResolve
 
+// Requested-file selection (ported from upstream 6aa42153d "select requested episode files").
+//
+// The shared rules live in `selectDebridFile`: a stream that names its file wins when it matches
+// exactly one playable file; otherwise the requested season/episode picks the file; a title that
+// names a file or episode but matches nothing (or several files) selects NOTHING instead of
+// falling back to another episode of the pack. Only a bare movie-like stream (no name, no
+// episode) falls back to the torrent file index and then to the largest playable video.
+
 class TorboxFileSelector {
     fun selectFile(
         files: List<TorboxTorrentFileDto>,
         resolve: StreamClientResolve,
         season: Int?,
         episode: Int?,
-    ): TorboxTorrentFileDto? {
-        val playable = files.filter { it.isPlayableVideo() }
-        if (playable.isEmpty()) return null
-
-        val episodePatterns = buildEpisodePatterns(
-            season = season ?: resolve.season,
-            episode = episode ?: resolve.episode,
-        )
-        val names = resolve.specificFileNames(episodePatterns)
-        if (names.isNotEmpty()) {
-            playable.firstNameMatch(names) { it.displayName() }?.let {
-                return it
-            }
-        }
-
-        if (episodePatterns.isNotEmpty()) {
-            playable.firstOrNull { file ->
-                val fileName = file.displayName().lowercase()
-                episodePatterns.any { pattern -> fileName.contains(pattern) }
-            }?.let {
-                return it
-            }
-        }
-
-        resolve.fileIdx?.let { fileIdx ->
-            files.getOrNull(fileIdx)?.takeIf { it.isPlayableVideo() }?.let {
-                return it
-            }
-            if (fileIdx > 0) {
-                files.getOrNull(fileIdx - 1)?.takeIf { it.isPlayableVideo() }?.let {
-                    return it
-                }
-            }
-            playable.firstOrNull { it.id == fileIdx }?.let {
-                return it
-            }
-        }
-
-        return playable.maxByOrNull { it.size ?: 0L }
-    }
-
-    private fun TorboxTorrentFileDto.isPlayableVideo(): Boolean {
-        val mime = mimeType.orEmpty().lowercase()
-        if (mime.startsWith("video/")) return true
-        return displayName().lowercase().hasVideoExtension()
-    }
+    ): TorboxTorrentFileDto? = selectDebridFile(
+        files = files,
+        resolve = resolve,
+        season = season,
+        episode = episode,
+        path = { it.displayName() },
+        isPlayable = {
+            it.mimeType.orEmpty().startsWith("video/", ignoreCase = true) || it.displayName().hasVideoExtension()
+        },
+        size = { it.size ?: 0L },
+    )
 }
 
 class RealDebridFileSelector {
@@ -62,49 +35,15 @@ class RealDebridFileSelector {
         resolve: StreamClientResolve,
         season: Int?,
         episode: Int?,
-    ): RealDebridTorrentFileDto? {
-        val playable = files.filter { it.isPlayableVideo() }
-        if (playable.isEmpty()) return null
-
-        val episodePatterns = buildEpisodePatterns(
-            season = season ?: resolve.season,
-            episode = episode ?: resolve.episode,
-        )
-        val names = resolve.specificFileNames(episodePatterns)
-        if (names.isNotEmpty()) {
-            playable.firstNameMatch(names) { it.displayName() }?.let {
-                return it
-            }
-        }
-
-        if (episodePatterns.isNotEmpty()) {
-            playable.firstOrNull { file ->
-                val fileName = file.displayName().lowercase()
-                episodePatterns.any { pattern -> fileName.contains(pattern) }
-            }?.let {
-                return it
-            }
-        }
-
-        resolve.fileIdx?.let { fileIdx ->
-            files.getOrNull(fileIdx)?.takeIf { it.isPlayableVideo() }?.let {
-                return it
-            }
-            if (fileIdx > 0) {
-                files.getOrNull(fileIdx - 1)?.takeIf { it.isPlayableVideo() }?.let {
-                    return it
-                }
-            }
-            playable.firstOrNull { it.id == fileIdx }?.let {
-                return it
-            }
-        }
-
-        return playable.maxByOrNull { it.bytes ?: 0L }
-    }
-
-    private fun RealDebridTorrentFileDto.isPlayableVideo(): Boolean =
-        displayName().lowercase().hasVideoExtension()
+    ): RealDebridTorrentFileDto? = selectDebridFile(
+        files = files,
+        resolve = resolve,
+        season = season,
+        episode = episode,
+        path = { it.path.orEmpty() },
+        isPlayable = { it.displayName().hasVideoExtension() },
+        size = { it.bytes ?: 0L },
+    )
 }
 
 class PremiumizeDirectDownloadFileSelector {
@@ -113,46 +52,15 @@ class PremiumizeDirectDownloadFileSelector {
         resolve: StreamClientResolve,
         season: Int?,
         episode: Int?,
-    ): PremiumizeDirectDownloadFileDto? {
-        val playable = files.filter { it.isPlayableVideo() }
-        if (playable.isEmpty()) return null
-
-        val episodePatterns = buildEpisodePatterns(
-            season = season ?: resolve.season,
-            episode = episode ?: resolve.episode,
-        )
-        val names = resolve.specificFileNames(episodePatterns)
-        if (names.isNotEmpty()) {
-            playable.firstNameMatch(names) { it.displayName() }?.let {
-                return it
-            }
-        }
-
-        if (episodePatterns.isNotEmpty()) {
-            playable.firstOrNull { file ->
-                val fileName = file.displayName().lowercase()
-                episodePatterns.any { pattern -> fileName.contains(pattern) }
-            }?.let {
-                return it
-            }
-        }
-
-        resolve.fileIdx?.let { fileIdx ->
-            files.getOrNull(fileIdx)?.takeIf { it.isPlayableVideo() }?.let {
-                return it
-            }
-            if (fileIdx > 0) {
-                files.getOrNull(fileIdx - 1)?.takeIf { it.isPlayableVideo() }?.let {
-                    return it
-                }
-            }
-        }
-
-        return playable.maxByOrNull { it.size ?: 0L }
-    }
-
-    private fun PremiumizeDirectDownloadFileDto.isPlayableVideo(): Boolean =
-        !link.isNullOrBlank() && displayName().lowercase().hasVideoExtension()
+    ): PremiumizeDirectDownloadFileDto? = selectDebridFile(
+        files = files,
+        resolve = resolve,
+        season = season,
+        episode = episode,
+        path = { it.path.orEmpty() },
+        isPlayable = { !it.link.isNullOrBlank() && it.displayName().hasVideoExtension() },
+        size = { it.size ?: 0L },
+    )
 }
 
 fun PremiumizeDirectDownloadFileDto.displayName(): String =
@@ -199,86 +107,92 @@ class AllDebridFileSelector {
         resolve: StreamClientResolve,
         season: Int?,
         episode: Int?,
-    ): AllDebridFlatFile? {
-        val playable = files.filter { it.isPlayableVideo() }
-        if (playable.isEmpty()) return null
-
-        val episodePatterns = buildEpisodePatterns(
-            season = season ?: resolve.season,
-            episode = episode ?: resolve.episode,
-        )
-        val names = resolve.specificFileNames(episodePatterns)
-        if (names.isNotEmpty()) {
-            playable.firstNameMatch(names) { it.displayName() }?.let {
-                return it
-            }
-        }
-
-        if (episodePatterns.isNotEmpty()) {
-            playable.firstOrNull { file ->
-                val fileName = file.displayName().lowercase()
-                episodePatterns.any { pattern -> fileName.contains(pattern) }
-            }?.let {
-                return it
-            }
-        }
-
-        // AllDebrid's file tree has no stable per-file index (unlike Torbox/RealDebrid), so there
-        // is no fileIdx-based lookup here — just fall back to the largest playable video.
-        return playable.maxByOrNull { it.size ?: 0L }
-    }
-
-    private fun AllDebridFlatFile.isPlayableVideo(): Boolean =
-        name.lowercase().hasVideoExtension()
+    ): AllDebridFlatFile? = selectDebridFile(
+        files = files,
+        resolve = resolve,
+        season = season,
+        episode = episode,
+        path = { it.name },
+        isPlayable = { it.name.hasVideoExtension() },
+        size = { it.size ?: 0L },
+        // AllDebrid's file tree has no stable per-file index (unlike Torbox/RealDebrid), so a
+        // fileIdx is never used to pick a file here: fall back to the largest playable video.
+        useFileIndex = false,
+    )
 }
 
-private fun String.normalizedName(): String =
-    substringAfterLast('/')
-        .substringBeforeLast('.')
-        .lowercase()
-        .replace(Regex("[^a-z0-9]+"), " ")
-        .trim()
+internal fun <T> selectDebridFile(
+    files: List<T>,
+    resolve: StreamClientResolve,
+    season: Int?,
+    episode: Int?,
+    path: (T) -> String,
+    isPlayable: (T) -> Boolean,
+    size: (T) -> Long,
+    useFileIndex: Boolean = true,
+): T? {
+    val playable = files.filter(isPlayable)
+    if (playable.isEmpty()) return null
 
-private fun StreamClientResolve.specificFileNames(episodePatterns: List<String>): List<String> {
-    val raw = stream?.raw
-    return listOfNotNull(
-        filename,
-        raw?.filename,
-        raw?.parsed?.rawTitle?.takeIf { it.looksSpecificForSelection(episodePatterns) },
-        torrentName?.takeIf { it.looksSpecificForSelection(episodePatterns) },
-    )
-        .map { it.normalizedName() }
+    val names = listOfNotNull(resolve.filename, resolve.stream?.raw?.filename)
+        .map { it.normalizedPath() }
         .filter { it.isNotBlank() }
         .distinct()
-}
-
-private fun String.looksSpecificForSelection(episodePatterns: List<String>): Boolean {
-    val lower = lowercase()
-    return lower.hasVideoExtension() || episodePatterns.any { pattern -> lower.contains(pattern) }
-}
-
-private fun <T> List<T>.firstNameMatch(
-    names: List<String>,
-    displayName: (T) -> String,
-): T? =
-    firstOrNull { item ->
-        val fileName = displayName(item).normalizedName()
-        names.any { name -> fileName.contains(name) || name.contains(fileName) }
+    for (name in names) {
+        val matches = playable.matchingFiles(name, path)
+        if (matches.isNotEmpty()) return matches.singleOrNull()
     }
 
-private fun buildEpisodePatterns(season: Int?, episode: Int?): List<String> {
-    if (season == null || episode == null) return emptyList()
-    val seasonTwo = season.toString().padStart(2, '0')
-    val episodeTwo = episode.toString().padStart(2, '0')
-    return listOf(
-        "s${seasonTwo}e$episodeTwo",
-        "${season}x$episodeTwo",
-        "${season}x$episode",
+    val episodePattern = buildEpisodePattern(season ?: resolve.season, episode ?: resolve.episode)
+    if (episodePattern != null) {
+        val matches = playable.filter {
+            episodePattern.containsMatchIn(path(it).normalizedPath().substringAfterLast('/'))
+        }
+        if (matches.isNotEmpty()) return matches.singleOrNull()
+    }
+
+    if (names.isNotEmpty() || episodePattern != null) return null
+
+    if (useFileIndex) {
+        resolve.fileIdx?.let { index ->
+            return files.getOrNull(index)?.takeIf(isPlayable)
+        }
+    }
+
+    return playable.maxByOrNull(size)
+}
+
+private fun String.normalizedPath(): String = trim().replace('\\', '/').removePrefix("/")
+
+private fun <T> List<T>.matchingFiles(name: String, path: (T) -> String): List<T> {
+    // Exact (case-sensitive) before case-insensitive, full path before bare file name.
+    for (ignoreCase in listOf(false, true)) {
+        val matches = filter {
+            val filePath = path(it).normalizedPath()
+            filePath.equals(name, ignoreCase = ignoreCase) ||
+                (name.contains('/') && filePath.endsWith("/$name", ignoreCase = ignoreCase))
+        }
+        if (matches.isNotEmpty()) return matches
+    }
+    val basename = name.substringAfterLast('/')
+    for (ignoreCase in listOf(false, true)) {
+        val matches = filter {
+            path(it).normalizedPath().substringAfterLast('/').equals(basename, ignoreCase = ignoreCase)
+        }
+        if (matches.isNotEmpty()) return matches
+    }
+    return emptyList()
+}
+
+private fun buildEpisodePattern(season: Int?, episode: Int?): Regex? {
+    if (season == null || episode == null) return null
+    return Regex(
+        "(?<![a-z0-9])(?:s0*${season}e0*${episode}|0*${season}x0*${episode})(?![0-9])",
+        RegexOption.IGNORE_CASE,
     )
 }
 
-private fun String.hasVideoExtension(): Boolean =
-    videoExtensions.any { endsWith(it) }
+private fun String.hasVideoExtension(): Boolean = videoExtensions.any { endsWith(it, ignoreCase = true) }
 
 private val videoExtensions = setOf(
     ".mp4",

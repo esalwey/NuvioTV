@@ -27,6 +27,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.encodeToJsonElement
 import kotlinx.serialization.json.put
+import kotlin.time.TimeSource
 
 // tvOS port of composeApp fullCommonMain PluginRepository (compose-resource strings replaced
 // with literals; `actual` dropped - :shared has no expect). Same NSUserDefaults storage keys and
@@ -315,6 +316,44 @@ object PluginRepository {
             mediaType = mediaType,
             season = season,
             episode = episode,
+        )
+    }
+
+    /**
+     * The Settings "Test" action: runs one provider on the fixed sample ([PLUGIN_TEST_TMDB_ID]: a
+     * movie, or S1E1 for a series-only provider) and reports how it went. Never throws: a failure
+     * or the runtime's 60 s limit comes back inside the report. `Result` does not cross to Swift
+     * well, so this is the Swift-facing entry point (`testScraper` above is not).
+     */
+    suspend fun runScraperTest(scraperId: String): PluginTestReport {
+        initialize()
+        val scraper = _uiState.value.scrapers.find { it.id == scraperId }
+            ?: return buildPluginTestReport(
+                scraperName = "Provider",
+                mediaType = "movie",
+                season = null,
+                episode = null,
+                elapsedMs = 0L,
+                outcome = Result.failure(IllegalArgumentException("Provider not found.")),
+            )
+        val mediaType = if (scraper.supportsType("movie")) "movie" else "tv"
+        val season = if (mediaType == "tv") 1 else null
+        val episode = if (mediaType == "tv") 1 else null
+        val startedAt = TimeSource.Monotonic.markNow()
+        val outcome = executeScraper(
+            scraper = scraper,
+            tmdbId = PLUGIN_TEST_TMDB_ID,
+            mediaType = mediaType,
+            season = season,
+            episode = episode,
+        )
+        return buildPluginTestReport(
+            scraperName = scraper.name,
+            mediaType = mediaType,
+            season = season,
+            episode = episode,
+            elapsedMs = startedAt.elapsedNow().inWholeMilliseconds,
+            outcome = outcome,
         )
     }
 

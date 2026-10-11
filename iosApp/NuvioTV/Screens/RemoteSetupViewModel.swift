@@ -35,6 +35,7 @@ final class RemoteSetupViewModel: ObservableObject {
     private var tmdbWatcher: FlowWatcher?
     private var mdbListWatcher: FlowWatcher?
     private var badgeWatcher: FlowWatcher?
+    private var debridWatcher: FlowWatcher?
 
     // Cached snapshots (updated by the watchers, read when building state JSON + applying diffs).
     private var addons: [ManagedAddon] = []
@@ -43,6 +44,8 @@ final class RemoteSetupViewModel: ObservableObject {
     private var mdbListKeySet = false
     /// Source URLs of currently imported stream badge packs (shown read-only on the web page).
     private var badgePackUrls: [String] = []
+    /// Debrid result templates as saved on the TV; the web page edits them (nil until first emission).
+    private var debridSettings: DebridSettings?
 
     // MARK: - Lifecycle
 
@@ -125,6 +128,11 @@ final class RemoteSetupViewModel: ObservableObject {
             self.badgePackUrls = state.rules.imports.map(\.sourceUrl)
             self.pushState()
         }
+        debridWatcher = FlowWatcherKt.watch(DebridSettingsRepository.shared.uiState) { [weak self] emitted in
+            guard let self, let state = emitted as? DebridSettings else { return }
+            self.debridSettings = state
+            self.pushState()
+        }
         AddonRepository.shared.initialize()
         TmdbSettingsRepository.shared.ensureLoaded()
         MdbListSettingsRepository.shared.ensureLoaded()
@@ -137,11 +145,13 @@ final class RemoteSetupViewModel: ObservableObject {
         tmdbWatcher?.cancel()
         mdbListWatcher?.cancel()
         badgeWatcher?.cancel()
+        debridWatcher?.cancel()
         addonWatcher = nil
         rowWatcher = nil
         tmdbWatcher = nil
         mdbListWatcher = nil
         badgeWatcher = nil
+        debridWatcher = nil
     }
 
     // MARK: - Confirm / reject
@@ -180,6 +190,17 @@ final class RemoteSetupViewModel: ObservableObject {
         let tmdbKeySet: Bool
         let mdblistKeySet: Bool
         let badgePacks: [String]
+        let debrid: StateDebrid
+    }
+    /// Debrid result formatting. The section only shows on the page while resolving can run, since
+    /// the templates have no effect otherwise.
+    private struct StateDebrid: Encodable {
+        let available: Bool
+        let nameTemplate: String
+        let descriptionTemplate: String
+        let defaultNameTemplate: String
+        let defaultDescriptionTemplate: String
+        let variables: [String]
     }
 
     private func pushState() {
@@ -203,7 +224,15 @@ final class RemoteSetupViewModel: ObservableObject {
             },
             tmdbKeySet: tmdbKeySet,
             mdblistKeySet: mdbListKeySet,
-            badgePacks: badgePackUrls
+            badgePacks: badgePackUrls,
+            debrid: StateDebrid(
+                available: debridSettings?.canResolvePlayableLinks ?? false,
+                nameTemplate: debridSettings?.streamNameTemplate ?? "",
+                descriptionTemplate: debridSettings?.streamDescriptionTemplate ?? "",
+                defaultNameTemplate: DebridStreamSettingsEditor.shared.defaultNameTemplate(),
+                defaultDescriptionTemplate: DebridStreamSettingsEditor.shared.defaultDescriptionTemplate(),
+                variables: DebridStreamSettingsEditor.shared.templateVariables()
+            )
         )
         if let data = try? JSONEncoder().encode(snapshot) {
             server.updateState(data)
@@ -215,6 +244,7 @@ final class RemoteSetupViewModel: ObservableObject {
     private func apply(_ proposal: RemoteSetupServer.Proposal) {
         applyAddons(proposal)
         applyRows(proposal)
+        applyDebridTemplates(proposal)
         if let key = proposal.tmdbKey?.trimmingCharacters(in: .whitespacesAndNewlines), !key.isEmpty {
             TmdbSettingsRepository.shared.setApiKey(value: key)
             TmdbSettingsRepository.shared.setEnabled(value: true)
@@ -270,6 +300,20 @@ final class RemoteSetupViewModel: ObservableObject {
         for entry in proposed where !currentUrls.contains(entry.url) {
             repo.addAddon(rawUrl: entry.url) { _, _ in }
         }
+    }
+
+    /// Templates go through the shared repository, which normalises them (a blank or legacy
+    /// template becomes "use the original text") and syncs them with the profile.
+    private func applyDebridTemplates(_ proposal: RemoteSetupServer.Proposal) {
+        guard proposal.debridNameTemplate != nil || proposal.debridDescriptionTemplate != nil else { return }
+        let repo = DebridSettingsRepository.shared
+        let current = repo.snapshot()
+        // Templates are a few lines; cap them so a malformed page can't hand the engine a huge string.
+        let limit = 4000
+        repo.setStreamTemplates(
+            nameTemplate: String((proposal.debridNameTemplate ?? current.streamNameTemplate).prefix(limit)),
+            descriptionTemplate: String((proposal.debridDescriptionTemplate ?? current.streamDescriptionTemplate).prefix(limit))
+        )
     }
 
     private func applyRows(_ proposal: RemoteSetupServer.Proposal) {
@@ -339,6 +383,9 @@ final class RemoteSetupViewModel: ObservableObject {
 
         if proposal.tmdbKey?.isEmpty == false { parts.append(String(localized: "TMDB key set")) }
         if proposal.mdblistKey?.isEmpty == false { parts.append(String(localized: "MDBList key set")) }
+        if proposal.debridNameTemplate != nil || proposal.debridDescriptionTemplate != nil {
+            parts.append(String(localized: "debrid result format updated"))
+        }
         if let badgeCount = proposal.badgeUrls?.count, badgeCount > 0 {
             parts.append(String(localized: "\(badgeCount) badge pack\(badgeCount == 1 ? "" : "s") imported"))
         }
@@ -365,5 +412,6 @@ final class RemoteSetupViewModel: ObservableObject {
         tmdbWatcher?.cancel()
         mdbListWatcher?.cancel()
         badgeWatcher?.cancel()
+        debridWatcher?.cancel()
     }
 }

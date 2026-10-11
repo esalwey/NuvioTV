@@ -56,4 +56,11 @@ data class TrailerPlaybackSource(
      * unchanged; the extractor stamps it on the way out.
      */
     val videoId: String? = null,
+    /**
+     * The HLS master playlist of the extraction (every quality, with the audio as a rendition), or
+     * null when the video had none. Unlike [progressiveUrl], which may be a video-only variant
+     * playlist, the master plays with sound, so a full-length YouTube stream prefers it
+     * ([com.nuvio.app.features.streams.YouTubeStreamResolver]). Stamped by the extractor.
+     */
+    val masterPlaylistUrl: String? = null,
 )

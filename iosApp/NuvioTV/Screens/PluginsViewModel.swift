@@ -6,6 +6,10 @@ import SharedCore
 /// of mobile's JS plugin stack — QuickJS runtime). Plugin repositories arrive via cloud sync
 /// from the mobile app (SyncManager → PluginSyncProvider); v1 is sync-only, so this exposes the
 /// master switch and per-scraper toggles but no on-TV repo URL entry.
+///
+/// Repositories can also be installed on the TV: by manifest URL, or by the short code that
+/// cutt.ly redirects to one (typing a URL with the remote is slow). Each provider can be run on a
+/// fixed sample title to see what it returns (`testScraper`).
 @MainActor
 final class PluginsViewModel: ObservableObject {
     @Published private(set) var pluginsEnabled = true
@@ -45,13 +49,29 @@ final class PluginsViewModel: ObservableObject {
     @Published private(set) var isInstalling = false
     @Published private(set) var statusMessage: String?
 
-    /// Installs a repository by manifest URL (the shared repo normalizes and appends
-    /// /manifest.json). Also pushes to the account so other devices pick it up.
+    /// Installs a repository by manifest URL, or by short code (resolved through its cutt.ly
+    /// redirect first). The shared repo normalizes the URL and appends /manifest.json. Also pushes
+    /// to the account so other devices pick it up.
     func addRepository(_ rawUrl: String) {
-        let url = rawUrl.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !url.isEmpty else { return }
+        let input = rawUrl.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !input.isEmpty, !isInstalling else { return }
         isInstalling = true
         statusMessage = nil
+        guard PluginRepositoryInput.shared.isShortCode(input: input) else {
+            install(url: input)
+            return
+        }
+        Task { @MainActor in
+            guard let resolved = await PluginShortCodeResolver.resolve(code: input) else {
+                self.isInstalling = false
+                self.statusMessage = String(localized: "Couldn't find a repository for the code \(input).")
+                return
+            }
+            self.install(url: resolved)
+        }
+    }
+
+    private func install(url: String) {
         PluginRepository.shared.addRepository(rawUrl: url) { [weak self] result, error in
             Task { @MainActor in
                 guard let self else { return }
@@ -64,6 +84,35 @@ final class PluginsViewModel: ObservableObject {
                     self.statusMessage = String(localized: "Installed \(success.repository.name).")
                 } else {
                     self.statusMessage = String(localized: "Couldn't install that URL.")
+                }
+            }
+        }
+    }
+
+    // MARK: - Provider test
+
+    /// The last test report of each provider, by scraper id (kept while the page is open).
+    @Published private(set) var testReports: [String: PluginTestReport] = [:]
+    /// The provider being tested; one test runs at a time.
+    @Published private(set) var testingScraperId: String?
+    /// Why a test could not run at all (the report itself carries a provider's own failure).
+    @Published private(set) var testFailure: String?
+
+    /// Runs `scraper` on the fixed sample (a movie, or S1E1 for a series-only provider) through the
+    /// same runtime the stream list uses, and keeps the report. The runtime gives up after 60 s.
+    func testScraper(_ scraper: PluginScraper) {
+        guard testingScraperId == nil else { return }
+        testingScraperId = scraper.id
+        testFailure = nil
+        PluginRepository.shared.runScraperTest(scraperId: scraper.id) { [weak self] report, error in
+            Task { @MainActor in
+                guard let self else { return }
+                self.testingScraperId = nil
+                if let report {
+                    self.testReports[scraper.id] = report
+                } else {
+                    self.testFailure = error?.localizedDescription
+                        ?? String(localized: "The test could not run.")
                 }
             }
         }

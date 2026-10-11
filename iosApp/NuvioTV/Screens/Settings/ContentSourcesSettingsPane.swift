@@ -213,7 +213,7 @@ struct ContentSourcesSettingsPane: View {
     /// phone and arrive via cloud sync (sync-only v1) — reflected in the empty-state copy.
     @ViewBuilder
     private var pluginsSection: some View {
-        Text("JS plugin providers add extra stream sources. Install a repository by its manifest URL \u{2014} it syncs to your other Nuvio devices automatically.")
+        Text("JS plugin providers add extra stream sources. Install a repository by its manifest URL or its short code \u{2014} it syncs to your other Nuvio devices automatically.")
             .font(Theme.Font.caption)
             .foregroundStyle(Theme.Palette.textSecondary)
             .frame(maxWidth: 1100, alignment: .leading)
@@ -291,6 +291,15 @@ struct ContentSourcesSettingsPane: View {
             ) {
                 plugins.refreshAll()
             }
+            if !plugins.scrapers.isEmpty {
+                SettingsLinkRow(
+                    title: String(localized: "Test Providers"),
+                    subtitle: String(localized: "Run a provider on a sample title and see what it returns."),
+                    systemImage: "stethoscope"
+                ) {
+                    PluginProviderTestView(plugins: plugins)
+                }
+            }
         }
     }
 }
@@ -329,7 +338,7 @@ private struct PluginRepoEntryRow: View {
     // Same shape as `TmdbKeyEntryRow`: two plain List rows, no glass.
     var body: some View {
         Group {
-            TextField("Repository manifest URL", text: $url)
+            TextField("Repository URL or short code", text: $url)
                 .font(Theme.Font.body)
                 .textContentType(.URL)
                 .autocorrectionDisabled()

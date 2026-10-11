@@ -275,6 +275,29 @@ struct AccountServicesSettingsPane: View {
                 }
             )
         }
+
+        // Filters, sorting, limits, link preparation and result formatting only apply while
+        // resolving is on with a resolve-capable provider connected.
+        if debrid.canResolvePlayableLinks {
+            SettingsLinkRow(
+                title: String(localized: "Debrid Streams"),
+                subtitle: String(localized: "Filters, sorting, link preparation and result formatting."),
+                systemImage: "slider.horizontal.3"
+            ) {
+                DebridStreamsSettingsView()
+            }
+        }
+
+        if debrid.hasCloudLibraryProvider {
+            SettingsToggleRow(
+                title: String(localized: "Cloud Library"),
+                subtitle: String(localized: "Browse and play files already in your connected accounts."),
+                isOn: Binding(
+                    get: { debrid.cloudLibraryEnabled },
+                    set: { debrid.setCloudLibraryEnabled($0) }
+                )
+            )
+        }
     }
 
     @ViewBuilder

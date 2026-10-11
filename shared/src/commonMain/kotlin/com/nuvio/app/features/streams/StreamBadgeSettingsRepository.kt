@@ -21,12 +21,30 @@ data class StreamBadgeSettingsUiState(
     val showFileSizeBadges: Boolean = true,
     val showAddonLogo: Boolean = false,
     val badgePlacement: StreamBadgePlacement = StreamBadgePlacement.BOTTOM,
+    val backgroundMode: StreamBackgroundMode = DEFAULT_STREAM_BACKGROUND_MODE,
 )
 
 enum class StreamBadgePlacement {
     TOP,
     BOTTOM,
 }
+
+/**
+ * How the stream list is backed: [Normal] is the plain app background, [Cinematic] the title's
+ * artwork behind the list. Synced with the profile (`stream_background_mode`, stored lowercase, as
+ * on mobile). The TV has always shown the artwork, so an unset value reads as [Cinematic] here.
+ */
+enum class StreamBackgroundMode {
+    Normal,
+    Cinematic,
+}
+
+val DEFAULT_STREAM_BACKGROUND_MODE = StreamBackgroundMode.Cinematic
+
+/** The stored value (`"normal"`, `"cinematic"`, any case) as a mode; the default when unknown. */
+fun parseStreamBackgroundMode(stored: String?): StreamBackgroundMode =
+    StreamBackgroundMode.entries.firstOrNull { it.name.equals(stored?.trim(), ignoreCase = true) }
+        ?: DEFAULT_STREAM_BACKGROUND_MODE
 
 object StreamBadgeSettingsRepository {
     private val _uiState = MutableStateFlow(StreamBadgeSettingsUiState())
@@ -43,6 +61,7 @@ object StreamBadgeSettingsRepository {
     private var showFileSizeBadges = true
     private var showAddonLogo = false
     private var badgePlacement = StreamBadgePlacement.BOTTOM
+    private var backgroundMode = DEFAULT_STREAM_BACKGROUND_MODE
 
     fun ensureLoaded() {
         if (hasLoaded) return
@@ -59,6 +78,7 @@ object StreamBadgeSettingsRepository {
         showFileSizeBadges = true
         showAddonLogo = false
         badgePlacement = StreamBadgePlacement.BOTTOM
+        backgroundMode = DEFAULT_STREAM_BACKGROUND_MODE
         _uiState.value = StreamBadgeSettingsUiState()
     }
 
@@ -156,6 +176,14 @@ object StreamBadgeSettingsRepository {
         StreamBadgeSettingsStorage.saveStreamBadgePlacement(placement.name)
     }
 
+    fun setBackgroundMode(mode: StreamBackgroundMode) {
+        ensureLoaded()
+        if (backgroundMode == mode) return
+        backgroundMode = mode
+        publish()
+        StreamBadgeSettingsStorage.saveStreamBackgroundMode(mode.name.lowercase())
+    }
+
     private fun loadFromDisk() {
         hasLoaded = true
         val storedRules = parseStreamBadgeRules(StreamBadgeSettingsStorage.loadStreamBadgeRules())
@@ -174,6 +202,7 @@ object StreamBadgeSettingsRepository {
                 }
             }
             ?: StreamBadgePlacement.BOTTOM
+        backgroundMode = parseStreamBackgroundMode(StreamBadgeSettingsStorage.loadStreamBackgroundMode())
         if (legacyRules != null) {
             saveStreamBadgeRules()
             StreamBadgeSettingsStorage.clearLegacyDebridStreamBadgeRules()
@@ -187,6 +216,7 @@ object StreamBadgeSettingsRepository {
             showFileSizeBadges = showFileSizeBadges,
             showAddonLogo = showAddonLogo,
             badgePlacement = badgePlacement,
+            backgroundMode = backgroundMode,
         )
     }
 

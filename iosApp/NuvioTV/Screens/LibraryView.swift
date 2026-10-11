@@ -37,7 +37,10 @@ struct LibraryView: View {
         )]
     }
 
-    private var showsCloud: Bool { showingCloud && cloud.hasConnectedProvider }
+    /// The Debrid Cloud source exists when a provider is connected, or when it is connected but the
+    /// cloud library has been switched off (the source then explains how to turn it back on).
+    private var cloudSourceAvailable: Bool { cloud.hasConnectedProvider || cloud.isDisabledByUser }
+    private var showsCloud: Bool { showingCloud && cloudSourceAvailable }
 
     var body: some View {
         NavigationStack {
@@ -118,9 +121,9 @@ struct LibraryView: View {
     @ViewBuilder
     private var controlsRow: some View {
         let showsSort = !showsCloud && !model.items.isEmpty && !model.availableSortOptions.isEmpty
-        if cloud.hasConnectedProvider || showsSort {
+        if cloudSourceAvailable || showsSort {
             HStack(spacing: Theme.Spacing.md) {
-                if cloud.hasConnectedProvider {
+                if cloudSourceAvailable {
                     FilterPill(title: String(localized: "Saved"), isSelected: !showingCloud) {
                         showingCloud = false
                     }
@@ -181,6 +184,31 @@ struct LibraryView: View {
 
     @ViewBuilder
     private var cloudContent: some View {
+        if cloud.isDisabledByUser {
+            cloudDisabledState
+        } else {
+            cloudProviders
+        }
+    }
+
+    /// The cloud library is off: a system empty state with the one action that fixes it. Pressing
+    /// it turns the setting on right here rather than sending the user to Settings and back.
+    private var cloudDisabledState: some View {
+        ContentUnavailableView {
+            Label(String(localized: "Cloud Library Is Off"), systemImage: "icloud.slash")
+        } description: {
+            Text("Turn on Cloud Library to browse files from your connected accounts.")
+        } actions: {
+            Button("Turn On Cloud Library") {
+                cloud.enable()
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.top, Theme.Spacing.sectionGap)
+    }
+
+    @ViewBuilder
+    private var cloudProviders: some View {
         if let error = cloud.errorMessage {
             Label(error, systemImage: "exclamationmark.triangle.fill")
                 .font(Theme.Font.caption)
