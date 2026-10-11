@@ -357,25 +357,18 @@ final class ServerPlaybackLink: ObservableObject {
 }
 
 /// A short, non-focusable message over the player ("Couldn’t switch the audio track."). The player
-/// chrome is the one place Liquid Glass belongs, so it is the system material, in a capsule that
-/// clears the safe area; Reduce Transparency swaps it for a plain fill.
+/// chrome is the one place Liquid Glass belongs, so it wears the shared functional glass (which falls
+/// back to an opaque surface under Reduce Transparency), in a capsule that clears the safe area.
 struct ServerNoticeBanner: View {
     let text: String
-    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
 
     var body: some View {
         Text(verbatim: text)
-            .font(.callout.weight(.semibold))
-            .foregroundStyle(.white)
+            .font(Theme.Font.meta)
+            .foregroundStyle(Theme.Palette.textPrimary)
             .padding(.horizontal, Theme.Spacing.lg)
             .padding(.vertical, Theme.Spacing.sm)
-            .background {
-                if reduceTransparency {
-                    Capsule().fill(Color.black.opacity(0.85))
-                } else {
-                    Capsule().fill(.ultraThinMaterial)
-                }
-            }
+            .functionalGlass(in: Capsule())
             .padding(.top, Theme.Spacing.screen)
             .accessibilityAddTraits(.isStaticText)
     }
