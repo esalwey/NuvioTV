@@ -1,6 +1,7 @@
 package com.nuvio.app.features.library
 
 import com.nuvio.app.core.coroutines.uncaughtCoroutineLogger
+import com.nuvio.app.core.tracking.ensureTrackingProvidersRegistered
 import com.nuvio.app.features.tracking.LibraryListPrivacy
 import com.nuvio.app.features.tracking.TrackingLibraryTab
 import com.nuvio.app.features.tracking.TrackingLibraryTabKind
@@ -41,6 +42,7 @@ object LibraryListsBridge {
 
     init {
         scope.launch {
+            ensureTrackingProvidersRegistered()
             val triggers: List<Flow<Unit>> = buildList {
                 add(LibraryRepository.uiState.map { })
                 add(TrackingProviderRegistry.connectedProviderIds.map { })
