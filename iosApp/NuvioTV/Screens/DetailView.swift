@@ -329,6 +329,13 @@ struct DetailView: View {
     /// Library) as icon-only pills. Mirrors AppearanceSettingsPane's "Icon-Only Detail Buttons"
     /// toggle (same @AppStorage key).
     @AppStorage("detail_action_icons_only") private var actionIconsOnly = false
+    /// Mirrors AppearanceSettingsPane's "Trailer Button" toggle (same @AppStorage key). Off hides
+    /// only the explicit action-row button; the background trailer, auto-play and the Trailers row
+    /// keep their own switches.
+    @AppStorage("detail_trailer_button_enabled") private var trailerButtonEnabled = true
+    /// Mirrors AppearanceSettingsPane's "Full Release Date" toggle (same @AppStorage key): a movie's
+    /// meta line then shows its release date instead of the year.
+    @AppStorage("detail_show_full_release_date") private var showFullReleaseDate = false
     /// FEAT-11: whether a full-screen trailer should start with sound instead of muted. Mirrors
     /// PlaybackSettingsPane's "Trailer Sound by Default" toggle (same @AppStorage key) — read here
     /// only to restore the shared `HeroTrailerAudioState` back to this default once a full-screen
@@ -1492,7 +1499,18 @@ struct DetailView: View {
     private var topBlock: some View {
         VStack(alignment: .leading, spacing: Theme.Spacing.lg) {
             header
-            metaLine
+            VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
+                metaLine
+                if let credit = creditLineText {
+                    Text(verbatim: credit)
+                        .font(Theme.Font.meta)
+                        .foregroundStyle(Theme.Palette.textSecondary)
+                        .lineLimit(1)
+                }
+            }
+            if !externalRatings.isEmpty {
+                DetailRatingsStrip(ratings: externalRatings)
+            }
             if let overview, !overview.isEmpty {
                 // AES-10: four lines, with a More / Less button only when it overflows.
                 DetailOverview(text: overview, maxWidth: 880)
@@ -1540,7 +1558,14 @@ struct DetailView: View {
     private var metaFacts: [String] {
         var parts: [String] = []
         let year: String? = model.meta?.releaseInfo ?? preview.releaseInfo
-        if let year, !year.isEmpty { parts.append(year) }
+        // Movies only: a series' "2021 - 2024" span stays a span. Falls back to the year when the
+        // title carries no full date.
+        let releaseDate: String? = model.meta?.releaseDate
+        if showFullReleaseDate, !isSeries, let full = DetailHeroMeta.fullReleaseDate(releaseDate) {
+            parts.append(full)
+        } else if let year, !year.isEmpty {
+            parts.append(year)
+        }
         parts.append(contentsOf: genres.prefix(2))
         let runtime: String? = model.meta?.runtime
         if let runtime, !runtime.isEmpty { parts.append(runtime) }
@@ -1555,7 +1580,9 @@ struct DetailView: View {
                     .lineLimit(1)
             }
             // SET-2: Settings → Appearance → Ratings → Overall Ratings.
-            if model.showOverallRatings, let rating = model.meta?.imdbRating ?? preview.imdbRating, !rating.isEmpty {
+            // The MDBList strip below carries its own IMDb score; don't show two.
+            if model.showOverallRatings, !externalRatingsIncludeIMDb,
+               let rating = model.meta?.imdbRating ?? preview.imdbRating, !rating.isEmpty {
                 HStack(spacing: Theme.Spacing.xxs) {
                     Image(systemName: "star.fill")
                         .foregroundStyle(Theme.Palette.star)
@@ -1565,20 +1592,44 @@ struct DetailView: View {
                 .accessibilityElement(children: .combine)
             }
             if let age = model.meta?.ageRating, !age.isEmpty {
-                Text(verbatim: age)
-                    .font(Theme.Font.caption.weight(.bold))
-                    .padding(.horizontal, Theme.Spacing.xs)
-                    .padding(.vertical, 2)
-                    .overlay {
-                        RoundedRectangle(cornerRadius: Theme.Radius.chip, style: .continuous)
-                            .strokeBorder(Theme.Palette.textSecondary, lineWidth: 1)
-                    }
+                metaBadge(age)
+            }
+            // Ongoing / Ended / Cancelled / In Production ... ("Released" is not worth a badge).
+            let status: String? = model.meta?.status
+            if let label = DetailHeroMeta.statusLabel(status) {
+                metaBadge(label)
             }
             if model.isLoading { ProgressView() }
         }
         .font(Theme.Font.sectionTitle.weight(.regular))
         .foregroundStyle(Theme.Palette.textSecondary)
     }
+
+    /// The monochrome outlined capsule of the Apple TV app's meta line (age rating, status).
+    private func metaBadge(_ text: String) -> some View {
+        Text(verbatim: text)
+            .font(Theme.Font.caption.weight(.bold))
+            .padding(.horizontal, Theme.Spacing.xs)
+            .padding(.vertical, 2)
+            .overlay {
+                RoundedRectangle(cornerRadius: Theme.Radius.chip, style: .continuous)
+                    .strokeBorder(Theme.Palette.textSecondary, lineWidth: 1)
+            }
+    }
+
+    /// "Created by X" for a series, "Directed by X" for a movie (writers when there is no director),
+    /// shown under the meta line: secondary, one line, two names at most, not focusable.
+    private var creditLineText: String? {
+        DetailHeroMeta.creditLine(
+            directors: model.meta?.director ?? [],
+            writers: model.meta?.writer ?? [],
+            isSeries: isSeries
+        )
+    }
+
+    /// MDBList provider scores for the hero's ratings strip (empty without an MDBList key).
+    private var externalRatings: [MetaExternalRating] { model.meta?.externalRatings ?? [] }
+    private var externalRatingsIncludeIMDb: Bool { externalRatings.contains { $0.source == "imdb" } }
 
     /// The parental-guide chips' capsule. VIS-08 / spec gap 14: content gets no glass, so this is
     /// always the flat translucent fill the BUG-41 scroll legs used to swap in (the leg switch is
@@ -1638,7 +1689,7 @@ struct DetailView: View {
                 .focused($focusedAction, equals: .shuffle)
             }
 
-            if model.trailerVideoURL != nil {
+            if trailerButtonEnabled, model.trailerVideoURL != nil {
                 // Explicit, focusable "watch it full screen" entry point (tester request — the
                 // background hero loop is muted and deliberately NON-focusable). It hands the
                 // already-resolved hero trailer to the same `trailerPlayback` full-screen-cover
@@ -1877,16 +1928,8 @@ struct DetailView: View {
         let language: String? = meta.language;  add(String(localized: "Language"), language ?? "")
         let status: String? = meta.status;      add(String(localized: "Status"), status ?? "")
         let awards: String? = meta.awards;      add(String(localized: "Awards"), awards ?? "")
-        let ratings = meta.externalRatings
-        if !ratings.isEmpty {
-            add(String(localized: "Ratings"), ratings.map { "\($0.source) \(formatRating($0.value))" }.joined(separator: "   "))
-        }
+        // Provider scores (MDBList) are drawn as logos in the hero's ratings strip, not as text here.
         return rows
-    }
-
-    private func formatRating(_ v: Double) -> String {
-        let r = (v * 10).rounded() / 10
-        return r == r.rounded() ? String(Int(r)) : String(r)
     }
 
     // MARK: - Collection row ("Part of the X Collection")

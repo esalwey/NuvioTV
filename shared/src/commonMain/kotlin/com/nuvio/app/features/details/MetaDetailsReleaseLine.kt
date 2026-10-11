@@ -33,3 +33,19 @@ fun formatMetaReleaseLineForDetails(meta: MetaDetails): String? {
         else -> "$startYear -"
     }
 }
+
+private val isoDatePrefix = Regex("""^(\d{4})-(\d{2})-(\d{2})""")
+
+/**
+ * The calendar date at the start of an addon's `released` (e.g. `2010-07-16T00:00:00.000Z`) or a
+ * TMDB `release_date`, as `yyyy-MM-dd`; null when the value carries no full date (a bare year,
+ * a year range, blank). The time and offset are dropped on purpose: a release is a calendar day,
+ * not an instant, so it must not shift with the viewer's time zone.
+ */
+fun normalizeIsoReleaseDate(raw: String?): String? {
+    val match = isoDatePrefix.find(raw?.trim().orEmpty()) ?: return null
+    val (year, month, day) = match.destructured
+    if (year.toInt() < 1000) return null
+    if (month.toInt() !in 1..12 || day.toInt() !in 1..31) return null
+    return "$year-$month-$day"
+}

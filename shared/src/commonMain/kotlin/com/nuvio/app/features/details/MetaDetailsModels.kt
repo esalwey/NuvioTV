@@ -44,6 +44,9 @@ data class MetaDetails(
     /// carry no `MetaVideo.seasonPoster` (TMDB enrichment or per-video addon field) — not an override.
     val seasonPosters: Map<Int, String> = emptyMap(),
     val videos: List<MetaVideo> = emptyList(),
+    /** Full ISO release date (`yyyy-MM-dd`) from the addon's `released` or TMDB; see
+     *  [normalizeIsoReleaseDate]. [releaseInfo] stays the year line. */
+    val releaseDate: String? = null,
 )
 
 enum class MoreLikeThisSource {
@@ -54,6 +57,8 @@ enum class MoreLikeThisSource {
 data class MetaExternalRating(
     val source: String,
     val value: Double,
+    /** Rotten Tomatoes / audience certification (MDBList keyword); picks the badge icon. */
+    val isCertified: Boolean = false,
 )
 
 data class MetaTrailer(

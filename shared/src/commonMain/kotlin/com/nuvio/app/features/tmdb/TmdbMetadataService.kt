@@ -9,6 +9,7 @@ import com.nuvio.app.features.details.MetaTrailer
 import com.nuvio.app.features.details.MetaVideo
 import com.nuvio.app.features.details.MoreLikeThisSource
 import com.nuvio.app.features.details.metadataLanguagePriority
+import com.nuvio.app.features.details.normalizeIsoReleaseDate
 import com.nuvio.app.features.details.PersonDetail
 import com.nuvio.app.features.home.MetaPreview
 import com.nuvio.app.features.home.PosterShape
@@ -797,6 +798,7 @@ object TmdbMetadataService {
             logo = enrichment.logo,
             description = enrichment.description,
             releaseInfo = enrichment.releaseInfo,
+            releaseDate = normalizeIsoReleaseDate(enrichment.releaseInfo),
             lastAirDate = enrichment.lastAirDate,
             status = enrichment.status,
             imdbRating = enrichment.rating?.formatRating(),
@@ -874,6 +876,9 @@ object TmdbMetadataService {
                 } else {
                     enrichment.status ?: updated.status
                 },
+                // A franchise-level match describes the whole show, not this entry's own date.
+                releaseDate = updated.releaseDate
+                    ?: normalizeIsoReleaseDate(enrichment.releaseInfo).takeUnless { franchiseLevelMatch },
                 ageRating = enrichment.ageRating ?: updated.ageRating,
                 runtime = enrichment.runtimeMinutes?.formatRuntime() ?: updated.runtime,
                 country = enrichment.countries.takeIf { it.isNotEmpty() }?.joinToString(", ") ?: updated.country,

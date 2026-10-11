@@ -1,19 +1,6 @@
 package com.nuvio.app.features.mdblist
 
-import co.touchlab.kermit.Logger
-import com.nuvio.app.features.addons.httpPostJson
 import com.nuvio.app.features.details.MetaDetails
-import com.nuvio.app.features.details.MetaExternalRating
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.withContext
-import kotlinx.serialization.Serializable
-import kotlinx.serialization.decodeFromString
-import kotlinx.serialization.encodeToString
-import kotlinx.serialization.json.Json
 
 object MdbListMetadataService {
     const val PROVIDER_IMDB = "imdb"
@@ -36,9 +23,7 @@ object MdbListMetadataService {
         PROVIDER_MAL,
     )
 
-    private val log = Logger.withTag("MdbListMetadata")
-    private val json = Json { ignoreUnknownKeys = true }
-    private val ratingsCache = mutableMapOf<String, List<MetaExternalRating>>()
+    private val ratingsRepository = MdbListRatingsRepository()
     private val imdbRegex = Regex("tt\\d+")
 
     fun shouldFetchForMeta(
@@ -72,9 +57,9 @@ object MdbListMetadataService {
         val mediaType = toMdbListMediaType(meta.type)
         val enabledProviders = settings.enabledProvidersInPriorityOrder()
 
-        val ratings = fetchRatings(
-            imdbId = imdbId,
+        val ratings = ratingsRepository.getRatings(
             mediaType = mediaType,
+            imdbId = imdbId,
             apiKey = apiKey,
             providers = enabledProviders,
         )
@@ -83,58 +68,7 @@ object MdbListMetadataService {
     }
 
     fun clearCache() {
-        ratingsCache.clear()
-    }
-
-    private suspend fun fetchRatings(
-        imdbId: String,
-        mediaType: String,
-        apiKey: String,
-        providers: List<String>,
-    ): List<MetaExternalRating> = withContext(Dispatchers.Default) {
-        val cacheKey = "$mediaType:$imdbId:$apiKey:${providers.joinToString(",")}"
-        ratingsCache[cacheKey]?.let { return@withContext it }
-
-        val ratings = coroutineScope {
-            providers.map { providerId ->
-                async {
-                    fetchProviderRating(
-                        imdbId = imdbId,
-                        mediaType = mediaType,
-                        providerId = providerId,
-                        apiKey = apiKey,
-                    )
-                }
-            }.awaitAll().filterNotNull()
-        }
-
-        ratingsCache[cacheKey] = ratings
-        ratings
-    }
-
-    private suspend fun fetchProviderRating(
-        imdbId: String,
-        mediaType: String,
-        providerId: String,
-        apiKey: String,
-    ): MetaExternalRating? {
-        val url = "https://api.mdblist.com/rating/$mediaType/$providerId?apikey=$apiKey"
-        val requestBody = json.encodeToString(
-            RatingRequest(
-                ids = listOf(imdbId),
-                provider = PROVIDER_IMDB,
-            ),
-        )
-
-        return runCatching {
-            val payload = httpPostJson(url = url, body = requestBody)
-            val parsed = json.decodeFromString<RatingResponse>(payload)
-            val rating = parsed.ratings.firstOrNull()?.rating ?: return@runCatching null
-            MetaExternalRating(source = providerId, value = rating)
-        }.onFailure { error ->
-            if (error is CancellationException) throw error
-            log.w { "MDBList request failed for $providerId/$imdbId: ${error.message}" }
-        }.getOrNull()
+        ratingsRepository.clearCache()
     }
 
     private fun extractImdbId(value: String?): String? {
@@ -147,19 +81,3 @@ object MdbListMetadataService {
         return if (normalized == "movie") "movie" else "show"
     }
 }
-
-@Serializable
-private data class RatingRequest(
-    val ids: List<String>,
-    val provider: String,
-)
-
-@Serializable
-private data class RatingResponse(
-    val ratings: List<RatingItem> = emptyList(),
-)
-
-@Serializable
-private data class RatingItem(
-    val rating: Double? = null,
-)
