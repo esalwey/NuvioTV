@@ -12,7 +12,7 @@ struct AddToListsSheet: View {
     @StateObject private var model: AddToListsModel
     @Environment(\.dismiss) private var dismiss
 
-    init(item: SharedCore.LibraryItem) {
+    init(item: NuvioLibraryItem) {
         _model = StateObject(wrappedValue: AddToListsModel(item: item))
     }
 
@@ -144,10 +144,10 @@ final class AddToListsModel: ObservableObject {
     @Published private(set) var notice: LibraryMembershipOutcome?
 
     let itemTitle: String
-    private let item: SharedCore.LibraryItem
+    private let item: NuvioLibraryItem
     private var editor: LibraryMembershipEditor?
 
-    init(item: SharedCore.LibraryItem) {
+    init(item: NuvioLibraryItem) {
         self.item = item
         self.itemTitle = item.name
     }

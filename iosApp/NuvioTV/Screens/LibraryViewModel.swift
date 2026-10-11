@@ -1,6 +1,11 @@
 import Combine
 import SharedCore
 
+/// The shared `LibraryItem`, named so SwiftUI files can use it: DeveloperToolsSupport (re-exported
+/// by SwiftUI) declares a `LibraryItem` too, and `SharedCore.LibraryItem` resolves to the
+/// `SharedCore` class. This file imports no SwiftUI, so the name is unambiguous here.
+typealias NuvioLibraryItem = LibraryItem
+
 /// Observes the shared `LibraryRepository` — the personal saved library that the detail screen's
 /// "Add to Library" action writes to. Profile-scoped (reloads on profile switch via the Phase 4
 /// lifecycle coordinator).
