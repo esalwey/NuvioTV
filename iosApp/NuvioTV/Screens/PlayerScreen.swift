@@ -92,7 +92,10 @@ struct PlayerScreen: View {
                                    onFallback: { position in
                                        // The one automatic hand-back, also after a manual switch to
                                        // native that could not play: mpv, for good (no loop).
-                                       fallbackStartSec = position
+                                       // A native engine that never got to play (the remux failed
+                                       // before readyToPlay) reports 0: keep the hand-over position
+                                       // an engine switch gave it instead of overwriting it.
+                                       if position > 1 { fallbackStartSec = position }
                                        engineOverride = .fallback
                                        nativePossible = false
                                    },

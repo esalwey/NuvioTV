@@ -9,9 +9,9 @@ import Foundation
 ///
 /// This supersedes the plan's ~2 GB LRU cap (docs/tvos-hybrid-player-plan.md): session output is
 /// ephemeral and never reused across playbacks, so there is nothing to LRU — a full orphan sweep
-/// is strictly stronger. The LIVE session's output stays unbounded while it plays (segments are
-/// retained so backward seeks inside the produced range never re-remux); capping that would need
-/// live eviction + JIT re-production, recorded as an open question in the plan doc.
+/// is strictly stronger. The LIVE session's output is bounded by `RemuxSession` itself: production
+/// is paced against the playhead and segments far behind it are deleted (a later back-seek re-produces
+/// them through the normal reposition), and a session does not start without room for its window.
 nonisolated enum RemuxCacheJanitor {
     private static let lock = NSLock()
     private nonisolated(unsafe) static var liveDirs = Set<String>()

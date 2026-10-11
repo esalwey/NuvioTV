@@ -391,6 +391,8 @@ struct NativePlayerScreen: View {
 
     private func replay() {
         upNext.resetForReplay()
+        // The intro/outro handled on the first watch must be skippable again.
+        autoSkip.tracker.reset()
         coordinator.replay()
     }
 

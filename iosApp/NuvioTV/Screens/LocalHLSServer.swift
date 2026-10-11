@@ -71,7 +71,13 @@ nonisolated final class LocalHLSServer: @unchecked Sendable {
     /// Converted addon VTT at offset zero, cached per rendition index. Delay variants are shifted
     /// from this base on demand (cheap — a few thousand timing lines).
     private var vttBase = [Int: String]()
+    /// Renditions whose file can never be served (a 4xx, or a body that is not a subtitle). A timeout,
+    /// a network error or a 5xx is NOT recorded here: the next selection tries the download again.
     private var vttFailed = Set<Int>()
+    /// Requests parked on a download already in flight for a rendition, so one slow file is fetched
+    /// once however many times AVPlayer asks for it meanwhile.
+    private struct VTTWaiter { let name: String; let rangeHeader: String?; let isHead: Bool; let connection: NWConnection }
+    private var vttWaiters = [Int: [VTTWaiter]]()
     /// Subtitle delay in milliseconds, applied to the addon VTT bodies this server renders.
     private var _subtitleDelayMs = 0
     /// Bumped on every delay change; the media playlist names `sub-N-g<gen>.vtt`, so a refetched
@@ -104,6 +110,9 @@ nonisolated final class LocalHLSServer: @unchecked Sendable {
     private let producingInfo: @Sendable () -> (producing: Int, pending: Int?)
     /// Ask the remux to jump production to a segment (seek-anywhere).
     private let requestReposition: @Sendable (Int) -> Void
+    /// AVPlayer asked for this video/audio segment: the remux paces itself against it (playhead
+    /// estimate) instead of producing a 90 GB film ahead of the player.
+    private let onSegmentRequest: @Sendable (Int) -> Void
     /// Resume offset published as `EXT-X-START` in the media playlists (PLY-A5): AVPlayer starts the
     /// item at the resume segment the remux was repositioned to, instead of fetching segment 1.
     /// nil = start at zero.
@@ -122,6 +131,7 @@ nonisolated final class LocalHLSServer: @unchecked Sendable {
          stripSdh: Bool = false,
          producingInfo: @escaping @Sendable () -> (producing: Int, pending: Int?),
          requestReposition: @escaping @Sendable (Int) -> Void,
+         onSegmentRequest: @escaping @Sendable (Int) -> Void = { _ in },
          startOffsetSec: Double? = nil) {
         self.rootDir = rootDir
         self.map = map
@@ -136,6 +146,7 @@ nonisolated final class LocalHLSServer: @unchecked Sendable {
         self.stripSdh = stripSdh
         self.producingInfo = producingInfo
         self.requestReposition = requestReposition
+        self.onSegmentRequest = onSegmentRequest
         self.startOffsetSec = startOffsetSec
         self.token = UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased()
     }
@@ -457,6 +468,11 @@ nonisolated final class LocalHLSServer: @unchecked Sendable {
             return
         }
 
+        // The segment AVPlayer is asking for is the playhead the remux paces itself against.
+        if name.hasPrefix("seg-") || name.hasPrefix("aud-"), let requested = Self.segmentIndex(name) {
+            onSegmentRequest(requested)
+        }
+
         // init.mp4 / seg-NNNNN.m4s / esub-K-NNNNN.vtt / aud-T-init.mp4 / aud-T-NNNNN.m4s — produced
         // just-in-time by the remux; block until present. A file of a NON-active audio track makes
         // the remux switch tracks (info-panel W3) — AVPlayer only requests a rendition's files once
@@ -469,11 +485,13 @@ nonisolated final class LocalHLSServer: @unchecked Sendable {
            !FileManager.default.fileExists(atPath: rootDir.appendingPathComponent(name).path) {
             requestAudioTrack(audio.track, audio.segment)
             serveSegmentJIT(name: name, rangeHeader: rangeHeader, isHead: isHead, on: connection,
-                            deadline: Date().addingTimeInterval(blockTimeout), mode: .repositioned, live: live)
+                            deadline: Date().addingTimeInterval(blockTimeout), mode: .repositioned, live: live,
+                            arrived: Date())
             return
         }
         serveSegmentJIT(name: name, rangeHeader: rangeHeader, isHead: isHead, on: connection,
-                        deadline: Date().addingTimeInterval(blockTimeout), mode: nil, live: live)
+                        deadline: Date().addingTimeInterval(blockTimeout), mode: nil, live: live,
+                        arrived: Date())
     }
 
     /// Serve a subtitle rendition: cached VTT if present, else download the addon file, convert
@@ -507,10 +525,24 @@ nonisolated final class LocalHLSServer: @unchecked Sendable {
             return
         }
 
+        lock.lock()
+        if vttWaiters[rendition.index] != nil {
+            vttWaiters[rendition.index]?.append(VTTWaiter(name: name, rangeHeader: rangeHeader, isHead: isHead, connection: connection))
+            lock.unlock()
+            return
+        }
+        vttWaiters[rendition.index] = [VTTWaiter(name: name, rangeHeader: rangeHeader, isHead: isHead, connection: connection)]
+        lock.unlock()
+
         var request = URLRequest(url: sourceURL)
         request.timeoutInterval = 10
         URLSession.shared.dataTask(with: request) { [weak self] data, response, _ in
             guard let self else { connection.cancel(); return }
+            // Whoever asked while this download ran is answered with its result.
+            func takeWaiters() -> [VTTWaiter] {
+                self.lock.lock(); defer { self.lock.unlock() }
+                return self.vttWaiters.removeValue(forKey: rendition.index) ?? []
+            }
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0
             let vtt = (200..<300).contains(status) ? data.flatMap { SubtitleVTT.webVTT(from: $0, stripSdh: self.stripSdh, languageHint: rendition.language) } : nil
             if let vtt {
@@ -524,12 +556,23 @@ nonisolated final class LocalHLSServer: @unchecked Sendable {
                 let shifted = currentOffsetMs == 0 ? vtt : SubtitleVTT.shift(vtt, offsetMs: currentOffsetMs)
                 let body = Data(shifted.utf8)
                 print("[HLS] subtitle \(rendition.index) ready (\(body.count)b, \(rendition.name), delay \(currentOffsetMs)ms)")
-                self.serveBytes(body, name: name, rangeHeader: rangeHeader, isHead: isHead, on: connection)
+                for waiter in takeWaiters() {
+                    self.serveBytes(body, name: waiter.name, rangeHeader: waiter.rangeHeader, isHead: waiter.isHead,
+                                    on: waiter.connection)
+                }
             } else {
-                self.lock.lock(); self.vttFailed.insert(rendition.index); self.lock.unlock()
-                print("[HLS] subtitle \(rendition.index) failed (http \(status), \(sourceURL.host ?? "?"))")
-                self.send(status: "404 Not Found", contentType: "text/plain", body: Data("Unavailable".utf8),
-                          on: connection, requestPath: name)
+                // Permanent only when the addon answered and the file is unusable (4xx other than a
+                // timeout/throttle, or a 2xx that does not parse). A timeout, a network error or a 5xx is
+                // transient: it answers 404 now but the next selection downloads again.
+                let ok = (200..<300).contains(status)
+                let permanent = ok || ((400..<500).contains(status) && status != 408 && status != 429)
+                if permanent { self.lock.lock(); self.vttFailed.insert(rendition.index); self.lock.unlock() }
+                print("[HLS] subtitle \(rendition.index) failed (http \(status), \(sourceURL.host ?? "?")"
+                      + (permanent ? ")" : ", will retry on next request)"))
+                for waiter in takeWaiters() {
+                    self.send(status: "404 Not Found", contentType: "text/plain", body: Data("Unavailable".utf8),
+                              on: waiter.connection, requestPath: waiter.name)
+                }
             }
         }.resume()
     }
@@ -548,10 +591,12 @@ nonisolated final class LocalHLSServer: @unchecked Sendable {
     /// (a newer seek won). Past the last segment → 404; abandoned connection → stop immediately.
     private func serveSegmentJIT(name: String, rangeHeader: String?, isHead: Bool,
                                  on connection: NWConnection, deadline: Date,
-                                 mode: JITMode?, live: ConnLive) {
+                                 mode: JITMode?, live: ConnLive, arrived: Date) {
         guard live.alive else { connection.cancel(); return }   // client gave up mid-block
         let fileURL = rootDir.appendingPathComponent(name)
         if let data = try? Data(contentsOf: fileURL, options: .mappedIfSafe) {
+            // How long AVPlayer waited for the remux (≈0 when production is ahead of playback).
+            NativePlaybackMetrics.shared.recordServe(bytes: data.count, waitSec: Date().timeIntervalSince(arrived))
             serveBytes(data, name: name, rangeHeader: rangeHeader, isHead: isHead, on: connection)
             return
         }
@@ -587,13 +632,14 @@ nonisolated final class LocalHLSServer: @unchecked Sendable {
         }
 
         if Date() >= deadline {
+            NativePlaybackMetrics.shared.noteServeTimeout()
             send(status: "503 Service Unavailable", contentType: "text/plain", body: Data("Remux timeout".utf8),
                  on: connection, extraHeaders: ["Retry-After": "1"], requestPath: name)
             return
         }
         connQueue.asyncAfter(deadline: .now() + 0.12) { [weak self] in
             self?.serveSegmentJIT(name: name, rangeHeader: rangeHeader, isHead: isHead,
-                                  on: connection, deadline: deadline, mode: mode, live: live)
+                                  on: connection, deadline: deadline, mode: mode, live: live, arrived: arrived)
         }
     }
 
@@ -634,16 +680,34 @@ nonisolated final class LocalHLSServer: @unchecked Sendable {
         for (k, v) in extraHeaders { head += "\(k): \(v)\r\n" }
         head += "Cache-Control: no-store\r\n"
         head += "Connection: close\r\n\r\n"
-        // Send the header and body as two ordered sends (NWConnection preserves order) rather than
+        // Send the header and body as ordered sends (NWConnection preserves order) rather than
         // concatenating — that keeps the (memory-mapped) segment body from being copied into a second
         // full-size buffer, which on concurrent large-segment serves is a real transient-memory spike.
+        // A 4K remux segment is tens of MB: the body goes out in bounded slices, each queued when the
+        // previous one was accepted, so the connection never holds the whole segment twice.
         let headData = Data(head.utf8)
         if isHead || body.isEmpty {
             connection.send(content: headData, completion: .contentProcessed { _ in connection.cancel() })
         } else {
             connection.send(content: headData, completion: .contentProcessed { _ in })
-            connection.send(content: body, completion: .contentProcessed { _ in connection.cancel() })
+            Self.sendBody(body, from: 0, on: connection)
         }
+    }
+
+    /// Largest piece of a response body handed to NWConnection at once.
+    private static let sendSliceBytes = 4 << 20
+
+    private static func sendBody(_ body: Data, from offset: Int, on connection: NWConnection) {
+        let end = min(offset + sendSliceBytes, body.count)
+        let slice = body[(body.startIndex + offset)..<(body.startIndex + end)]
+        let isLast = end >= body.count
+        connection.send(content: slice, completion: .contentProcessed { error in
+            if isLast || error != nil {
+                connection.cancel()
+            } else {
+                sendBody(body, from: end, on: connection)
+            }
+        })
     }
 
     private static func contentType(for name: String) -> String {

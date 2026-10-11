@@ -636,6 +636,38 @@ struct DeveloperSettingsPane: View {
                 PlayerResponsivenessRows()
             }
 
+            SettingsSection(
+                String(localized: "settings.developer.native.title", defaultValue: "Native Playback",
+                       comment: "Developer settings section with live measurements of the native (AVPlayer) player"),
+                footer: String(localized: "settings.developer.native.footer",
+                               defaultValue: "Numbers from the current or last native playback: how fast the remux runs against real time, how far ahead of the player it is allowed to run, timestamp repairs, dropped frames and stalls. Photograph this pane after a large 4K film stutters.",
+                               comment: "Footer under the native playback measurements")
+            ) {
+                // 1 Hz re-read: the metrics are a plain locked snapshot with no publisher.
+                TimelineView(.periodic(from: .now, by: 1)) { _ in
+                    VStack(alignment: .leading, spacing: 2) {
+                        let lines = NativePlaybackMetrics.shared.lines()
+                        if lines.isEmpty {
+                            Text(String(localized: "settings.developer.native.empty",
+                                        defaultValue: "No native playback yet \u{2014} play a title on the native engine.",
+                                        comment: "Placeholder in the native playback measurements"))
+                                .font(.system(size: 20))
+                                .foregroundStyle(Theme.Palette.textSecondary)
+                        } else {
+                            ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
+                                Text(line)
+                                    .font(.system(size: 20, design: .monospaced))
+                                    .foregroundStyle(Theme.Palette.textSecondary)
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                            }
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityIdentifier("native_playback_metrics")
+            }
+
             SettingsSection(nil, footer: String(localized: "settings.developer.hide.footer", defaultValue: "Turns every diagnostic above off and hides this pane. Press Version in About seven times to show it again.", comment: "Footer under the button that hides the developer pane")) {
                 SettingsDestructiveRow(
                     title: String(localized: "settings.developer.hide", defaultValue: "Hide Developer Settings", comment: "Button that hides the developer pane and turns its diagnostics off"),

@@ -542,6 +542,8 @@ extension MPVTVPlayerViewController: UIGestureRecognizerDelegate {
         state.completedByHandOff = false
         state.positionSec = 0            // the next poll tick reports the real position
         loadStartPositionSec = 0
+        // The intro/outro handled on the first watch must be skippable again.
+        autoSkipTracker.reset()
         // The end screen's presentation closed the Trakt session (viewDidDisappear): a replay is a
         // new viewing, so it scrobbles again from the start — the other trackers too.
         traktSessionClosed = false
