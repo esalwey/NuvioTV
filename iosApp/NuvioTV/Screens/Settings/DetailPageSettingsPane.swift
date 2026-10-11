@@ -10,6 +10,9 @@ import SharedCore
 /// the way Home Rows are, from the long-press menu of its row.
 struct DetailPageSettingsPane: View {
     @ObservedObject var model: SettingsViewModel
+    /// Which providers are connected decides where More Like This can read from.
+    @ObservedObject var trakt: TraktViewModel
+    @ObservedObject var simkl: SimklViewModel
 
     /// Local-only switches the title page reads through the same `@AppStorage` keys (DetailView).
     ///
@@ -136,6 +139,24 @@ struct DetailPageSettingsPane: View {
             )
         }
 
+        // The source row appears once Trakt or Simkl is connected (before that TMDB is the only
+        // choice); a stored choice whose provider is not connected reads as TMDB, which is what the
+        // shared repository falls back to as well.
+        if trakt.isConnected || simkl.isConnected {
+            SettingsSection(String(localized: "More Like This")) {
+                SettingsPickerRow(
+                    title: String(localized: "More Like This Source"),
+                    subtitle: String(localized: "Where recommendations on a title's page come from."),
+                    selection: Binding(
+                        get: { effectiveMoreLikeThisSource },
+                        set: { model.setMoreLikeThisSource($0) }
+                    ),
+                    options: moreLikeThisOptions,
+                    label: Self.moreLikeThisLabel
+                )
+            }
+        }
+
         SettingsSection(
             String(localized: "Sections"),
             footer: String(localized: "Press and hold a section to move it up or down. Actions and Overview stay at the top of the page.")
@@ -165,6 +186,23 @@ struct DetailPageSettingsPane: View {
             ) {
                 model.resetDetailLayout()
             }
+        }
+    }
+
+    private var moreLikeThisOptions: [String] {
+        ["tmdb"] + (trakt.isConnected ? ["trakt"] : []) + (simkl.isConnected ? ["simkl"] : [])
+    }
+
+    private var effectiveMoreLikeThisSource: String {
+        let stored = model.moreLikeThisSource
+        return moreLikeThisOptions.contains(stored) ? stored : "tmdb"
+    }
+
+    private static func moreLikeThisLabel(_ key: String) -> String {
+        switch key {
+        case "trakt": return String(localized: "Trakt")
+        case "simkl": return String(localized: "Simkl")
+        default: return String(localized: "TMDB")
         }
     }
 

@@ -130,11 +130,6 @@ enum SettingsSearchIndex {
         let mdblistAccount = String(localized: "MDBList")
         add(.accountServices, mdblistAccount, "mdblistAccount", String(localized: "MDBList"),
             ["scrobble", "history", "watchlist", "lists", "connect", "sync", "library"])
-        let details = String(localized: "Details & Continue Watching")
-        add(.accountServices, details, "moreLikeThis", String(localized: "More Like This Source"),
-            ["recommendations", "similar", "suggestions"])
-        add(.accountServices, details, "unairedNextUp", String(localized: "Show Unaired Next Up"),
-            ["next episode", "upcoming"])
         let debrid = String(localized: "Debrid")
         add(.accountServices, debrid, "debrid", String(localized: "Resolve Streams with Debrid"),
             ["real-debrid", "realdebrid", "alldebrid", "premiumize", "torbox", "torrent", "cached", "api key"])
@@ -321,6 +316,8 @@ enum SettingsSearchIndex {
             ["trailer", "seconds", "loop"])
         add(.detailPage, detailTrailers, "trailerButton", String(localized: "Trailer Button on Detail"),
             ["trailer", "play", "button"])
+        add(.detailPage, String(localized: "More Like This"), "moreLikeThis", String(localized: "More Like This Source"),
+            ["recommendations", "similar", "suggestions", "trakt", "simkl", "tmdb"])
         let detailEpisodes = String(localized: "Episodes")
         add(.detailPage, detailEpisodes, "episodeCards", String(localized: "Episode Cards"),
             ["episodes", "list", "shelf", "stills"])
@@ -330,6 +327,9 @@ enum SettingsSearchIndex {
             ["seasons", "posters", "text"])
 
         // MARK: Home Screen
+        let continueWatching = String(localized: "Continue Watching")
+        add(.homeScreen, continueWatching, "unairedNextUp", String(localized: "Show Unaired Episodes"),
+            ["next up", "next episode", "upcoming", "countdown"])
         let homeRows = String(localized: "Home Rows")
         add(.homeScreen, homeRows, "upcoming", String(localized: "Upcoming Episodes"),
             ["calendar", "next up", "new episodes"])
