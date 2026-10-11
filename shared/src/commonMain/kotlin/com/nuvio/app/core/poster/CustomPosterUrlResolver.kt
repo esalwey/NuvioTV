@@ -1,0 +1,271 @@
+package com.nuvio.app.core.poster
+
+/**
+ * Resolves a custom poster URL pattern (a rating-poster style service) for a title by replacing
+ * placeholders with its ids.
+ *
+ * Native placeholders:
+ * - `{id}` the full meta id ("tt0137523", "tmdb:1396", "kitsu:7442")
+ * - `{id_type}` the id namespace: imdb, tmdb, kitsu, anilist, mal, tvdb, anidb
+ * - `{typed_id}` the id as RPDB-style services want it: "tt0137523" for IMDb, "movie-1396" or
+ *   "series-1396" for TMDB and TVDB
+ * - `{type}` "movie" or "series"
+ * - `{shape}` "poster", "landscape" or "square"
+ *
+ * Per-service placeholders: `{imdb_id}`, `{tmdb_id}`, `{tvdb_id}`, `{kitsu_id}`, `{anilist_id}`,
+ * `{mal_id}`, `{anidb_id}`.
+ *
+ * Every placeholder has an optional form, `{imdb_id?}`: a required placeholder with no value makes
+ * the whole pattern resolve to null (the original artwork stays), an optional one becomes empty.
+ * `{imdb_id|kitsu_id|tvdb_id}` lists the id types a service supports and takes the first one the
+ * title has; when it has none, nothing resolves and no request is made.
+ *
+ * URLs of the rating-poster family (ratingposterdb.com, aioratings.com, top-posters.com, btttr.cc)
+ * fall back to another id type (imdb, tmdb, tvdb) when the pattern's own id is missing.
+ */
+object CustomPosterUrlResolver {
+
+    data class ContentIds(
+        val id: String,
+        val imdbId: String? = null,
+        val tmdbId: String? = null,
+        val tvdbId: String? = null,
+        val kitsuId: String? = null,
+        val anilistId: String? = null,
+        val malId: String? = null,
+        val anidbId: String? = null,
+    )
+
+    /** True when [pattern] asks for the artwork shape, so landscape and square cards can use it too. */
+    fun supportsShape(pattern: String): Boolean = "{shape}" in decodePatternPlaceholders(pattern)
+
+    /**
+     * The custom artwork URL for one title, or null when [pattern] is blank, has no placeholder,
+     * cannot be filled for this title, or does not cover [shape] (a pattern without `{shape}` only
+     * covers portrait posters). Entry point for the tvOS app.
+     */
+    fun resolveForTitle(
+        pattern: String,
+        metaId: String,
+        type: String,
+        shape: String,
+        explicitImdbId: String?,
+    ): String? {
+        if (pattern.isBlank()) return null
+        val normalizedShape = shape.lowercase()
+        if (normalizedShape != "poster" && !supportsShape(pattern)) return null
+        val contentType = if (type.equals("movie", ignoreCase = true)) "movie" else "series"
+        return resolve(
+            pattern = pattern,
+            ids = extractIds(metaId, explicitImdbId),
+            type = contentType,
+            shape = normalizedShape,
+        )
+    }
+
+    fun resolve(
+        pattern: String,
+        ids: ContentIds,
+        type: String,
+        shape: String = "poster",
+    ): String? {
+        if (pattern.isBlank()) return null
+        val decoded = decodePatternPlaceholders(pattern)
+        if (!containsPlaceholder(decoded)) return null
+        return if (isRpdbFamily(decoded)) {
+            resolveRpdbWithFallback(decoded, ids, type, shape)
+        } else {
+            resolvePattern(decoded, ids, type, shape)
+        }
+    }
+
+    fun extractIds(metaId: String, explicitImdbId: String? = null): ContentIds {
+        var imdbId: String? = null
+        var tmdbId: String? = null
+        var tvdbId: String? = null
+        var kitsuId: String? = null
+        var anilistId: String? = null
+        var malId: String? = null
+        var anidbId: String? = null
+
+        when {
+            metaId.startsWith("tt") -> imdbId = metaId
+            metaId.startsWith("tmdb:") -> tmdbId = metaId.removePrefix("tmdb:")
+            metaId.startsWith("tvdb:") -> tvdbId = metaId.removePrefix("tvdb:")
+            metaId.startsWith("kitsu:") -> kitsuId = metaId.removePrefix("kitsu:")
+            metaId.startsWith("anilist:") -> anilistId = metaId.removePrefix("anilist:")
+            metaId.startsWith("mal:") -> malId = metaId.removePrefix("mal:")
+            metaId.startsWith("anidb:") -> anidbId = metaId.removePrefix("anidb:")
+        }
+
+        if (!explicitImdbId.isNullOrBlank()) {
+            imdbId = explicitImdbId
+        }
+
+        return ContentIds(
+            id = metaId,
+            imdbId = imdbId,
+            tmdbId = tmdbId,
+            tvdbId = tvdbId,
+            kitsuId = kitsuId,
+            anilistId = anilistId,
+            malId = malId,
+            anidbId = anidbId,
+        )
+    }
+
+    private val pipeRegex = Regex("""\{([a-z_]+(?:\|[a-z_]+)+)\}""")
+    private val placeholderRegex = Regex("""\{[a-z_]+[|?]?""")
+
+    private fun resolvePattern(
+        pattern: String,
+        ids: ContentIds,
+        type: String,
+        shape: String,
+    ): String? {
+        val (rawId, rawIdType) = extractRawIdAndType(ids)
+        val typedId = formatTypedId(rawId, rawIdType, type)
+
+        val idLookup = mapOf(
+            "id" to ids.id,
+            "id_type" to rawIdType,
+            "typed_id" to typedId,
+            "type" to type,
+            "shape" to shape,
+            "imdb_id" to (ids.imdbId ?: ""),
+            "tmdb_id" to (ids.tmdbId ?: ""),
+            "tvdb_id" to (ids.tvdbId ?: ""),
+            "kitsu_id" to (ids.kitsuId ?: ""),
+            "anilist_id" to (ids.anilistId ?: ""),
+            "mal_id" to (ids.malId ?: ""),
+            "anidb_id" to (ids.anidbId ?: ""),
+        )
+
+        var url = resolvePipePlaceholders(pattern, idLookup) ?: return null
+
+        for ((key, value) in idLookup) {
+            val placeholder = "{$key}"
+            val optional = "{$key?}"
+            if (optional in url) {
+                url = url.replace(optional, value)
+                continue
+            }
+            if (placeholder in url) {
+                if (value.isBlank()) return null
+                url = url.replace(placeholder, value)
+            }
+        }
+
+        return url
+    }
+
+    private fun resolvePipePlaceholders(pattern: String, lookup: Map<String, String>): String? {
+        var url = pattern
+        for (match in pipeRegex.findAll(pattern)) {
+            val fullToken = match.value
+            val keys = match.groupValues[1].split("|")
+            val resolved = keys.firstOrNull { key -> lookup[key]?.isNotBlank() == true }
+                ?.let { lookup[it] }
+            if (resolved.isNullOrBlank()) return null
+            url = url.replace(fullToken, resolved)
+        }
+        return url
+    }
+
+    private fun extractRawIdAndType(ids: ContentIds): Pair<String, String> {
+        val metaId = ids.id
+        return when {
+            metaId.startsWith("tt") -> metaId to "imdb"
+            metaId.contains(":") -> {
+                val colonIndex = metaId.indexOf(':')
+                metaId.substring(colonIndex + 1) to metaId.substring(0, colonIndex)
+            }
+            else -> metaId to "unknown"
+        }
+    }
+
+    private fun formatTypedId(rawId: String, idType: String, contentType: String): String {
+        if (idType == "imdb") return rawId
+        if (idType == "tmdb" || idType == "tvdb") {
+            val prefix = if (contentType == "movie") "movie" else "series"
+            return "$prefix-$rawId"
+        }
+        return rawId
+    }
+
+    private val rpdbDomains = listOf(
+        "ratingposterdb.com",
+        "aioratings.com",
+        "top-posters.com",
+        "btttr.cc",
+    )
+
+    private fun isRpdbFamily(pattern: String): Boolean =
+        rpdbDomains.any { domain -> domain in pattern }
+
+    private fun containsPlaceholder(pattern: String): Boolean =
+        placeholderRegex.containsMatchIn(pattern)
+
+    private fun decodePatternPlaceholders(pattern: String): String =
+        pattern
+            .replace("%7B", "{", ignoreCase = true)
+            .replace("%7D", "}", ignoreCase = true)
+            .replace("%7C", "|", ignoreCase = true)
+
+    private fun resolveRpdbWithFallback(
+        pattern: String,
+        ids: ContentIds,
+        type: String,
+        shape: String,
+    ): String? {
+        val direct = resolvePattern(pattern, ids, type, shape)
+        if (direct != null) return direct
+
+        val typePrefix = if (type == "movie") "movie" else "series"
+        val fallbacks = mutableListOf<String>()
+
+        if ("{imdb_id}" in pattern) {
+            if (!ids.tmdbId.isNullOrBlank()) {
+                fallbacks += pattern
+                    .replace("/imdb/", "/tmdb/")
+                    .replace("{imdb_id}", "$typePrefix-${ids.tmdbId}")
+            }
+            if (!ids.tvdbId.isNullOrBlank()) {
+                fallbacks += pattern
+                    .replace("/imdb/", "/tvdb/")
+                    .replace("{imdb_id}", "$typePrefix-${ids.tvdbId}")
+            }
+        } else if ("{tmdb_id}" in pattern || "{type}-{tmdb_id}" in pattern) {
+            if (!ids.imdbId.isNullOrBlank()) {
+                fallbacks += pattern
+                    .replace("/tmdb/", "/imdb/")
+                    .replace("$typePrefix-{tmdb_id}", ids.imdbId)
+                    .replace("{tmdb_id}", ids.imdbId)
+            }
+            if (!ids.tvdbId.isNullOrBlank()) {
+                fallbacks += pattern
+                    .replace("/tmdb/", "/tvdb/")
+                    .replace("{tmdb_id}", ids.tvdbId)
+            }
+        } else if ("{tvdb_id}" in pattern || "{type}-{tvdb_id}" in pattern) {
+            if (!ids.imdbId.isNullOrBlank()) {
+                fallbacks += pattern
+                    .replace("/tvdb/", "/imdb/")
+                    .replace("$typePrefix-{tvdb_id}", ids.imdbId)
+                    .replace("{tvdb_id}", ids.imdbId)
+            }
+            if (!ids.tmdbId.isNullOrBlank()) {
+                fallbacks += pattern
+                    .replace("/tvdb/", "/tmdb/")
+                    .replace("{tvdb_id}", ids.tmdbId)
+            }
+        }
+
+        for (fallback in fallbacks) {
+            val resolved = resolvePattern(fallback, ids, type, shape)
+            if (resolved != null) return resolved
+        }
+
+        return null
+    }
+}

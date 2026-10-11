@@ -14,6 +14,7 @@ import com.nuvio.app.core.sync.TV_SYNC_PLATFORM
 import com.nuvio.app.core.sync.TVOS_SYNC_PLATFORM
 import com.nuvio.app.core.tracking.ensureTrackingProvidersRegistered
 import com.nuvio.app.core.ui.CardDepthStyleRepository
+import com.nuvio.app.core.poster.CustomPosterUrlRepository
 import com.nuvio.app.core.ui.PosterCardStyleRepository
 import com.nuvio.app.features.addons.AddonProfileContext
 import com.nuvio.app.features.addons.AddonProfileProvider
@@ -251,6 +252,7 @@ private object TvOsAccountDataCleaner : com.nuvio.app.core.account.AccountDataCl
         FolderDetailRepository.clear()
         ThemeSettingsRepository.clearLocalState()
         PosterCardStyleRepository.clearLocalState()
+        CustomPosterUrlRepository.clearLocalState()
         CardDepthStyleRepository.clearLocalState()
         TraktAuthRepository.clearLocalState()
         TraktSettingsRepository.clearLocalState()
@@ -395,6 +397,7 @@ private object TvOsProfileLifecycleCoordinator : ProfileLifecycleCoordinator {
         step("addons") { AddonRepository.onProfileChanged(profileIndex) }
         step("theme") { ThemeSettingsRepository.onProfileChanged() }
         step("posterCardStyle") { PosterCardStyleRepository.onProfileChanged() }
+        step("customPosterUrl") { CustomPosterUrlRepository.onProfileChanged() }
         step("cardDepthStyle") { CardDepthStyleRepository.onProfileChanged() }
         step("playerSettings") { PlayerSettingsRepository.onProfileChanged() }
         step("streamBadges") { StreamBadgeSettingsRepository.onProfileChanged() }
