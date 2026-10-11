@@ -341,7 +341,7 @@ enum PlayerChromeLayout {
 
 /// The bottom gradient the chrome sits on. With no platter, this shade is what keeps the white title,
 /// time labels and tabs readable over a bright scene (spec 6.9.3: the bottom of the picture goes
-/// from clear to about 0.6 black), and it fades out well above the controls so the picture keeps its
+/// from clear to a light shade, the text shadow does the rest), and it fades out well above the controls so the picture keeps its
 /// brightness. Deeper while a content tab (Info / Episodes / Chapters) is open, as on the system
 /// player. Reduce Transparency swaps the soft shade for a darker one, never for a box.
 struct PlayerChromeScrim: View {
@@ -350,14 +350,14 @@ struct PlayerChromeScrim: View {
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
 
     /// Opacity of the shade at the bottom edge, and a third of the way up, at rest.
-    private var restBottomOpacity: Double { reduceTransparency ? 0.85 : 0.62 }
-    private var restMidOpacity: Double { reduceTransparency ? 0.5 : 0.28 }
+    private var restBottomOpacity: Double { reduceTransparency ? 0.7 : 0.35 }
+    private var restMidOpacity: Double { reduceTransparency ? 0.35 : 0.12 }
 
     var body: some View {
         LinearGradient(
             stops: [
-                .init(color: .black.opacity(0), location: deep ? 0.2 : 0.5),
-                .init(color: .black.opacity(deep ? 0.55 : restMidOpacity), location: deep ? 0.55 : 0.8),
+                .init(color: .black.opacity(0), location: deep ? 0.2 : 0.62),
+                .init(color: .black.opacity(deep ? 0.55 : restMidOpacity), location: deep ? 0.55 : 0.85),
                 .init(color: .black.opacity(deep ? 0.85 : restBottomOpacity), location: 1),
             ],
             startPoint: .top, endPoint: .bottom)
