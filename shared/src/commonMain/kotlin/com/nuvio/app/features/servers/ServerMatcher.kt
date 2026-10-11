@@ -71,8 +71,12 @@ internal object ServerMatcher {
 
     suspend fun match(connection: ServerConnection, request: MatchRequest, forceRefresh: Boolean): List<ServerItemRef> {
         val ids = withConvertedIds(request)
-        val itemIds = connection.selectedLibraries(request.kind)
-            .flatMap { library -> index(connection, library, forceRefresh).lookup(ids) }
+        // Every library's index build is started before the first one is awaited, so a slow library
+        // does not delay the start of the next one.
+        val libraries = connection.selectedLibraries(request.kind)
+        val builds = libraries.map { library -> build(connection, library, forceRefresh) }
+        val itemIds = libraries.indices
+            .flatMap { position -> index(connection, libraries[position], builds[position]).lookup(ids) }
             .distinct()
         if (request.kind == ServerMediaKind.MOVIE) return itemIds.map { ServerItemRef(connection.id, it) }
         val season = request.season ?: return emptyList()
@@ -105,8 +109,11 @@ internal object ServerMatcher {
         scope.coroutineContext.cancelChildren()
     }
 
-    private suspend fun index(connection: ServerConnection, library: ServerLibrary, forceRefresh: Boolean): LibraryIndex {
-        val build = build(connection, library, forceRefresh)
+    private suspend fun index(connection: ServerConnection, library: ServerLibrary, build: IndexBuild): LibraryIndex {
+        // Stale-while-revalidate: while the rebuild of an expired index runs, the previous (complete)
+        // index answers. A huge library would otherwise fail the first lookup after every TTL.
+        val stale = build.previous
+        if (stale != null && !build.result.isCompleted) return stale.result.await()
         return withTimeoutOrNull(INDEX_WAIT_MS) { build.result.await() } ?: run {
             log.w { "${connection.providerId} library ${library.name} was not indexed within ${INDEX_WAIT_MS}ms" }
             throw ServerException(ServerFailure.INCOMPLETE)
@@ -118,19 +125,28 @@ internal object ServerMatcher {
         val revision = ServerRepository.uiState.value.revision
         val now = nowMs()
         val build = synchronized(lock) {
-            indexes[key]?.takeIf { existing ->
-                !forceRefresh && !existing.failed && existing.revision == revision && now - existing.startedAtMs < INDEX_TTL_MS
-            }?.let { return it }
-            IndexBuild(revision, now).also { indexes[key] = it }
+            val existing = indexes[key]
+            val reusable = existing != null && !forceRefresh && !existing.failed && existing.revision == revision
+            if (existing != null && reusable && now - existing.startedAtMs < INDEX_TTL_MS) return existing
+            // An expired but complete index keeps answering while its replacement is built.
+            val stale = existing?.takeIf { reusable && it.result.isCompleted }
+            IndexBuild(revision, now, previous = stale).also { indexes[key] = it }
         }
         scope.launch {
             try {
                 val entries = fetchEntries(connection, library)
                 log.i { "Indexed ${entries.size} items in ${connection.providerId} library ${library.name} in ${nowMs() - now}ms" }
                 build.result.complete(LibraryIndex(entries))
+                build.previous = null
             } catch (error: Throwable) {
                 build.failed = true
                 build.result.completeExceptionally(error)
+                // A failed rebuild gives the previous index back (still expired, so the next lookup
+                // tries again) instead of leaving nothing.
+                build.previous?.let { previous ->
+                    synchronized(lock) { if (indexes[key] === build) indexes[key] = previous }
+                    build.previous = null
+                }
                 if (error is CancellationException) throw error
                 log.w(error) { "Indexing ${connection.providerId} library ${library.name} failed" }
             }
@@ -140,13 +156,26 @@ internal object ServerMatcher {
 
     private suspend fun fetchEntries(connection: ServerConnection, library: ServerLibrary): List<ServerIndexEntry> {
         val entries = mutableListOf<ServerIndexEntry>()
+        val seen = HashSet<String>()
+        var fetched = 0
+        var pages = 0
         while (true) {
+            val start = fetched
             val page = ServerRepository.call(connection.id) { provider, session ->
-                provider.externalIdIndex(session, library, entries.size, INDEX_PAGE_SIZE)
+                provider.externalIdIndex(session, library, start, INDEX_PAGE_SIZE)
             }
-            entries += page.items
+            fetched += page.items.size
+            pages++
+            val added = page.items.filter { seen.add(it.itemId) }
+            entries += added
             val total = page.totalCount
-            if (page.items.size < INDEX_PAGE_SIZE || (total != null && entries.size >= total)) return entries
+            if (page.items.size < INDEX_PAGE_SIZE || (total != null && fetched >= total)) return entries
+            // A server that ignores the start index keeps answering with the same page: stop on a
+            // page with nothing new, and never walk more than MAX_INDEX_PAGES pages.
+            if (added.isEmpty() || pages >= MAX_INDEX_PAGES) {
+                log.w { "Stopped indexing ${connection.providerId} library ${library.name} after $pages pages" }
+                return entries
+            }
         }
     }
 
@@ -172,15 +201,20 @@ internal object ServerMatcher {
         return ids.copy(imdb = imdb)
     }
 
-    private class IndexBuild(val revision: Int, val startedAtMs: Long) {
+    private class IndexBuild(val revision: Int, val startedAtMs: Long, previous: IndexBuild? = null) {
         val result = CompletableDeferred<LibraryIndex>()
         @Volatile
         var failed = false
+
+        /** The expired index this build replaces; it answers lookups until this one completes. */
+        @Volatile
+        var previous: IndexBuild? = previous
     }
 
     private fun nowMs(): Long = Clock.System.now().toEpochMilliseconds()
 
     private const val INDEX_PAGE_SIZE = 500
+    private const val MAX_INDEX_PAGES = 1_000
     private const val INDEX_TTL_MS = 10 * 60_000L
     private const val INDEX_WAIT_MS = 12_000L
     private const val CONVERSION_TIMEOUT_MS = 5_000L
