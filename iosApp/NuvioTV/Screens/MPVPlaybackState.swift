@@ -27,19 +27,25 @@ final class MPVPlaybackState: ObservableObject {
     /// shows the chrome again (`flashControls()`) and when playback resumes.
     @Published var pauseChromeDismissed: Bool = false
 
-    /// Touch-surface / held-arrow scrubbing (PLY-A3, spec gap 2): the time the scrub head points
+    /// Touch-surface scrubbing while paused (PLY-A3, spec gap 2): the time the scrub head points
     /// at. nil = not scrubbing. Select or Play/Pause commits one exact seek there; Back cancels.
     @Published var scrubTargetSec: Double?
     /// Where the scrub started (Back returns here — no seek was issued meanwhile).
     var scrubOriginSec: Double?
-    /// The scrub came from a held arrow: its release commits it (a touch-surface scrub waits for
-    /// Select or Play/Pause).
-    var scrubCommitsOnRelease = false
-    /// Hold-right fast-forward rate (2×, 3×, 4×); nil = normal speed (spec §6.9.4, decision D9).
+    /// Hold fast-forward / rewind rate (2×, 3×, 4×; negative = rewind); nil = normal speed
+    /// (spec §6.9.4, decision D9).
     @Published var fastForwardRate: Double?
+    /// Where the head is while a rewind (or a hold while paused) walks it by timer; nil otherwise.
+    /// The bar shows this rather than the keyframe each seek lands on.
+    var rateSeekTarget: Double?
+    /// The skip indicator of a ±10 s click, on screen until the overlay clears it.
+    @Published var skipFeedback: SkipFeedback?
 
     @Published var audioTracks: [PlayerTrack] = []
     @Published var subtitleTracks: [PlayerTrack] = []
+    /// The Subtitles menu's "Automatic" row is the one chosen: nothing was picked by hand (or a pick
+    /// was handed back to the language plan), as on the system popover's "Auto".
+    @Published var subtitlesAutomatic = true
     /// The chrome's focus layer (transport menus, content tabs — `MPVTransportFocusView`) is
     /// presented over the player and owns the remote.
     @Published var panelOpen: Bool = false
@@ -80,6 +86,8 @@ final class MPVPlaybackState: ObservableObject {
     /// Wired by the controller so the SwiftUI track picker can drive libmpv.
     var selectAudio: ((Int) -> Void)?
     var selectSubtitle: ((Int) -> Void)?
+    /// The "Automatic" row: forget the manual pick and let the language plan choose again.
+    var selectAutoSubtitles: (() -> Void)?
     var setSpeed: ((Double) -> Void)?
     var setAspectMode: ((PlayerAspectMode) -> Void)?
     var setSubtitleDelay: ((Double) -> Void)?
@@ -144,4 +152,13 @@ final class MPVPlaybackState: ObservableObject {
         guard let target = scrubTargetSec, durationSec > 0 else { return nil }
         return min(max(target / durationSec, 0), 1)
     }
+}
+
+/// The system player's skip indicator for a click on the left / right edge: which side, and the
+/// seconds skipped by the clicks in a row. A new `id` restarts the overlay's short display.
+struct SkipFeedback: Equatable {
+    let id: Int
+    /// -1 = back, 1 = forward.
+    let direction: Int
+    let seconds: Int
 }

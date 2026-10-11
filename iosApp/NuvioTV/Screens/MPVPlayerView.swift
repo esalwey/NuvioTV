@@ -59,6 +59,8 @@ final class MPVTVPlayerViewController: UIViewController {
     /// applies `pendingResumeFraction` (main thread only).
     private var resumeFractionAwaitsDuration = false
     var seekTimer: Timer?
+    /// Walks the head during a rewind or a hold while paused (`MPVPlayerView+Remote`).
+    var rateStepTimer: Timer?
     var seekDirection: Double = 0
     var seekHoldCount = 0
     private var subtitleWatcher: FlowWatcher?
@@ -334,6 +336,7 @@ final class MPVTVPlayerViewController: UIViewController {
 
         state.selectAudio = { [weak self] id in self?.selectAudio(id) }
         state.selectSubtitle = { [weak self] id in self?.selectSubtitle(id) }
+        state.selectAutoSubtitles = { [weak self] in self?.selectAutomaticSubtitles() }
         state.setSpeed = { [weak self] speed in self?.setSpeed(speed) }
         state.aspectMode = PlayerOverlaySettings.shared.aspectMode
         state.setAspectMode = { [weak self] mode in self?.setAspectMode(mode) }
@@ -1240,7 +1243,8 @@ final class MPVTVPlayerViewController: UIViewController {
         resyncIfStale(snap, advancing: advancing, now: tickUptime)
 
         state.durationSec = snap.duration
-        state.positionSec = max(snap.position, 0)
+        // A rewind walks the head by timer: the bar shows where it is, not the keyframe last landed on.
+        state.positionSec = state.rateSeekTarget ?? max(snap.position, 0)
         state.isPaused = snap.paused
         // A failed load leaves the core idle and unpaused — which reads as buffering forever (PLY-1).
         // A moving playhead is never a stall: the spinner cannot outlive the first seconds of video.
@@ -1660,6 +1664,8 @@ final class MPVTVPlayerViewController: UIViewController {
         pollTimer = nil
         seekTimer?.invalidate()
         seekTimer = nil
+        rateStepTimer?.invalidate()
+        rateStepTimer = nil
         if stallSessionOpen {
             stallSessionOpen = false
             MainThreadStallMonitor.shared.endSession()
@@ -1687,7 +1693,7 @@ final class MPVTVPlayerViewController: UIViewController {
             // The last reference went away on a libmpv queue (a closure that was mid-call when the
             // screen let go of the player). Timers and observers belong to the main run loop and the
             // main thread, so they are handed over there, by value, without touching `self`.
-            let timers = [pollTimer, seekTimer].compactMap { $0 }
+            let timers = [pollTimer, seekTimer, rateStepTimer].compactMap { $0 }
             let observers = lifecycleObservers + [backgroundObserver].compactMap { $0 }
             let watchdog = loadWatchdog
             let restoreDeadline = subtitleRestoreDeadline

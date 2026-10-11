@@ -41,6 +41,28 @@ enum PlayerSubtitleMemory {
             addon: subtitle, keeping: current))
     }
 
+    /// The viewer handed the subtitles back to the automatic choice ("Automatic" in the Subtitles
+    /// menu): the saved subtitle pick is forgotten, so the next episode follows the language plan
+    /// again. The audio half stays as it is.
+    @discardableResult
+    static func forgetSubtitle(parentMetaId: String,
+                               keeping current: PersistedPlayerTrackPreference?) -> PersistedPlayerTrackPreference? {
+        guard let current else { return nil }
+        return save(parentMetaId: parentMetaId, PersistedPlayerTrackPreference(
+            subtitleType: nil,
+            subtitleLanguage: nil,
+            subtitleName: nil,
+            subtitleTrackId: nil,
+            addonSubtitleId: nil,
+            addonSubtitleUrl: nil,
+            addonSubtitleAddonName: nil,
+            audioLanguage: current.audioLanguage,
+            audioName: current.audioName,
+            audioTrackId: current.audioTrackId,
+            subtitleIsForced: nil
+        ))
+    }
+
     /// The viewer picked an audio track (LANG-09, STAB-05, contract C4): remembered for the title
     /// like the subtitle choice. The subtitle half of `current` is kept as it is. On the next file,
     /// the saved language goes first in the audio targets and `findPersistedAudioTrackIndex`
