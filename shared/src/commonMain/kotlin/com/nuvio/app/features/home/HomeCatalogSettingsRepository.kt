@@ -420,6 +420,21 @@ object HomeCatalogSettingsRepository {
         }
     }
 
+    /**
+     * Pins (or unpins) a collection to the top of Home. Pinning lives on the collection itself
+     * (`Collection.pinToTop`, synced with the collection), so this writes it there and re-runs the
+     * collection sync so the Home Rows order reflects it at once, without waiting for a Home
+     * screen to observe the collection change. Add-on catalogs have no pin: the reference apps only
+     * pin collections.
+     */
+    fun setCollectionPinnedToTop(collectionId: String, pinned: Boolean) {
+        ensureLoaded()
+        val collection = CollectionRepository.getCollection(collectionId) ?: return
+        if (collection.pinToTop == pinned) return
+        if (!CollectionRepository.updateCollection(collection.copy(pinToTop = pinned))) return
+        syncCollections(CollectionRepository.collections.value)
+    }
+
     fun resetToDefaults() {
         ensureLoaded()
         HomeRepository.resetHeroSelectionAround { // BUG-42: atomic with the mutation + republish

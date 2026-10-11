@@ -224,6 +224,7 @@ fun MetaDetails.continueWatchingNextUpEntry(
     watchedItems: List<WatchedItem>,
     todayIsoDate: String,
     preferFurthestEpisode: Boolean,
+    showUnairedNextUp: Boolean = false,
 ): WatchProgressEntry? {
     val action = seriesPrimaryAction(
         content = WatchingContentRef(type = seed.contentType, id = seed.contentId),
@@ -231,7 +232,7 @@ fun MetaDetails.continueWatchingNextUpEntry(
         watchedItems = watchedItems,
         todayIsoDate = todayIsoDate,
         preferFurthestEpisode = preferFurthestEpisode,
-        showUnairedNextUp = false,
+        showUnairedNextUp = showUnairedNextUp,
         allowRewatch = false,
     ) ?: return null
     // A resume point is the in-progress card's job, not an Up Next one.
@@ -264,6 +265,7 @@ fun MetaDetails.continueWatchingNextUpEntry(
         pauseDescription = next.overview?.takeIf(String::isNotBlank),
         isCompleted = false,
         source = WatchProgressSourceNextUp,
+        released = next.released?.takeIf(String::isNotBlank),
     )
 }
 
@@ -450,12 +452,14 @@ object ContinueWatchingNextUp {
         watchedItems: List<WatchedItem>,
         todayIsoDate: String,
         preferFurthestEpisode: Boolean,
+        showUnairedNextUp: Boolean,
     ): ContinueWatchingNextUpResolution {
         val resolution = resolveCardOrFailure(
             seed = seed,
             watchedItems = watchedItems,
             todayIsoDate = todayIsoDate,
             preferFurthestEpisode = preferFurthestEpisode,
+            showUnairedNextUp = showUnairedNextUp,
         )
         try {
             noteResolutionOutcome(seed, resolution)
@@ -470,6 +474,7 @@ object ContinueWatchingNextUp {
         watchedItems: List<WatchedItem>,
         todayIsoDate: String,
         preferFurthestEpisode: Boolean,
+        showUnairedNextUp: Boolean,
     ): ContinueWatchingNextUpResolution = try {
         val meta = MetaDetailsRepository.fetch(type = seed.contentType, id = seed.contentId)
         // CW alias fix: the series meta names its IMDb id, which the row groups the seed under.
@@ -492,6 +497,7 @@ object ContinueWatchingNextUp {
                     },
                     todayIsoDate = todayIsoDate,
                     preferFurthestEpisode = preferFurthestEpisode,
+                    showUnairedNextUp = showUnairedNextUp,
                 ),
                 isConclusive = true,
             )
