@@ -56,6 +56,19 @@ object ProfileRepository {
         persist()
     }
 
+    /**
+     * Cold-launch hook for "Remember last profile": loads the cached profiles of the signed-in
+     * account and returns the profile to enter directly, or null when the picker must show (see
+     * [resolveLaunchProfile]). Never returns a profile cached for a different account.
+     */
+    fun profileToResumeAtLaunch(): NuvioProfile? {
+        val authState = AuthRepository.state.value as? AuthState.Authenticated ?: return null
+        val stored = decodeStoredPayload() ?: return null
+        if (stored.userId != authState.userId) return null
+        loadCachedProfiles()
+        return resolveLaunchProfile(_state.value, activeProfileIndex)
+    }
+
     fun loadCachedProfiles(): Boolean {
         val stored = decodeStoredPayload() ?: return false
         loadedCacheForUserId = stored.userId
