@@ -16,6 +16,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.launch
+import kotlin.concurrent.Volatile
 
 class MdbListLibraryService(
     private val api: MdbListApiClient,
@@ -34,7 +35,22 @@ class MdbListLibraryService(
             authorization.isAuthenticated && state.scope == authorization.scope && state.scope.profileId == profileId
         }
     }.distinctUntilChanged().onEach { refreshAsync() }
-    private val projection = snapshots.map { MdbListLibraryProjection(it?.visible() ?: MdbListLibrarySnapshot()) }
+    private val projection = snapshots.map { projectionOf(it) }
+
+    /**
+     * The projection builds a media index, a LibraryItem per title and the alias maps: O(N) with big
+     * constants, and Detail, poster menus and the library bridge ask for it many times per second.
+     * It is rebuilt only when the library snapshot itself is a different object.
+     */
+    @Volatile
+    private var projectionCache: Pair<MdbListLibrarySnapshot?, MdbListLibraryProjection>? = null
+
+    private fun projectionOf(library: MdbListLibrarySnapshot?): MdbListLibraryProjection {
+        projectionCache?.takeIf { it.first === library }?.let { return it.second }
+        val built = MdbListLibraryProjection(library?.visible() ?: MdbListLibrarySnapshot())
+        projectionCache = library to built
+        return built
+    }
 
     /** Every list that can be hidden, with whether it is shown in the library, for MDBList settings. */
     val listOptions = snapshots.map { it?.listOptions().orEmpty() }.distinctUntilChanged()
@@ -51,7 +67,7 @@ class MdbListLibraryService(
         val scope = runCatching { sync.currentScope() }.getOrNull() ?: return TrackingLibrarySnapshot()
         val library = sync.currentSnapshot()?.library
         val status = loadState.value.takeIf { it.scope == scope }
-        val projection = MdbListLibraryProjection(library?.visible() ?: MdbListLibrarySnapshot())
+        val projection = projectionOf(library)
         val tabs = library?.visibleTabs().orEmpty()
         return TrackingLibrarySnapshot(
             items = projection.entries,
@@ -69,7 +85,7 @@ class MdbListLibraryService(
     fun find(contentId: String, contentType: String? = null): LibraryItem? {
         if (runCatching { sync.currentScope() }.isFailure) return null
         val snapshot = sync.currentSnapshot()?.library ?: return null
-        return MdbListLibraryProjection(snapshot.visible()).find(contentId, contentType)
+        return projectionOf(snapshot).find(contentId, contentType)
     }
 
     fun observeMembership(id: String, type: String) = projection.map { it.membership(id, type) }.distinctUntilChanged()
