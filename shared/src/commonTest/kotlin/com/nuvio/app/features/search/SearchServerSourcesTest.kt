@@ -57,7 +57,8 @@ class SearchServerSourcesTest {
 
         val state = SearchRepository.uiState.value
         assertEquals(listOf("Box · Movies", "Box · Series"), state.sections.map { it.title })
-        assertEquals(listOf(ServerMediaKind.MOVIE, ServerMediaKind.SERIES), provider.searches.map { it.first })
+        assertEquals(setOf(ServerMediaKind.MOVIE, ServerMediaKind.SERIES), provider.searches.map { it.first }.toSet())
+        assertEquals(2, provider.searches.size)
     }
 
     @Test

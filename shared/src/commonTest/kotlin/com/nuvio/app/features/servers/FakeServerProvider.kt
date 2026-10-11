@@ -63,7 +63,7 @@ internal class FakeServerProvider(
         query: String,
         limit: Int,
     ): List<ServerTitle> {
-        searches += kind to libraries.map { it.id }
+        synchronized(lock) { searches += kind to libraries.map { it.id } }
         return listOf(title(session, "7"))
     }
 
