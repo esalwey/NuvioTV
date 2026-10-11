@@ -370,6 +370,7 @@ object AccountDataStores {
             appleKeys = listOf(
                 AppleKeySpec.ProfileScoped("show_loading_overlay"),
                 AppleKeySpec.ProfileScoped("show_parental_guide"),
+                AppleKeySpec.ProfileScoped("osd_clock_enabled"),
                 AppleKeySpec.ProfileScoped("resize_mode"),
                 AppleKeySpec.ProfileScoped("hold_to_speed_enabled"),
                 AppleKeySpec.ProfileScoped("hold_to_speed_value"),
@@ -459,6 +460,7 @@ object AccountDataStores {
                 AppleKeySpec.DynamicPrefix("audio_name|"),
                 AppleKeySpec.DynamicPrefix("audio_track_id|"),
                 AppleKeySpec.DynamicPrefix("subtitle_delay_ms|"),
+                AppleKeySpec.DynamicPrefix("playback_speed|"),
             ),
         ),
 

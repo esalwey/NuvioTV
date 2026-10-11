@@ -23,6 +23,7 @@ actual object PlayerTrackPreferenceStorage {
     private const val audioTrackIdKey = "audio_track_id"
     private const val subtitleIsForcedKey = "subtitle_is_forced"
     private const val subtitleDelayMsKey = "subtitle_delay_ms"
+    private const val playbackSpeedKey = "playback_speed"
 
     private val preferences: JvmSharedPreferences? = jvmSharedPreferences(preferencesName)
 
@@ -88,6 +89,23 @@ actual object PlayerTrackPreferenceStorage {
             ?.edit()
             ?.putInt(scopedKey(subtitleDelayMsKey, id), delayMs.coerceIn(SUBTITLE_DELAY_MIN_MS, SUBTITLE_DELAY_MAX_MS))
             ?.apply()
+    }
+
+    actual fun loadPlaybackSpeed(contentId: String): Float? {
+        val id = contentId.normalizedStorageId() ?: return null
+        val key = scopedKey(playbackSpeedKey, id)
+        return preferences?.let { prefs ->
+            if (prefs.contains(key)) PlaybackSpeedPolicy.restoredValue(prefs.getFloat(key, 1f)) else null
+        }
+    }
+
+    actual fun savePlaybackSpeed(contentId: String, speed: Float) {
+        val id = contentId.normalizedStorageId() ?: return
+        val key = scopedKey(playbackSpeedKey, id)
+        val stored = PlaybackSpeedPolicy.storedValue(speed)
+        val editor = preferences?.edit() ?: return
+        if (stored == null) editor.remove(key) else editor.putFloat(key, stored)
+        editor.apply()
     }
 
     private fun loadString(field: String, contentId: String): String? =
