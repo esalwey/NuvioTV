@@ -144,6 +144,11 @@ final class MPVTVPlayerViewController: UIViewController {
     /// Uptime of the last pause/play flip `refreshState` saw — a Now Playing toggle that lands right
     /// after a local press is the same press, not a second one.
     private var lastPauseFlipUptime: TimeInterval = 0
+    /// Self-heal of the published state (`refreshState`): the playhead of the previous tick, whether a
+    /// direct re-read of the core is running, and when the last one was asked for.
+    private var lastTickPosition: Double = 0
+    private var resyncInFlight = false
+    private var lastResyncUptime: TimeInterval = 0
     /// Control Center / iPhone Remote / Siri (PLY-A7, VIS-06).
     private var nowPlaying: MPVNowPlaying?
 
@@ -163,6 +168,9 @@ final class MPVTVPlayerViewController: UIViewController {
         var eof = false
         var videoW: Int64 = 0
         var videoH: Int64 = 0
+        /// Uptime of the last time-pos event (0 = none yet): a playhead that is silent while playing
+        /// triggers a direct re-read of the core (`resyncIfStale`).
+        var timePosAt: TimeInterval = 0
     }
     private let propLock = NSLock()
     private var propSnapshot = PropSnapshot()
@@ -1120,11 +1128,18 @@ final class MPVTVPlayerViewController: UIViewController {
         // synchronous reads stall for seconds while the core fills its cache early in playback).
         let snap = cachedProps()
 
+        let tickUptime = ProcessInfo.processInfo.systemUptime
+        // The playhead moved since the last tick: the picture is playing, whatever the flags say.
+        let advancing = snap.position > lastTickPosition + 0.05
+        lastTickPosition = snap.position
+        resyncIfStale(snap, advancing: advancing, now: tickUptime)
+
         state.durationSec = snap.duration
         state.positionSec = max(snap.position, 0)
         state.isPaused = snap.paused
         // A failed load leaves the core idle and unpaused — which reads as buffering forever (PLY-1).
-        state.isBuffering = playbackError == nil && (snap.cacheWait || (snap.coreIdle && !snap.paused))
+        // A moving playhead is never a stall: the spinner cannot outlive the first seconds of video.
+        state.isBuffering = playbackError == nil && !advancing && (snap.cacheWait || (snap.coreIdle && !snap.paused))
         // The idle timer follows the player on screen. The screen's own toggles run on SwiftUI's
         // appear/disappear, whose order across an Up Next rebuild is not guaranteed: the outgoing
         // player's `onDisappear` could re-enable the screensaver under the incoming episode.
@@ -1186,6 +1201,39 @@ final class MPVTVPlayerViewController: UIViewController {
             isPlaying: !snap.paused && !state.isEnded && playbackError == nil,
             rate: state.playbackSpeed
         )
+    }
+
+    /// Self-heal: the published state follows events from the core, and an event that never came (or a
+    /// flag that stayed behind) would freeze the UI on 0:00 with a spinner while the film plays on. When
+    /// the playhead moves while the cache says paused, or stays silent for seconds while playing, the
+    /// core is asked directly (on `eventQueue`, never from main) and the cache is rewritten from it.
+    private func resyncIfStale(_ snap: PropSnapshot, advancing: Bool, now: TimeInterval) {
+        guard fileLoaded, !resyncInFlight, playbackError == nil, !state.isEnded, now - lastResyncUptime > 2 else { return }
+        let silentFor = now - max(snap.timePosAt, fileLoadedUptime)
+        let pausedButMoving = advancing && snap.paused && now - lastPauseFlipUptime > 1
+        let playingButSilent = !snap.paused && fileLoadedUptime > 0 && silentFor > 3
+        guard pausedButMoving || playingButSilent else { return }
+        lastResyncUptime = now
+        resyncInFlight = true
+        eventQueue.async { [weak self] in
+            guard let self, self.mpv != nil else { return }
+            func flag(_ name: String) -> Bool? {
+                var raw = Int32(0)
+                return mpv_get_property(self.mpv, name, MPV_FORMAT_FLAG, &raw) >= 0 ? raw != 0 : nil
+            }
+            var position = Double(0)
+            let hasPosition = mpv_get_property(self.mpv, "time-pos", MPV_FORMAT_DOUBLE, &position) >= 0
+            let paused = flag("pause"), idle = flag("core-idle"), cache = flag("paused-for-cache")
+            let at = ProcessInfo.processInfo.systemUptime
+            self.updateProps {
+                if hasPosition { $0.position = position; $0.timePosAt = at }
+                if let paused { $0.paused = paused }
+                if let idle { $0.coreIdle = idle }
+                if let cache { $0.cacheWait = cache }
+            }
+            print("[MPV] state resync: pos=\(hasPosition ? position : -1) paused=\(String(describing: paused)) idle=\(String(describing: idle)) cache=\(String(describing: cache))")
+            DispatchQueue.main.async { self.resyncInFlight = false }
+        }
     }
 
     /// First-90s diagnostics for the beta "laggy at first" report: one `[MPVStats]` line per
@@ -1590,7 +1638,10 @@ final class MPVTVPlayerViewController: UIViewController {
 
         switch observed {
         case .timePos:
-            if let v = asDouble() { updateProps { $0.position = v } }
+            if let v = asDouble() {
+                let at = ProcessInfo.processInfo.systemUptime
+                updateProps { $0.position = v; $0.timePosAt = at }
+            }
         case .duration:
             if let v = asDouble() {
                 updateProps { $0.duration = v }

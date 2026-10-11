@@ -641,10 +641,14 @@ extension MPVTVPlayerViewController {
         }
         // The title's remembered speed (1x is never stored) and the chosen aspect ratio.
         if let storedSpeed = PlayerTrackPreferenceStorage.shared.loadPlaybackSpeed(contentId: context.parentMetaId)?.floatValue,
-           storedSpeed > 0 {
+           storedSpeed > 0, abs(Double(storedSpeed) - 1) > 0.001 {
             setSpeed(Double(storedSpeed))
         }
-        applyAspectMode(state.aspectMode)
+        // Fit is mpv's own default: nothing to send, and no reason to touch the video output while it
+        // is still setting up.
+        if state.aspectMode != .fit {
+            applyAspectMode(state.aspectMode)
+        }
         // LANG-13: the audio delay is a property of this Apple TV's sound setup (soundbar, AV
         // receiver), so one value is kept per device and applied to every file.
         let storedAudioDelay = UserDefaults.standard.double(forKey: Self.audioDelayDefaultsKey)
@@ -683,19 +687,23 @@ extension MPVTVPlayerViewController {
     func applySubtitleStyle() {
         guard mpv != nil, let state = playerSettings?.subtitleStyle else { return }
         let style = SubtitleRenderStyle(state)
-        setMpvString("sub-ass-override", "no")
-        setMpvString("sub-color", SubtitleRenderStyle.mpvColor(style.textARGB))
-        setMpvString("sub-back-color", SubtitleRenderStyle.mpvColor(style.backgroundARGB))
-        setMpvString("sub-outline-color", SubtitleRenderStyle.mpvColor(style.outlineARGB))
-        setMpvString("sub-border-color", SubtitleRenderStyle.mpvColor(style.outlineARGB))
-        setMpvString("sub-border-style", style.mpvBorderStyle)
-        setMpvString("sub-bold", style.bold ? "yes" : "no")
-        setMpvInt("sub-font-size", style.mpvFontSize)
-        setMpvInt("sub-outline-size", style.mpvOutlineSize)
-        setMpvInt("sub-border-size", style.mpvOutlineSize)
-        setMpvInt("sub-pos", style.mpvSubPos)
-        setMpvString("sub-filter-sdh", state.stripSdh ? "yes" : "no")
-        setMpvString("sub-filter-sdh-harder", state.stripSdh ? "yes" : "no")
+        let stripSdh = state.stripSdh
+        // A dozen property writes: on `eventQueue`, not on the main thread that calls this at file load.
+        onCore {
+            $0.setMpvString("sub-ass-override", "no")
+            $0.setMpvString("sub-color", SubtitleRenderStyle.mpvColor(style.textARGB))
+            $0.setMpvString("sub-back-color", SubtitleRenderStyle.mpvColor(style.backgroundARGB))
+            $0.setMpvString("sub-outline-color", SubtitleRenderStyle.mpvColor(style.outlineARGB))
+            $0.setMpvString("sub-border-color", SubtitleRenderStyle.mpvColor(style.outlineARGB))
+            $0.setMpvString("sub-border-style", style.mpvBorderStyle)
+            $0.setMpvString("sub-bold", style.bold ? "yes" : "no")
+            $0.setMpvInt("sub-font-size", style.mpvFontSize)
+            $0.setMpvInt("sub-outline-size", style.mpvOutlineSize)
+            $0.setMpvInt("sub-border-size", style.mpvOutlineSize)
+            $0.setMpvInt("sub-pos", style.mpvSubPos)
+            $0.setMpvString("sub-filter-sdh", stripSdh ? "yes" : "no")
+            $0.setMpvString("sub-filter-sdh-harder", stripSdh ? "yes" : "no")
+        }
     }
 
     #if DEBUG
@@ -708,12 +716,12 @@ extension MPVTVPlayerViewController {
     func alangTrace(_ message: @autoclosure () -> String) {}
     #endif
 
-    private func setMpvString(_ name: String, _ value: String) {
+    fileprivate func setMpvString(_ name: String, _ value: String) {
         guard let mpv else { return }
         checkError(mpv_set_property_string(mpv, name, value))
     }
 
-    private func setMpvInt(_ name: String, _ value: Int64) {
+    fileprivate func setMpvInt(_ name: String, _ value: Int64) {
         guard let mpv else { return }
         var v = value
         mpv_set_property(mpv, name, MPV_FORMAT_INT64, &v)
@@ -841,7 +849,7 @@ extension MPVTVPlayerViewController {
     /// own save is a same-value no-op.
     func setSpeed(_ speed: Double) {
         guard mpv != nil else { return }
-        setMpvDouble("speed", speed)
+        onCore { $0.setMpvDouble("speed", speed) }
         state.playbackSpeed = speed
         PlayerTrackPreferenceStorage.shared.savePlaybackSpeed(contentId: context.parentMetaId, speed: Float(speed))
     }
@@ -859,8 +867,22 @@ extension MPVTVPlayerViewController {
     /// filling the view, so the drawable size (and HDR output) is untouched.
     func applyAspectMode(_ mode: PlayerAspectMode) {
         guard mpv != nil else { return }
-        setMpvDouble("panscan", mode.mpvPanscan)
-        setFlag("keepaspect", mode.mpvKeepsAspect)
+        // Both properties make the video output re-lay-out its picture, which waits on the render
+        // thread. Never from the main thread: at file load (where this used to run) that parked the
+        // main thread, so the whole screen froze while the film played on.
+        onCore {
+            $0.setMpvDouble("panscan", mode.mpvPanscan)
+            $0.setFlag("keepaspect", mode.mpvKeepsAspect)
+        }
+    }
+
+    /// Runs `work` on `eventQueue`, the one place the core may be written to without parking the
+    /// main thread on its lock (the BUG-2/BUG-3 rule above `PropSnapshot`).
+    func onCore(_ work: @escaping (MPVTVPlayerViewController) -> Void) {
+        eventQueue.async { [weak self] in
+            guard let self, self.mpv != nil else { return }
+            work(self)
+        }
     }
 
     /// Single source of truth for subtitle re-timing on the mpv path: applies to the running core,
@@ -869,7 +891,7 @@ extension MPVTVPlayerViewController {
     /// replay is a same-value no-op.
     func setSubtitleDelay(_ seconds: Double) {
         guard mpv != nil else { return }
-        setMpvDouble("sub-delay", seconds)
+        onCore { $0.setMpvDouble("sub-delay", seconds) }
         state.subtitleDelaySec = seconds
         let delayMs = Int32((seconds * 1000).rounded())
         PlayerTrackPreferenceStorage.shared.saveSubtitleDelayMs(videoId: context.videoId, delayMs: delayMs)
@@ -880,7 +902,7 @@ extension MPVTVPlayerViewController {
 
     func setAudioDelay(_ seconds: Double) {
         guard mpv != nil else { return }
-        setMpvDouble("audio-delay", seconds)
+        onCore { $0.setMpvDouble("audio-delay", seconds) }
         state.audioDelaySec = seconds
         UserDefaults.standard.set(seconds, forKey: Self.audioDelayDefaultsKey)
     }
@@ -908,7 +930,7 @@ extension MPVTVPlayerViewController {
         eventQueue.async { [weak self] in self?.setMpvString("af", filter) }
     }
 
-    private func setMpvDouble(_ name: String, _ value: Double) {
+    fileprivate func setMpvDouble(_ name: String, _ value: Double) {
         guard mpv != nil else { return }
         var v = value
         mpv_set_property(mpv, name, MPV_FORMAT_DOUBLE, &v)

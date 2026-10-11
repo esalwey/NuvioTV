@@ -26,7 +26,7 @@ private struct MPVPlayerRepresentable: UIViewControllerRepresentable {
     /// Error card's "Try Native Player" (hands the stream to the native engine at a position);
     /// nil = not offered.
     let onSwitchToNative: ((Double) -> Void)?
-    /// Chapter ticks for the transport bar (read from the file once it is loaded).
+    /// Chapters for the Chapters tab (read from the file once it is loaded).
     let chromeModel: MPVChromeModel
     /// A direct play of a Jellyfin / Emby file that failed: asks the server for a transcode instead
     /// (the error card's "Try Again"). Returns false when there is nothing to fall back to.
@@ -121,7 +121,7 @@ struct MPVPlayerScreen: View {
     private let summary: PlayerInfoSummary
     /// Measured height of the transport chrome's content (`promptBottomInset`).
     @State private var transportHeight: CGFloat = 0
-    /// Chapter ticks for the scrubber (file chapters, else the skip segments).
+    /// Chapters for the Chapters tab (file chapters, else the skip segments).
     @StateObject private var chromeModel = MPVChromeModel()
     /// The first frame is on screen: until then the shared loading view stands in (PLY-A12).
     @State private var firstFrameShown = false
@@ -192,7 +192,6 @@ struct MPVPlayerScreen: View {
             PlayerControlsOverlay(
                 state: state,
                 summary: summary,
-                chapterTicks: chromeModel.tickTimes,
                 items: MPVChromeContent.items(panelModel: panelModel,
                                               canChooseSource: onChooseAnotherSource != nil,
                                               canSwitchEngine: engineSwitch?.canSwitch ?? false),
@@ -284,9 +283,8 @@ struct MPVPlayerScreen: View {
         }
         // First frames on screen: the loading view gives way.
         .onChange(of: state.isBuffering) { _, buffering in
-            guard !buffering, !firstFrameShown else { return }
-            withAnimation(.easeInOut(duration: 0.25)) { firstFrameShown = true }
-            parental.firstFrameShown()
+            guard !buffering else { return }
+            showFirstFrame()
         }
         // The stall spinner: only for a stall that outlasts a short seek (cancelled and restarted on
         // every change of the buffering flag).
@@ -300,6 +298,8 @@ struct MPVPlayerScreen: View {
             stallSpinnerShown = true
         }
         .onChange(of: state.positionSec) { _, position in
+            // A playhead that moves is a picture on screen, whatever the buffering flag says.
+            if position > 0.1, !state.playbackErrorShown { showFirstFrame() }
             upNext.onProgress(positionSec: position, durationSec: state.durationSec)
             serverLink?.report(positionSec: position, isPaused: state.isPaused, isBuffering: state.isBuffering, isEnded: false)
         }
@@ -328,6 +328,13 @@ struct MPVPlayerScreen: View {
             // hand off to the screensaver, same as the native player); playing → hold it.
             UIApplication.shared.isIdleTimerDisabled = !paused
         }
+    }
+
+    /// The first frame is up: the loading view gives way to the picture and the chrome.
+    private func showFirstFrame() {
+        guard !firstFrameShown else { return }
+        withAnimation(.easeInOut(duration: 0.25)) { firstFrameShown = true }
+        parental.firstFrameShown()
     }
 
     /// The error card's "Try Again" on a failed Jellyfin / Emby direct play (nil for every other source).
@@ -440,9 +447,8 @@ struct MPVPlayerScreen: View {
         }
         state.onSkipSegmentsLoaded = { [weak upNext, weak chromeModel] segments in
             upNext?.setSkipSegments(segments)
-            // The scrubber marks the segments when the file has no chapters of its own, and the
-            // Chapters tab names them (the native screen's chapter markers).
-            chromeModel?.segmentBounds = Array(Set(segments.flatMap { [$0.start, $0.end] })).sorted()
+            // The Chapters tab names them (the native screen's chapter markers); the scrubber itself
+            // stays a plain track.
             chromeModel?.segments = segments
         }
         state.upNextCardUp = { [weak upNext] in upNext?.isCardVisible ?? false }
@@ -516,7 +522,7 @@ struct MPVPlayerScreen: View {
 // MARK: - Chrome data and subtitle look
 
 /// Keeps the libmpv screen's chrome data and subtitle look in step with the open file: the file's
-/// chapters for the scrubber ticks (spec §6.9.3), and the system caption style on top of the
+/// chapters for the Chapters tab (spec §6.9.3), and the system caption style on top of the
 /// Settings one (spec §8.3, gap 17), re-asserted whenever playback (re)starts and whenever the
 /// viewer changes Settings › Accessibility › Subtitles & Captioning.
 final class MPVChromeCoordinator {
@@ -555,8 +561,12 @@ final class MPVChromeCoordinator {
         controller.applySubtitleAppearance()
         if !chaptersRead {
             chaptersRead = true
-            let chapters = controller.chapterTimes()
-            if !chapters.isEmpty { chromeModel?.chapterTimes = chapters }
+            // Chapter reads are synchronous core calls: off the main thread, published back on it.
+            controller.onCore { core in
+                let chapters = core.chapterTimes()
+                guard !chapters.isEmpty else { return }
+                DispatchQueue.main.async { [weak self] in self?.chromeModel?.chapterTimes = chapters }
+            }
         }
     }
 }
@@ -582,9 +592,13 @@ extension MPVTVPlayerViewController {
     func applySubtitleAppearance() {
         guard mpv != nil, fileLoaded else { return }
         applySubtitleStyle()
-        SystemCaptionStyle.current().apply { name, value in
-            guard let mpv = self.mpv else { return }
-            self.checkError(mpv_set_property_string(mpv, name, value))
+        // The system's caption choices are read here (main), written on `eventQueue` behind the style.
+        let caption = SystemCaptionStyle.current()
+        onCore { core in
+            caption.apply { name, value in
+                guard let mpv = core.mpv else { return }
+                core.checkError(mpv_set_property_string(mpv, name, value))
+            }
         }
     }
 }

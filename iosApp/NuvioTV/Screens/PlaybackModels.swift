@@ -64,12 +64,14 @@ nonisolated enum PlayerTuning {
     // MARK: - Player look A/B (Developer pane)
 
     /// Developer A/B (hidden pane): put the old dark tint (black 45 %) back under every player glass
-    /// surface. OFF by default: the tvOS 26 system bar is neutral Liquid Glass over the video, so the
-    /// app-drawn surfaces (mpv transport bar, chips, Up Next and pause cards) match it.
+    /// surface. OFF by default: the tvOS 26 system player floats neutral Liquid Glass over the video, so
+    /// the app-drawn glass (mpv round transport buttons, chips, clock pill, Up Next and pause cards)
+    /// matches it. The mpv transport bar itself has no platter any more, only a shade.
     static let darkGlassTintKey = "debug.player.darkGlassTint"
     /// Developer A/B: keep the mpv `CAMetalLayer` framebuffer-only (the old, faster setting). OFF by
     /// default: a framebuffer-only layer cannot be read by the backdrop of `.glassEffect`, so the
-    /// glass over the mpv picture rendered as a dark block instead of the blurred video.
+    /// glass (round buttons, chips) over the mpv picture rendered as a dark block instead of the
+    /// blurred video.
     static let framebufferOnlyKey = "debug.player.framebufferOnly"
 
     static var darkGlassTint: Bool { UserDefaults.standard.bool(forKey: darkGlassTintKey) }
