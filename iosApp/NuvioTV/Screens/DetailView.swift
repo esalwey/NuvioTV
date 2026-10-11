@@ -1433,7 +1433,7 @@ struct DetailView: View {
                     episodeOptions: { model.episodeOptions(for: $0) },
                     onToggleSeasonWatched: { model.toggleSeasonWatched(of: $0) },
                     onMarkPreviousWatched: { model.markPreviousEpisodesWatched(before: $0) },
-                    onOpenComments: model.commentsEnabled ? { presentEpisodeComments($0) } : nil
+                    onOpenComments: episodeCommentsAction
                 )
                 // A discrete focus region: vertical D-pad moves must land here instead of
                 // geometrically skipping from the info/network chips down to the cast row.
@@ -1476,6 +1476,12 @@ struct DetailView: View {
                 infoSection
             }
         }
+    }
+
+    /// The episode menu's "Episode Comments", offered only while Trakt comments are switched on.
+    private var episodeCommentsAction: ((MetaVideo) -> Void)? {
+        guard model.commentsEnabled else { return nil }
+        return { presentEpisodeComments($0) }
     }
 
     /// Opens an episode's Trakt comments full screen (the episode menu's "Episode Comments").
