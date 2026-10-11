@@ -14,6 +14,9 @@ import kotlin.concurrent.Volatile
 interface ThemeSettingsStore {
     fun loadSelectedTheme(): String?
     fun saveSelectedTheme(themeName: String)
+    /** Encoded [com.nuvio.app.core.ui.CustomThemeColors] of the Custom theme, or null when never set. */
+    fun loadCustomThemeColors(): String? = null
+    fun saveCustomThemeColors(colors: String) {}
     fun loadAmoledEnabled(): Boolean?
     fun saveAmoledEnabled(enabled: Boolean)
     fun loadLiquidGlassNativeTabBarEnabled(): Boolean?
