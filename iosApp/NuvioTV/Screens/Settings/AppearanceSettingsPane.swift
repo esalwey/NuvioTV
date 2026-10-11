@@ -212,10 +212,12 @@ struct AppearanceSettingsPane: View {
                 cornerDp: model.posterCornerRadiusDp,
                 hideLabels: model.posterHideLabels,
                 landscapeRows: model.posterLandscapeRows,
+                landscapeClearlogo: model.posterLandscapeClearlogo,
                 onSize: { model.setPosterWidth($0) },
                 onCorner: { model.setPosterCorner($0) },
                 onHideLabels: { model.setPosterHideLabels($0) },
                 onLandscape: { model.setPosterLandscapeRows($0) },
+                onLandscapeClearlogo: { model.setPosterLandscapeClearlogo($0) },
                 onReset: { model.resetPosterStyle() }
             )
             // Default (off) always shows the Home hero's backdrop artwork — a beta
@@ -273,6 +275,19 @@ struct AppearanceSettingsPane: View {
                 subtitle: String(localized: "A movie's detail page shows its release date instead of the year"),
                 isOn: $detailFullReleaseDate
             )
+        }
+
+        // Rating-poster style services: a URL pattern with per-screen switches, synced per profile.
+        SettingsSection(String(localized: "Custom Posters")) {
+            SettingsLinkRow(
+                title: String(localized: "Custom Poster URL"),
+                subtitle: model.customPosterPattern.isEmpty
+                    ? String(localized: "Off. Replace posters with a rating-poster service.")
+                    : model.customPosterPattern,
+                systemImage: "photo.on.rectangle"
+            ) {
+                CustomPosterSettingsPage(model: model)
+            }
         }
 
         // SET-2 / upstream 6fb46976b. Synced per profile (meta-screen settings).
@@ -466,10 +481,12 @@ private struct PosterStyleControls: View {
     let cornerDp: Int32
     let hideLabels: Bool
     let landscapeRows: Bool
+    let landscapeClearlogo: Bool
     let onSize: (Int32) -> Void
     let onCorner: (Int32) -> Void
     let onHideLabels: (Bool) -> Void
     let onLandscape: (Bool) -> Void
+    let onLandscapeClearlogo: (Bool) -> Void
     let onReset: () -> Void
 
     // FEAT-39 (u/mrStevenx3, 2026-09-11): "Large is too big, Medium too small" — 134 dp is the
@@ -508,6 +525,13 @@ private struct PosterStyleControls: View {
             subtitle: String(localized: "Show Home & Search catalog rows as wide 16:9 cards"),
             isOn: Binding(get: { landscapeRows }, set: { onLandscape($0) })
         )
+        if landscapeRows {
+            SettingsToggleRow(
+                title: String(localized: "Always Show Logo"),
+                subtitle: String(localized: "Show the title logo over the artwork of landscape cards"),
+                isOn: Binding(get: { landscapeClearlogo }, set: { onLandscapeClearlogo($0) })
+            )
+        }
 
         SettingsDestructiveRow(title: String(localized: "Reset to Defaults"), systemImage: "arrow.counterclockwise", action: onReset)
     }

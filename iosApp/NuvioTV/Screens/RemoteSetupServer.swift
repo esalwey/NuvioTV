@@ -43,6 +43,11 @@ final class RemoteSetupServer {
         /// (a blank string is a real value: "use the add-on's original text").
         let debridNameTemplate: String?
         let debridDescriptionTemplate: String?
+        /// Custom poster URL pattern (placeholders such as `{imdb_id}`); an empty string removes it.
+        /// Missing = leave it untouched.
+        let customPosterUrl: String?
+        /// Keys of the screens the pattern applies to (`home`, `continue_watching`, ...).
+        let customPosterScreens: [String]?
     }
 
     enum ChangeStatus: String {

@@ -818,6 +818,23 @@ struct FolderTile: View {
     }
 }
 
+/// How a folder's sources are laid out, from the collection's view mode (set in the mobile editor).
+enum FolderPresentation: Equatable {
+    /// A strip of source tabs over one paginated poster grid.
+    case tabbedGrid
+    /// One horizontal shelf per source, like Home.
+    case rows
+
+    /// `FolderViewMode.name` from the shared model. `FOLLOW_LAYOUT` means "do what Home does", and
+    /// Home on tvOS is always shelves, so it shows rows too (the mobile app does the same).
+    init(viewModeName: String) {
+        switch viewModeName.uppercased() {
+        case "ROWS", "FOLLOW_LAYOUT": self = .rows
+        default: self = .tabbedGrid
+        }
+    }
+}
+
 /// Backs `FolderDetailView`. The shared `FolderDetailRepository` is a singleton keyed by
 /// `initialize(collectionId:folderId:)` — one folder screen at a time, `clear()` on exit.
 @MainActor
@@ -840,6 +857,11 @@ final class FolderDetailViewModel: ObservableObject {
     /// trimming rule the tile applies to every payload URL. The folder's `heroBackdropUrl` is
     /// the HOME hero's business (round three), not this page's.
     @Published private(set) var titleLogoUrl: String?
+    /// The collection's view mode, as this screen draws it.
+    @Published private(set) var presentation = FolderPresentation.tabbedGrid
+    /// One shelf per source with items, for `.rows` (empty otherwise). Built by the shared
+    /// repository so a shelf's "See All" opens the same paginated grid the tab would.
+    @Published private(set) var rowSections: [HomeCatalogSection] = []
     @Published private(set) var tabs: [FolderTab] = []
     @Published private(set) var selectedTabIndex = 0
     @Published private(set) var items: [MetaPreview] = []
@@ -869,6 +891,11 @@ final class FolderDetailViewModel: ObservableObject {
                 self.folderTitle = folder.title
                 self.titleLogoUrl = folder.titleLogoUrl.nonBlankTrimmed
             }
+            let presentation = FolderPresentation(viewModeName: state.viewMode.name)
+            self.presentation = presentation
+            self.rowSections = presentation == .rows
+                ? FolderDetailRepository.shared.getCatalogSectionsForRows()
+                : []
             self.tabs = state.tabs
             self.selectedTabIndex = Int(state.selectedTabIndex)
             self.items = state.selectedTab?.items ?? []
@@ -957,9 +984,10 @@ final class FolderDetailViewModel: ObservableObject {
     }
 }
 
-/// A collection folder's contents: tab chips (one per source + "All") over an adaptive paginated
-/// poster grid. All view modes render as the tabbed grid on tvOS (v1 simplification). Pushed within
-/// the Home stack, so `TitleRoute` resolves against the ancestor's destination.
+/// A collection folder's contents, drawn by the collection's view mode: tab chips (one per source +
+/// "All") over an adaptive paginated poster grid, or one shelf per source (`.rows`, which is also
+/// what "follow layout" means on tvOS). Pushed within the Home stack, so `TitleRoute` and
+/// `CatalogRoute` resolve against the ancestor's destinations.
 struct FolderDetailView: View {
     @StateObject private var model: FolderDetailViewModel
 
@@ -967,6 +995,11 @@ struct FolderDetailView: View {
     @Environment(\.dismiss) private var dismiss
     /// Drives the TMDB filter editor cover for the selected tab's tmdb source.
     @State private var editing: FolderDetailViewModel.EditableSource?
+    /// Settings > Home Screen > Focused Item Gradient: the focused title tints this page's background.
+    @AppStorage(FocusGradientSetting.defaultsKey) private var focusGradientEnabled = false
+    /// The focused card in the grid, and the focused title in the shelves.
+    @FocusState private var focusedGridId: String?
+    @State private var focusedShelfItem: MetaPreview?
 
     init(route: FolderRoute) {
         _model = StateObject(wrappedValue: FolderDetailViewModel(route: route))
@@ -990,9 +1023,18 @@ struct FolderDetailView: View {
         [GridItem(.adaptive(minimum: cardWidth, maximum: cardWidth), spacing: Theme.Grid.spacing)]
     }
 
+    private var focusGradientArtwork: FocusGradientArtwork? {
+        let item = focusedShelfItem ?? focusedGridId.flatMap { id in model.items.first { $0.id == id } }
+        return item.map { FocusGradientArtwork($0) }
+    }
+
     var body: some View {
         ZStack {
             Theme.Palette.background.ignoresSafeArea()
+
+            if focusGradientEnabled {
+                FocusGradientBackdrop(artwork: focusGradientArtwork)
+            }
 
             // BUG-38 round three: the folder's backdrop is NOT painted behind this page any
             // more (it shipped that way in beta.14; the reporter found it made the page text
@@ -1013,7 +1055,7 @@ struct FolderDetailView: View {
                         // (upstream 0fc4616b's exclusion filters + the existing include fields).
                         // Only shown for filter-consuming sources; doubles as the empty state's
                         // focus anchor (BUG-47) when the source currently matches nothing.
-                        if let source = model.editableSource {
+                        if model.presentation == .tabbedGrid, let source = model.editableSource {
                             Button {
                                 editing = source
                             } label: {
@@ -1025,77 +1067,11 @@ struct FolderDetailView: View {
                         }
                     }
 
-                    if model.tabs.count > 1 {
-                        ScrollView(.horizontal, showsIndicators: false) {
-                            HStack(spacing: Theme.Spacing.md) {
-                                ForEach(Array(model.tabs.enumerated()), id: \.offset) { index, tab in
-                                    TabChip(
-                                        label: tab.label,
-                                        isSelected: index == model.selectedTabIndex
-                                    ) {
-                                        model.selectTab(index)
-                                    }
-                                }
-                            }
-                            .padding(.vertical, Theme.Spacing.sm)
-                        }
-                    }
-
-                    if model.items.isEmpty {
-                        if model.isLoading || model.tabIsLoading {
-                            HStack(spacing: Theme.Spacing.md) {
-                                ProgressView()
-                                Text("Loading\u{2026}").foregroundStyle(Theme.Palette.textSecondary)
-                            }
-                            .padding(.top, Theme.Spacing.xl)
-                        } else {
-                            // VIS-14: the system empty state.
-                            ContentUnavailableView {
-                                Label(String(localized: "catalog.empty.title",
-                                             defaultValue: "No Titles",
-                                             comment: "Catalog grid and collection folder: title shown when there is nothing to show"),
-                                      systemImage: "film.stack")
-                            } description: {
-                                Text("Nothing here yet.")
-                            } actions: {
-                                // BUG-47 class: a pushed screen with no focusable content strands
-                                // focus on the ancestor tab bar, where Menu exits the app instead
-                                // of popping. The Edit Filters button anchors focus when present;
-                                // otherwise keep a Go Back control here (same as CatalogGridView).
-                                if model.editableSource == nil {
-                                    Button("Go Back") { dismiss() }
-                                        .buttonStyle(.bordered)
-                                }
-                            }
-                            .padding(.top, Theme.Spacing.xl)
-                        }
+                    if model.presentation == .rows {
+                        shelves
                     } else {
-                        LazyVGrid(columns: columns, alignment: .leading, spacing: Theme.Grid.rowSpacing) {
-                            ForEach(Array(model.items.enumerated()), id: \.element.id) { index, item in
-                                NavigationLink(value: TitleRoute(preview: item)) {
-                                    PosterCard(
-                                        title: item.name,
-                                        imageURL: item.poster,
-                                        width: accessibilityLayout ? cardWidth : nil,
-                                        height: accessibilityLayout ? cardHeight : nil
-                                    )
-                                }
-                                .cardFocusButtonStyle()
-                                .posterButtonShape()
-                                // F13: shared long-press menu (library, watched).
-                                .posterContextMenu(item)
-                                .onAppear { model.itemAppeared(at: index) }
-                            }
-                        }
-
-                        if model.canLoadMore || model.tabIsLoading {
-                            HStack {
-                                Spacer()
-                                ProgressView()
-                                Spacer()
-                            }
-                            .padding(.vertical, Theme.Spacing.lg)
-                        }
+                        tabStrip
+                        gridContent
                     }
                 }
                 .padding(Theme.Spacing.screen)
@@ -1110,6 +1086,117 @@ struct FolderDetailView: View {
         // guard refetches only when the folder actually changed.
         .fullScreenCover(item: $editing, onDismiss: { model.reload() }) { source in
             TmdbFilterEditorView(target: source)
+        }
+    }
+
+    // MARK: - Content
+
+    /// The source tabs, shown for the tabbed grid when the folder has more than one source.
+    @ViewBuilder
+    private var tabStrip: some View {
+        if model.tabs.count > 1 {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: Theme.Spacing.md) {
+                    ForEach(Array(model.tabs.enumerated()), id: \.offset) { index, tab in
+                        TabChip(
+                            label: tab.label,
+                            isSelected: index == model.selectedTabIndex
+                        ) {
+                            model.selectTab(index)
+                        }
+                    }
+                }
+                .padding(.vertical, Theme.Spacing.sm)
+            }
+        }
+    }
+
+    /// The selected tab's posters in a paginated grid.
+    @ViewBuilder
+    private var gridContent: some View {
+        if model.items.isEmpty {
+            emptyState
+        } else {
+            LazyVGrid(columns: columns, alignment: .leading, spacing: Theme.Grid.rowSpacing) {
+                ForEach(Array(model.items.enumerated()), id: \.element.id) { index, item in
+                    NavigationLink(value: TitleRoute(preview: item)) {
+                        PosterCard(
+                            title: item.name,
+                            imageURL: item.poster,
+                            width: accessibilityLayout ? cardWidth : nil,
+                            height: accessibilityLayout ? cardHeight : nil,
+                            customPoster: CustomPosterTarget(item, .collections)
+                        )
+                    }
+                    .cardFocusButtonStyle()
+                    .posterButtonShape()
+                    .focused($focusedGridId, equals: item.id)
+                    // F13: shared long-press menu (library, watched).
+                    .posterContextMenu(item)
+                    .onAppear { model.itemAppeared(at: index) }
+                }
+            }
+
+            if model.canLoadMore || model.tabIsLoading {
+                HStack {
+                    Spacer()
+                    ProgressView()
+                    Spacer()
+                }
+                .padding(.vertical, Theme.Spacing.lg)
+            }
+        }
+    }
+
+    /// One shelf per source, the same rows Home draws. A shelf's trailing See All opens the paginated
+    /// grid of that source (`CatalogRoute`).
+    @ViewBuilder
+    private var shelves: some View {
+        if model.rowSections.isEmpty {
+            emptyState
+        } else {
+            VStack(alignment: .leading, spacing: Theme.Spacing.sectionGap) {
+                ForEach(model.rowSections, id: \.key) { section in
+                    CatalogRowView(
+                        section: section,
+                        previewLimit: CatalogRowView.homePreviewLimit,
+                        onItemFocusChange: { focusedShelfItem = $0 }
+                    )
+                    .customPosterSurface(.collections)
+                }
+            }
+        }
+    }
+
+    /// Loading, or nothing to show.
+    @ViewBuilder
+    private var emptyState: some View {
+        if model.isLoading || model.tabIsLoading {
+            HStack(spacing: Theme.Spacing.md) {
+                ProgressView()
+                Text("Loading\u{2026}").foregroundStyle(Theme.Palette.textSecondary)
+            }
+            .padding(.top, Theme.Spacing.xl)
+        } else {
+            // VIS-14: the system empty state.
+            ContentUnavailableView {
+                Label(String(localized: "catalog.empty.title",
+                             defaultValue: "No Titles",
+                             comment: "Catalog grid and collection folder: title shown when there is nothing to show"),
+                      systemImage: "film.stack")
+            } description: {
+                Text("Nothing here yet.")
+            } actions: {
+                // BUG-47 class: a pushed screen with no focusable content strands
+                // focus on the ancestor tab bar, where Menu exits the app instead
+                // of popping. The Edit Filters button anchors focus when present;
+                // otherwise keep a Go Back control here (same as CatalogGridView).
+                if model.presentation == .rows || model.editableSource == nil {
+                    Button("Go Back") { dismiss() }
+                        .buttonStyle(.bordered)
+                }
+            }
+            .padding(.top, Theme.Spacing.xl)
         }
     }
 }

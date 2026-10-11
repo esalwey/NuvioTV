@@ -27,7 +27,8 @@ final class ContinueWatchingNextUpModel {
         case failed(retryAt: Date)
     }
 
-    /// Keyed by seed (series · finished episode) + day + the furthest-episode preference.
+    /// Keyed by seed (series · finished episode) + day + the furthest-episode and unaired-episode
+    /// preferences.
     private var resolutions: [String: Resolution] = [:]
     private var inFlight: Set<String> = []
     /// Up Next card videoId → the dismiss key its "Remove" writes.
@@ -85,13 +86,14 @@ final class ContinueWatchingNextUpModel {
     func row(inProgress: [WatchProgressEntry]) -> [WatchProgressEntry] {
         let live = (ContinueWatchingPreferencesRepository.shared.uiState.value_ as? ContinueWatchingPreferencesUiState) ?? prefs
         let preferFurthest = live?.upNextFromFurthestEpisode ?? true
+        let showUnaired = live?.showUnairedNextUp ?? true
         let seeds = currentSeeds(inProgress: inProgress, limit: Self.seedLimit)
         let today = CurrentDateProvider.shared.todayIsoDate()
         var cards: [WatchProgressEntry] = []
         var dismissKeys: [String: String] = [:]
         var liveKeys: Set<String> = []
         for seed in seeds {
-            let key = "\(seed.dismissKey)|\(today)|\(preferFurthest)"
+            let key = "\(seed.dismissKey)|\(today)|\(preferFurthest)|\(showUnaired)"
             liveKeys.insert(key)
             switch resolutions[key] {
             case .card(let entry)?:
@@ -101,12 +103,12 @@ final class ContinueWatchingNextUpModel {
                 break
             case .failed(let retryAt)?:
                 if retryAt <= Date() {
-                    resolve(seed, key: key, today: today, preferFurthest: preferFurthest)
+                    resolve(seed, key: key, today: today, preferFurthest: preferFurthest, showUnaired: showUnaired)
                 } else {
                     scheduleRetry(at: retryAt)
                 }
             case nil:
-                resolve(seed, key: key, today: today, preferFurthest: preferFurthest)
+                resolve(seed, key: key, today: today, preferFurthest: preferFurthest, showUnaired: showUnaired)
             }
         }
         // Seeds that left (played on, dismissed, a newer episode finished) drop their resolution.
@@ -176,7 +178,7 @@ final class ContinueWatchingNextUpModel {
         )
     }
 
-    private func resolve(_ seed: ContinueWatchingNextUpSeed, key: String, today: String, preferFurthest: Bool) {
+    private func resolve(_ seed: ContinueWatchingNextUpSeed, key: String, today: String, preferFurthest: Bool, showUnaired: Bool) {
         guard !inFlight.contains(key), inFlight.count < Self.maxConcurrentResolutions else { return }
         inFlight.insert(key)
         let generation = self.generation
@@ -184,7 +186,8 @@ final class ContinueWatchingNextUpModel {
             seed: seed,
             watchedItems: watchedItems,
             todayIsoDate: today,
-            preferFurthestEpisode: preferFurthest
+            preferFurthestEpisode: preferFurthest,
+            showUnairedNextUp: showUnaired
         ) { [weak self] resolution, _ in
             // Suspend completions can land off-main; hop before touching model state.
             DispatchQueue.main.async {

@@ -96,6 +96,7 @@ enum RemoteSetupWebPage {
   details summary { cursor: pointer; color: var(--text); }
   .vars { margin-top: 8px; font: 12px/1.7 ui-monospace, Menlo, Consolas, monospace; word-break: break-word; }
   .vars span { display: inline-block; background: var(--card2); border-radius: 6px; padding: 0 6px; margin: 0 4px 4px 0; }
+  code { background: var(--card2); border-radius: 4px; padding: 1px 5px; font-size: 12px; }
 </style>
 </head>
 <body>
@@ -148,6 +149,15 @@ enum RemoteSetupWebPage {
   </section>
 
   <section>
+    <h2>Custom Posters</h2>
+    <p class="hint">Replace posters with a rating-poster service. Use placeholders such as <code>{imdb_id}</code>, <code>{tmdb_id}</code>, <code>{id}</code>, <code>{type}</code> and <code>{shape}</code>, for example <code>https://example.com/key/{imdb_id}.jpg</code>. Titles the pattern can't be filled for keep their own poster. Leave empty to turn it off.</p>
+    <div class="keyrow">
+      <input type="text" id="poster-url" placeholder="https://example.com/{imdb_id}.jpg" autocapitalize="off" autocorrect="off">
+    </div>
+    <div id="poster-screens"></div>
+  </section>
+
+  <section>
     <h2>API Keys</h2>
     <p class="hint">Optional. TMDB enriches titles (cast, studios, collections); MDBList adds IMDb/RT/Metacritic ratings. Keys are only sent when you enter one.</p>
     <div class="keyrow">
@@ -173,6 +183,11 @@ let badgePacks = [];      // source URLs already imported on the TV (read-only h
 let stagedBadgeUrls = []; // pack URLs staged for import on Send
 let rows = [];     // {key, title, enabled, isCollection}
 let debrid = { available: false };       // templates as saved on the TV (see /api/state)
+const POSTER_SCREENS = [
+  ["home", "Home"], ["continue_watching", "Continue Watching"], ["collections", "Collections"],
+  ["library", "Library"], ["search", "Search"], ["details", "Details"]
+];
+let posterScreens = POSTER_SCREENS.map(s => s[0]); // screens the pattern applies to
 
 const el = id => document.getElementById(id);
 const esc = s => (s || "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
@@ -199,6 +214,8 @@ async function load() {
     el("debrid-name").value = debrid.nameTemplate || "";
     el("debrid-description").value = debrid.descriptionTemplate || "";
     el("debrid-vars").innerHTML = (debrid.variables || []).map(v => `<span>{${esc(v)}}</span>`).join("");
+    el("poster-url").value = state.customPosterUrl || "";
+    posterScreens = state.customPosterScreens || POSTER_SCREENS.map(s => s[0]);
     if (state.tmdbKeySet) el("tmdb-key").placeholder = "Saved on TV — enter to replace";
     if (state.mdblistKeySet) el("mdblist-key").placeholder = "Saved on TV — enter to replace";
     render();
@@ -246,6 +263,13 @@ function render() {
     </div>`));
   el("badges").innerHTML = badgeRows.length ? badgeRows.join("") : `<div class="empty">No badge packs imported.</div>`;
 
+  el("poster-screens").innerHTML = POSTER_SCREENS.map(([key, label]) => `
+    <div class="row">
+      <label class="toggle"><input type="checkbox" ${posterScreens.includes(key) ? "checked" : ""}
+        onchange="togglePosterScreen('${key}', this.checked)"><span></span></label>
+      <div class="info"><div class="name">${label}</div></div>
+    </div>`).join("");
+
   el("rows").innerHTML = rows.length ? rows.map((r, i) => `
     <div class="row ${r.enabled ? "" : "disabled"}">
       <label class="toggle"><input type="checkbox" ${r.enabled ? "checked" : ""}
@@ -262,6 +286,11 @@ function render() {
 function resetTemplates() {
   el("debrid-name").value = debrid.defaultNameTemplate || "";
   el("debrid-description").value = debrid.defaultDescriptionTemplate || "";
+}
+
+function togglePosterScreen(key, on) {
+  posterScreens = posterScreens.filter(k => k !== key);
+  if (on) posterScreens.push(key);
 }
 
 function addBadgeUrl() {
@@ -307,6 +336,8 @@ async function apply() {
     if (name !== (debrid.nameTemplate || "")) payload.debridNameTemplate = name;
     if (description !== (debrid.descriptionTemplate || "")) payload.debridDescriptionTemplate = description;
   }
+  payload.customPosterUrl = el("poster-url").value.trim();
+  payload.customPosterScreens = posterScreens.slice();
 
   try {
     const res = await fetch("/api/apply", {

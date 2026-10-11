@@ -36,6 +36,7 @@ final class RemoteSetupViewModel: ObservableObject {
     private var mdbListWatcher: FlowWatcher?
     private var badgeWatcher: FlowWatcher?
     private var debridWatcher: FlowWatcher?
+    private var customPosterWatcher: FlowWatcher?
 
     // Cached snapshots (updated by the watchers, read when building state JSON + applying diffs).
     private var addons: [ManagedAddon] = []
@@ -46,6 +47,8 @@ final class RemoteSetupViewModel: ObservableObject {
     private var badgePackUrls: [String] = []
     /// Debrid result templates as saved on the TV; the web page edits them (nil until first emission).
     private var debridSettings: DebridSettings?
+    private var customPosterPattern = ""
+    private var customPosterScreens: [String] = []
 
     // MARK: - Lifecycle
 
@@ -133,6 +136,12 @@ final class RemoteSetupViewModel: ObservableObject {
             self.debridSettings = state
             self.pushState()
         }
+        customPosterWatcher = FlowWatcherKt.watch(CustomPosterUrlRepository.shared.uiState) { [weak self] emitted in
+            guard let self, let state = emitted as? CustomPosterUiState else { return }
+            self.customPosterPattern = state.pattern
+            self.customPosterScreens = state.enabledScreenKeys
+            self.pushState()
+        }
         AddonRepository.shared.initialize()
         TmdbSettingsRepository.shared.ensureLoaded()
         MdbListSettingsRepository.shared.ensureLoaded()
@@ -146,12 +155,14 @@ final class RemoteSetupViewModel: ObservableObject {
         mdbListWatcher?.cancel()
         badgeWatcher?.cancel()
         debridWatcher?.cancel()
+        customPosterWatcher?.cancel()
         addonWatcher = nil
         rowWatcher = nil
         tmdbWatcher = nil
         mdbListWatcher = nil
         badgeWatcher = nil
         debridWatcher = nil
+        customPosterWatcher = nil
     }
 
     // MARK: - Confirm / reject
@@ -191,6 +202,8 @@ final class RemoteSetupViewModel: ObservableObject {
         let mdblistKeySet: Bool
         let badgePacks: [String]
         let debrid: StateDebrid
+        let customPosterUrl: String
+        let customPosterScreens: [String]
     }
     /// Debrid result formatting. The section only shows on the page while resolving can run, since
     /// the templates have no effect otherwise.
@@ -232,7 +245,9 @@ final class RemoteSetupViewModel: ObservableObject {
                 defaultNameTemplate: DebridStreamSettingsEditor.shared.defaultNameTemplate(),
                 defaultDescriptionTemplate: DebridStreamSettingsEditor.shared.defaultDescriptionTemplate(),
                 variables: DebridStreamSettingsEditor.shared.templateVariables()
-            )
+            ),
+            customPosterUrl: customPosterPattern,
+            customPosterScreens: customPosterScreens
         )
         if let data = try? JSONEncoder().encode(snapshot) {
             server.updateState(data)
@@ -253,6 +268,7 @@ final class RemoteSetupViewModel: ObservableObject {
             MdbListSettingsRepository.shared.setApiKey(value: key)
             MdbListSettingsRepository.shared.setEnabled(value: true)
         }
+        applyCustomPoster(proposal)
         // Badge pack imports (async fetch+parse; the badge watcher refreshes the page state as
         // each one lands). Already-imported URLs are re-fetched/updated by the shared repo.
         for url in proposal.badgeUrls ?? [] {
@@ -260,6 +276,15 @@ final class RemoteSetupViewModel: ObservableObject {
             guard !trimmed.isEmpty else { continue }
             StreamBadgeSettingsRepository.shared.importStreamBadgeRulesFromUrl(url: trimmed) { _, _ in }
         }
+    }
+
+    /// The page always sends the pattern and the surfaces together; either one alone keeps the
+    /// other as it is.
+    private func applyCustomPoster(_ proposal: RemoteSetupServer.Proposal) {
+        guard proposal.customPosterUrl != nil || proposal.customPosterScreens != nil else { return }
+        let pattern = proposal.customPosterUrl?.trimmingCharacters(in: .whitespacesAndNewlines) ?? customPosterPattern
+        let screens = proposal.customPosterScreens ?? customPosterScreens
+        CustomPosterUrlRepository.shared.apply(pattern: pattern, screenKeys: screens)
     }
 
     private func applyAddons(_ proposal: RemoteSetupServer.Proposal) {
@@ -381,6 +406,17 @@ final class RemoteSetupViewModel: ObservableObject {
             if orderChanged || togglesChanged { parts.append(String(localized: "Home rows updated")) }
         }
 
+        if let url = proposal.customPosterUrl?.trimmingCharacters(in: .whitespacesAndNewlines) {
+            if url != customPosterPattern {
+                parts.append(url.isEmpty
+                    ? String(localized: "custom poster URL removed")
+                    : String(localized: "custom poster URL set"))
+            } else if let screens = proposal.customPosterScreens, Set(screens) != Set(customPosterScreens) {
+                parts.append(String(localized: "custom poster screens changed"))
+            }
+        } else if let screens = proposal.customPosterScreens, Set(screens) != Set(customPosterScreens) {
+            parts.append(String(localized: "custom poster screens changed"))
+        }
         if proposal.tmdbKey?.isEmpty == false { parts.append(String(localized: "TMDB key set")) }
         if proposal.mdblistKey?.isEmpty == false { parts.append(String(localized: "MDBList key set")) }
         if proposal.debridNameTemplate != nil || proposal.debridDescriptionTemplate != nil {
@@ -413,5 +449,6 @@ final class RemoteSetupViewModel: ObservableObject {
         mdbListWatcher?.cancel()
         badgeWatcher?.cancel()
         debridWatcher?.cancel()
+        customPosterWatcher?.cancel()
     }
 }

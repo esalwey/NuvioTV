@@ -271,6 +271,14 @@ object AccountDataStores {
             appleKeys = listOf(AppleKeySpec.ProfileScoped("poster_card_style_payload")),
         ),
         AccountDataStore(
+            name = "CustomPosterUrlStorage",
+            androidPreferences = "nuvio_custom_poster_url",
+            appleKeys = listOf(
+                AppleKeySpec.ProfileScoped("custom_poster_url_pattern"),
+                AppleKeySpec.ProfileScoped("custom_poster_enabled_screens"),
+            ),
+        ),
+        AccountDataStore(
             name = "CardDepthStyleStorage",
             androidPreferences = "nuvio_card_depth_style",
             appleKeys = listOf(AppleKeySpec.ProfileScoped("card_depth_style_payload")),

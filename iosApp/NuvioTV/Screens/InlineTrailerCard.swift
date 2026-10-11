@@ -1108,6 +1108,7 @@ struct InlineTrailerCard: View {
 
     @Environment(\.isFocused) private var isFocused
     @Environment(\.posterStyle) private var posterStyle
+    @Environment(\.customPosterSurface) private var customPosterSurface
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @StateObject private var model = InlineTrailerCardModel()
     /// FEAT-14 (device finding, 2026-08-02): the accent focus ring lives on `PosterCard`, but the
@@ -1150,7 +1151,9 @@ struct InlineTrailerCard: View {
             LandscapeCard(
                 title: item.name,
                 imageURL: Self.landscapeArtworkURL(item),
-                depthSurface: .posters
+                depthSurface: .posters,
+                logoOverlayItem: posterStyle.alwaysShowLandscapeClearlogo ? item : nil,
+                customPoster: CustomPosterTarget(item, customPosterSurface)
             )
         } else {
             PosterCardView(item: item)
@@ -1305,7 +1308,8 @@ struct InlineTrailerCard: View {
         // unreserved bounds.
         .overlay(alignment: .bottomLeading) {
             if showsInTileTitle {
-                InlineTrailerTitleOverlay(item: item, tileWidth: geometry.rect.width, tileHeight: geometry.rect.height)
+                InlineTrailerTitleOverlay(item: item, tileWidth: geometry.rect.width, tileHeight: geometry.rect.height,
+                                          nameFallback: !posterStyle.showTitle)
                     .clipShape(RoundedRectangle(cornerRadius: geometry.radius))
                     .transition(.opacity)
             }
@@ -1404,7 +1408,10 @@ struct InlineTrailerCard: View {
     /// it (Hide Labels on, in either row shape). `model.isExpanded` rather than `playingURL`: the
     /// still landscape art that precedes the video is part of the same "trailer focus view", and
     /// gating on playback would make the title blink in a beat after the morph.
-    private var showsInTileTitle: Bool { model.isExpanded && !posterStyle.showTitle }
+    private var showsInTileTitle: Bool {
+        model.isExpanded
+            && (!posterStyle.showTitle || (posterStyle.landscapeCatalogRows && posterStyle.alwaysShowLandscapeClearlogo))
+    }
 
     /// UX-4a (Christian's spec, 2026-07-30): the poster KEEPS ITS HEIGHT and only grows
     /// WIDER when the trailer starts — a 16:9 tile at the poster's full height. The old
@@ -1439,13 +1446,17 @@ struct InlineTrailerTitleOverlay: View {
     let item: MetaPreview
     let tileWidth: CGFloat
     let tileHeight: CGFloat
+    /// Draw the name as text while there is no logo art. A catalog card that already shows its
+    /// name in a caption turns this off so the title is never shown twice.
+    let nameFallback: Bool
     private let url: URL?
     @State private var image: UIImage?
 
-    init(item: MetaPreview, tileWidth: CGFloat, tileHeight: CGFloat) {
+    init(item: MetaPreview, tileWidth: CGFloat, tileHeight: CGFloat, nameFallback: Bool = true) {
         self.item = item
         self.tileWidth = tileWidth
         self.tileHeight = tileHeight
+        self.nameFallback = nameFallback
         self.url = heroLogoURL(for: item)
         _image = State(initialValue: ArtworkStore.cached(url))
     }
@@ -1455,14 +1466,16 @@ struct InlineTrailerTitleOverlay: View {
             // Scrim: transparent through the top half, dark enough at the foot for white text
             // or a light logo on any frame. Cheap gradient, no material — materials over a
             // moving video would sample the player every frame.
-            LinearGradient(
-                stops: [
-                    .init(color: .clear, location: 0),
-                    .init(color: .clear, location: 0.45),
-                    .init(color: .black.opacity(0.72), location: 1),
-                ],
-                startPoint: .top, endPoint: .bottom
-            )
+            if image != nil || nameFallback {
+                LinearGradient(
+                    stops: [
+                        .init(color: .clear, location: 0),
+                        .init(color: .clear, location: 0.45),
+                        .init(color: .black.opacity(0.72), location: 1),
+                    ],
+                    startPoint: .top, endPoint: .bottom
+                )
+            }
 
             Group {
                 if let image {
@@ -1475,7 +1488,7 @@ struct InlineTrailerTitleOverlay: View {
                             alignment: .bottomLeading
                         )
                         .shadow(color: .black.opacity(0.5), radius: 6, y: 2)
-                } else {
+                } else if nameFallback {
                     Text(item.name)
                         .font(Theme.Font.sectionTitle)
                         .foregroundStyle(Theme.Palette.textPrimary)

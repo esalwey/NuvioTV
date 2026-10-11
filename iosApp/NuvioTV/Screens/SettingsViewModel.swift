@@ -14,6 +14,9 @@ final class SettingsViewModel: ObservableObject {
     /// the tvOS ThemeSettingsStore adapter; the root AppThemeModel applies it to the palette.
     @Published private(set) var themeName = "CRIMSON"
     @Published private(set) var catalogs: [HomeCatalogSettingsItem] = []
+    /// Continue Watching preferences (card style, order, thumbnails, spoiler blur, Up Next
+    /// behaviour, resume prompt). Per profile, synced by the shared repository.
+    @Published private(set) var continueWatching = ContinueWatchingSettings()
     /// Whether the Home hero (rotating banner built from up to 2 catalog sources) shows at all.
     @Published private(set) var heroEnabled = true
     /// Home rows append the media type to catalog titles (synced; default on).
@@ -53,6 +56,11 @@ final class SettingsViewModel: ObservableObject {
     @Published private(set) var posterCornerRadiusDp: Int32 = 12
     @Published private(set) var posterHideLabels = false
     @Published private(set) var posterLandscapeRows = false
+    @Published private(set) var posterLandscapeClearlogo = false
+    /// Custom poster URL pattern (synced per profile) and the `CustomPosterSurface` raw values it
+    /// is switched on for.
+    @Published private(set) var customPosterPattern = ""
+    @Published private(set) var customPosterSurfaces = Set(CustomPosterSurface.allCases.map(\.rawValue))
     /// Card-depth styling (master toggle + edge/sheen/coverage strengths + per-surface flags).
     @Published private(set) var cardDepth = CardDepthStyle.default
     /// FEAT-10: every search-capable catalog across the enabled addons — the rows behind
@@ -130,6 +138,7 @@ final class SettingsViewModel: ObservableObject {
     private var tmdbWatcher: FlowWatcher?
     private var mdbListWatcher: FlowWatcher?
     private var posterStyleWatcher: FlowWatcher?
+    private var customPosterWatcher: FlowWatcher?
     private var cardDepthWatcher: FlowWatcher?
     private var trackingSettingsWatcher: FlowWatcher?
     private var cwPrefsWatcher: FlowWatcher?
@@ -137,6 +146,7 @@ final class SettingsViewModel: ObservableObject {
     private var searchStateWatcher: FlowWatcher?
     private var searchHistoryWatcher: FlowWatcher?
     private var metaScreenWatcher: FlowWatcher?
+    private var continueWatchingWatcher: FlowWatcher?
     private var enabledAddons: [ManagedAddon] = []
 
     func start() {
@@ -190,6 +200,14 @@ final class SettingsViewModel: ObservableObject {
             self.posterCornerRadiusDp = state.cornerRadiusDp
             self.posterHideLabels = state.hideLabelsEnabled
             self.posterLandscapeRows = state.catalogLandscapeModeEnabled
+            self.posterLandscapeClearlogo = state.alwaysShowLandscapeClearlogo
+        }
+
+        CustomPosterUrlRepository.shared.ensureLoaded()
+        customPosterWatcher = FlowWatcherKt.watch(CustomPosterUrlRepository.shared.uiState) { [weak self] emitted in
+            guard let self, let state = emitted as? CustomPosterUiState else { return }
+            self.customPosterPattern = state.pattern
+            self.customPosterSurfaces = Set(state.enabledScreenKeys)
         }
 
         CardDepthStyleRepository.shared.ensureLoaded()
@@ -276,6 +294,13 @@ final class SettingsViewModel: ObservableObject {
             self.detailBlurUnwatchedEpisodes = state.blurUnwatchedEpisodes
         }
 
+        ContinueWatchingPreferencesRepository.shared.ensureLoaded()
+        continueWatchingWatcher = FlowWatcherKt.watch(ContinueWatchingPreferencesRepository.shared.uiState) { [weak self] emitted in
+            guard let self, let state = emitted as? ContinueWatchingPreferencesUiState else { return }
+            let next = ContinueWatchingSettings(state)
+            if next != self.continueWatching { self.continueWatching = next }
+        }
+
         // "Home Rows blank" bug: Settings must not depend on Home/Search having mounted first to
         // hydrate the addon list. Without this call, entering Settings directly — post-wipe or
         // post-profile-switch, before Home ever ran its own `AddonRepository.initialize()` — left
@@ -292,6 +317,7 @@ final class SettingsViewModel: ObservableObject {
         tmdbWatcher?.cancel(); tmdbWatcher = nil
         mdbListWatcher?.cancel(); mdbListWatcher = nil
         posterStyleWatcher?.cancel(); posterStyleWatcher = nil
+        customPosterWatcher?.cancel(); customPosterWatcher = nil
         cardDepthWatcher?.cancel(); cardDepthWatcher = nil
         trackingSettingsWatcher?.cancel(); trackingSettingsWatcher = nil
         cwPrefsWatcher?.cancel(); cwPrefsWatcher = nil
@@ -299,6 +325,7 @@ final class SettingsViewModel: ObservableObject {
         searchStateWatcher?.cancel(); searchStateWatcher = nil
         searchHistoryWatcher?.cancel(); searchHistoryWatcher = nil
         metaScreenWatcher?.cancel(); metaScreenWatcher = nil
+        continueWatchingWatcher?.cancel(); continueWatchingWatcher = nil
     }
 
     // MARK: - Actions
@@ -643,6 +670,18 @@ final class SettingsViewModel: ObservableObject {
         PosterCardStyleRepository.shared.setCatalogLandscapeModeEnabled(enabled: enabled)
     }
 
+    func setPosterLandscapeClearlogo(_ enabled: Bool) {
+        PosterCardStyleRepository.shared.setAlwaysShowLandscapeClearlogo(enabled: enabled)
+    }
+
+    func setCustomPosterPattern(_ pattern: String) {
+        CustomPosterUrlRepository.shared.setPattern(pattern: pattern)
+    }
+
+    func setCustomPosterSurface(_ surface: CustomPosterSurface, enabled: Bool) {
+        CustomPosterUrlRepository.shared.setScreenKeyEnabled(key: surface.rawValue, enabled: enabled)
+    }
+
     func resetPosterStyle() {
         PosterCardStyleRepository.shared.resetToDefaults()
     }
@@ -826,6 +865,65 @@ final class SettingsViewModel: ObservableObject {
         HomeCatalogSettingsRepository.shared.setHeroSourceEnabled(key: key, enabled: enabled)
     }
 
+    // MARK: - Continue Watching
+
+    func setContinueWatchingVisible(_ enabled: Bool) {
+        ContinueWatchingPreferencesRepository.shared.setVisible(isVisible: enabled)
+    }
+
+    func setContinueWatchingStyle(_ style: ContinueWatchingCardStyle) {
+        ContinueWatchingPreferencesRepository.shared.setStyle(style: style.shared)
+    }
+
+    func setContinueWatchingOrder(_ order: ContinueWatchingOrder) {
+        ContinueWatchingPreferencesRepository.shared.setSortMode(mode: order.shared)
+    }
+
+    func setContinueWatchingEpisodeThumbnails(_ enabled: Bool) {
+        ContinueWatchingPreferencesRepository.shared.setUseEpisodeThumbnails(enabled: enabled)
+    }
+
+    func setContinueWatchingBlurUnwatched(_ enabled: Bool) {
+        ContinueWatchingPreferencesRepository.shared.setBlurNextUp(enabled: enabled)
+    }
+
+    func setContinueWatchingFurthestEpisode(_ enabled: Bool) {
+        ContinueWatchingPreferencesRepository.shared.setUpNextFromFurthestEpisode(enabled: enabled)
+    }
+
+    func setContinueWatchingUnairedNextUp(_ enabled: Bool) {
+        ContinueWatchingPreferencesRepository.shared.setShowUnairedNextUp(enabled: enabled)
+    }
+
+    func setContinueWatchingResumePrompt(_ enabled: Bool) {
+        ContinueWatchingPreferencesRepository.shared.setShowResumePromptOnLaunch(enabled: enabled)
+    }
+
+    // MARK: - Home row management
+
+    /// Gives a Home row its own title. An empty (or whitespace-only) title clears it, so the row
+    /// reads as the add-on's catalog name again. Pass the item's exact `key` (BUG-12 class).
+    func renameCatalog(_ item: HomeCatalogSettingsItem, to title: String) {
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed != item.customTitle else { return }
+        // No `refreshHome()`: the shared repository republishes Home's titles itself
+        // (`applyCurrentSettings`), and nothing needs fetching for a new caption.
+        HomeCatalogSettingsRepository.shared.setCustomTitle(key: item.key, title: trimmed)
+    }
+
+    /// Pins a collection row to the top of Home (or releases it). Only collections can be pinned:
+    /// the flag lives on the collection itself, as in the other apps.
+    func setCatalogPinned(_ item: HomeCatalogSettingsItem, _ pinned: Bool) {
+        guard item.isCollection, let collectionId = item.collectionId else { return }
+        HomeCatalogSettingsRepository.shared.setCollectionPinnedToTop(collectionId: collectionId, pinned: pinned)
+    }
+
+    /// Hero, titles, order, enabled rows and custom names back to how a fresh install has them.
+    func resetHomeRows() {
+        HomeCatalogSettingsRepository.shared.resetToDefaults()
+        refreshHome()
+    }
+
     func toggleCatalog(_ item: HomeCatalogSettingsItem) {
         HomeCatalogSettingsRepository.shared.setEnabled(key: item.key, enabled: !item.enabled)
         refreshHome()
@@ -852,6 +950,7 @@ final class SettingsViewModel: ObservableObject {
         addonWatcher?.cancel()
         tmdbWatcher?.cancel()
         posterStyleWatcher?.cancel()
+        customPosterWatcher?.cancel()
         cardDepthWatcher?.cancel()
         trackingSettingsWatcher?.cancel()
         cwPrefsWatcher?.cancel()

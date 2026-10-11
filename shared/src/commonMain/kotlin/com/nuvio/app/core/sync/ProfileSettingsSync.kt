@@ -21,6 +21,8 @@ import com.nuvio.app.features.player.PlayerSettingsRepository
 import com.nuvio.app.features.profiles.ProfileRepository
 import com.nuvio.app.core.ui.CardDepthStyleRepository
 import com.nuvio.app.core.ui.CardDepthStyleStorage
+import com.nuvio.app.core.poster.CustomPosterUrlRepository
+import com.nuvio.app.core.poster.CustomPosterUrlStorage
 import com.nuvio.app.core.ui.PosterCardStyleRepository
 import com.nuvio.app.core.ui.PosterCardStyleStorage
 import com.nuvio.app.features.settings.ThemeSettingsStoreProvider
@@ -572,6 +574,7 @@ object ProfileSettingsSync {
             ThemeSettingsRepository.liquidGlassNativeTabBarEnabled.map { "liquid_glass_tab_bar" },
             ThemeSettingsRepository.navBarStyle.map { "nav_bar_style" },
             PosterCardStyleRepository.uiState.map { "poster_card_style" },
+            CustomPosterUrlRepository.uiState.map { "custom_poster" },
             CardDepthStyleRepository.uiState.map { "card_depth_style" },
             PlayerSettingsRepository.uiState.map { "player" },
             StreamBadgeSettingsRepository.uiState.map { "stream_badges" },
@@ -676,6 +679,8 @@ object ProfileSettingsSync {
             features = MobileProfileSettingsFeatures(
                 themeSettings = ThemeSettingsStoreProvider.store.exportToSyncPayload(),
                 posterCardStyleSettingsPayload = PosterCardStyleStorage.loadPayload().orEmpty().trim(),
+                customPosterUrlPattern = CustomPosterUrlStorage.loadPattern().orEmpty().trim(),
+                customPosterEnabledScreens = CustomPosterUrlStorage.loadEnabledScreens().orEmpty().trim(),
                 cardDepthStyleSettingsPayload = CardDepthStyleStorage.loadPayload().orEmpty().trim(),
                 // Provider credentials are stripped here and synced per-provider by
                 // ProviderCredentialSync instead — a whole-blob push must never carry them.
@@ -754,6 +759,33 @@ object ProfileSettingsSync {
                 incoming = blob.features.posterCardStyleSettingsPayload.trim(),
                 apply = { PosterCardStyleStorage.savePayload(blob.features.posterCardStyleSettingsPayload) },
                 notifyChanged = { PosterCardStyleRepository.onProfileChanged() },
+            )
+        }
+
+        // Same keys as the mobile app's blob, so a pattern set up on a phone reaches the TV. Absent
+        // keys leave the local value alone (BUG-20); a present empty pattern clears it.
+        if (has("custom_poster_url_pattern") || has("custom_poster_enabled_screens")) {
+            val incomingPattern = if (has("custom_poster_url_pattern")) {
+                blob.features.customPosterUrlPattern.trim()
+            } else {
+                CustomPosterUrlStorage.loadPattern().orEmpty().trim()
+            }
+            val incomingScreens = if (has("custom_poster_enabled_screens")) {
+                blob.features.customPosterEnabledScreens.trim()
+            } else {
+                CustomPosterUrlStorage.loadEnabledScreens().orEmpty().trim()
+            }
+            applyFeatureUnlessUnchanged(
+                log = log,
+                featureName = "custom_poster_url",
+                current = CustomPosterUrlStorage.loadPattern().orEmpty().trim() to
+                    CustomPosterUrlStorage.loadEnabledScreens().orEmpty().trim(),
+                incoming = incomingPattern to incomingScreens,
+                apply = {
+                    CustomPosterUrlStorage.savePattern(incomingPattern.ifBlank { null })
+                    CustomPosterUrlStorage.saveEnabledScreens(incomingScreens.ifBlank { null })
+                },
+                notifyChanged = { CustomPosterUrlRepository.onProfileChanged() },
             )
         }
 
@@ -950,6 +982,7 @@ object ProfileSettingsSync {
     private fun ensureRepositoriesLoaded() {
         ThemeSettingsRepository.ensureLoaded()
         PosterCardStyleRepository.ensureLoaded()
+        CustomPosterUrlRepository.ensureLoaded()
         CardDepthStyleRepository.ensureLoaded()
         PlayerSettingsRepository.ensureLoaded()
         StreamBadgeSettingsRepository.ensureLoaded()
@@ -999,6 +1032,7 @@ object ProfileSettingsSync {
         "liquid_glass_tab_bar=${ThemeSettingsRepository.liquidGlassNativeTabBarEnabled.value}",
         "nav_bar_style=${ThemeSettingsRepository.navBarStyle.value.key}",
         "poster_card_style=${PosterCardStyleRepository.uiState.value}",
+        "custom_poster=${CustomPosterUrlRepository.uiState.value}",
         "card_depth_style=${CardDepthStyleRepository.uiState.value}",
         "player=${PlayerSettingsRepository.uiState.value}",
         "stream_badges=${StreamBadgeSettingsRepository.uiState.value}",
@@ -1066,6 +1100,8 @@ private data class MobileProfileSettingsBlob(
 private data class MobileProfileSettingsFeatures(
     @SerialName("theme_settings") val themeSettings: JsonObject = JsonObject(emptyMap()),
     @SerialName("poster_card_style_settings_payload") val posterCardStyleSettingsPayload: String = "",
+    @SerialName("custom_poster_url_pattern") val customPosterUrlPattern: String = "",
+    @SerialName("custom_poster_enabled_screens") val customPosterEnabledScreens: String = "",
     @SerialName("card_depth_style_settings_payload") val cardDepthStyleSettingsPayload: String = "",
     @SerialName("player_settings") val playerSettings: JsonObject = JsonObject(emptyMap()),
     @SerialName("stream_badge_settings") val streamBadgeSettings: JsonObject = JsonObject(emptyMap()),

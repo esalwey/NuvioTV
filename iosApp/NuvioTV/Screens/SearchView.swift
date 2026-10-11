@@ -193,6 +193,7 @@ struct SearchView: View {
         // never jumps while results stream in (QA §13 step 12).
         ForEach(model.sections, id: \.key) { section in
             CatalogRowView(section: section, onSelect: { item in openResult(item) })
+                .customPosterSurface(.search)
         }
     }
 
@@ -348,7 +349,8 @@ struct SearchView: View {
                             title: item.name,
                             imageURL: item.poster,
                             width: accessibilityLayout ? cardWidth : nil,
-                            height: accessibilityLayout ? cardHeight : nil
+                            height: accessibilityLayout ? cardHeight : nil,
+                            customPoster: CustomPosterTarget(item, .search)
                         )
                     }
                     .cardFocusButtonStyle()

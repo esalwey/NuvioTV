@@ -113,12 +113,13 @@ object FolderDetailRepository {
     /// `isRefreshing`, addon rename) must NOT discard the retained scroll position this feature
     /// exists to preserve. Per addon only `manifestUrl`/`enabled`/`manifest` matter (the source
     /// resolver may consult ANY addon's manifest catalogs, so the list isn't narrowed to the
-    /// folder's own addons). `viewMode` is deliberately absent: tvOS renders every mode as the
-    /// tabbed grid (v1 simplification, see FolderDetailView).
+    /// folder's own addons). `viewMode` is part of it: tvOS draws the tabbed grid or one row per
+    /// source from it, so a mode changed on another device must not keep the retained layout.
     private data class RetainedInputs(
         val folder: CollectionFolder,
         val collectionTitle: String,
         val showAllTab: Boolean,
+        val viewMode: FolderViewMode,
         val addonCatalogInputs: List<Triple<String, Boolean, AddonManifest?>>,
         /// Round 7: loadTabPage filters every page through this setting, so retained ITEMS are a
         /// function of it too — flipping it between visits must refetch.
@@ -132,6 +133,7 @@ object FolderDetailRepository {
             folder = folder,
             collectionTitle = collection.title,
             showAllTab = collection.showAllTab,
+            viewMode = collection.folderViewMode,
             addonCatalogInputs = AddonRepository.uiState.value.addons.map {
                 Triple(it.manifestUrl, it.enabled, it.manifest)
             },

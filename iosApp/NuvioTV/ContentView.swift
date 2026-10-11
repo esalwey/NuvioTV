@@ -9,6 +9,7 @@ struct ContentView: View {
     @StateObject private var auth = AuthViewModel()
     @StateObject private var profiles = ProfilesViewModel()
     @StateObject private var posterStyle = PosterStyleModel()
+    @StateObject private var customPoster = CustomPosterModel()
     @StateObject private var cardDepth = CardDepthStyleModel()
     @StateObject private var appTheme = AppThemeModel()
     /// H-1B-ii (beta.15): Home's view model lives HERE, above the `.id(appTheme.themeName)` rebuild
@@ -153,6 +154,7 @@ struct ContentView: View {
             }
         }
         .environment(\.posterStyle, posterStyle.style)
+        .environment(\.customPosterConfig, customPoster.config)
         .environment(\.cardDepthStyle, cardDepth.style)
         // NOTE — deliberately NO app-root `.tint(Theme.Palette.accent)`. It looks like the obvious
         // way to make stock controls follow the theme, and it was tried (2026-08-25, sim-verified
@@ -174,9 +176,23 @@ struct ContentView: View {
         // STAB-10: `AppThemeModel` holds a synced theme change back while a full-screen cover
         // (the player, a deep link) is up, so this rebuild never tears a cover down mid-play.
         .id("\(appTheme.themeName)|\(uiFont)")
+        // Ambient Mode (Settings > Home Screen): an artwork slideshow after a stretch with no remote
+        // input. Attached OUTSIDE the `.id` boundary above so a theme rebuild never tears it down,
+        // and only armed while a profile is open. The slides come from what Home already loaded.
+        .ambientMode(
+            shellActive: auth.gate == .main && entered,
+            slides: { [home = self.home] in
+                AmbientSlideBuilder.slides(
+                    sections: home.sections,
+                    heroItems: home.heroItems,
+                    settings: AmbientModeSettingsModel.shared.settings
+                )
+            }
+        )
         .onAppear {
             auth.start()
             posterStyle.start()
+            customPoster.start()
             cardDepth.start()
             appTheme.start()
             #if DEBUG

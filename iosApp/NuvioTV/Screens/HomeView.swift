@@ -225,6 +225,12 @@ struct HomeView: View {
     /// UX-7: always-on focus-follows-backdrop. Owns the row-focused item (if any) that should
     /// take over the hero from the carousel.
     @StateObject private var focusModel = HomeHeroFocusModel()
+    /// Settings > Home Screen > Focused Item Gradient (device-local, default off).
+    @AppStorage(FocusGradientSetting.defaultsKey) private var focusGradientEnabled = false
+    /// What the gradient follows: the row-focused title, else whatever the hero is showing.
+    private var focusGradientArtwork: FocusGradientArtwork? {
+        (focusModel.focusedItem ?? displayHero).map { FocusGradientArtwork($0) }
+    }
     /// Wave H: turns the hero TARGET (`displayHero`) into the hero that is actually PAINTED, once
     /// its backdrop and logo are both resolved. Every hero renderer below reads
     /// `heroResolver.presented`, never `displayHero` — see `HeroArtResolver`.
@@ -398,8 +404,7 @@ struct HomeView: View {
     /// (the synopsis), `releaseInfo` + `genres` (the meta line), `logo` and `banner` (the resolved
     /// artwork), `poster` (`heroBackdropURL`'s last fallback, so it can BE the backdrop), and
     /// `type` (picks "Go to Movie" vs "Go to Show", and is not covered by the id-only `.onChange`).
-    /// `imdbRating` is deliberately absent: `metaLine` does not render it, so including it would
-    /// only buy needless `present` calls.
+    /// `imdbRating` is included: `metaRow` draws it as the rating chip beside the meta line.
     private var heroPayloadSignature: String {
         guard let hero = displayHero else { return "-" }
         let description: String? = hero.description_
@@ -407,11 +412,13 @@ struct HomeView: View {
         let logo: String? = hero.logo
         let poster: String? = hero.poster
         let releaseInfo: String? = hero.releaseInfo
+        let imdbRating: String? = hero.imdbRating
         return [
             hero.name,
             description ?? "",
             hero.genres.joined(separator: ","),
             releaseInfo ?? "",
+            imdbRating ?? "",
             banner ?? "",
             logo ?? "",
             poster ?? "",
@@ -636,6 +643,12 @@ struct HomeView: View {
         NavigationStack(path: $homePath) {
             ZStack(alignment: .top) {
                 Theme.Palette.background.ignoresSafeArea()
+
+                // Settings > Home Screen > Focused Item Gradient: the focused title's colors tint the
+                // background under everything else (hero artwork, scrim, rows paint over it).
+                if focusGradientEnabled {
+                    FocusGradientBackdrop(artwork: focusGradientArtwork)
+                }
 
                 #if DEBUG
                 // BUG-25 diagnostic (invisible, harness-readable): the env values Home renders with.
@@ -1078,6 +1091,29 @@ struct HomeView: View {
         .onChange(of: upcomingRowEnabled) { _, enabled in
             if enabled { model.startUpcoming() } else { model.stopUpcoming() }
         }
+        // Resume Prompt on Launch: asked once per launch, answered by a plain system alert.
+        .task { model.consumeResumePromptOnce() }
+        .alert(
+            String(localized: "Resume Watching?"),
+            isPresented: Binding(
+                get: { model.resumePrompt != nil },
+                set: { if !$0 { model.dismissResumePrompt() } }
+            ),
+            presenting: model.resumePrompt
+        ) { entry in
+            Button(String(localized: "Resume")) { resumeFromContinueWatching(entry) }
+            Button(String(localized: "Not Now"), role: .cancel) {}
+        } message: { entry in
+            Text(resumePromptMessage(entry))
+        }
+    }
+
+    /// "The Show · S02E05" / "The Movie": what the launch prompt offers to resume.
+    private func resumePromptMessage(_ entry: WatchProgressEntry) -> String {
+        guard let season = entry.seasonNumber?.intValue, let episode = entry.episodeNumber?.intValue else {
+            return entry.title
+        }
+        return "\(entry.title) \u{00B7} " + String(format: "S%02dE%02d", season, episode)
     }
 
     /// The Continue Watching stream picker for `entry`'s own video (the original resume path).
@@ -1430,8 +1466,20 @@ struct HomeView: View {
                 if !model.continueWatching.isEmpty {
                     ContinueWatchingRow(
                         entries: model.continueWatching,
+                        // Settings > Home Screen > Continue Watching: card style, thumbnails, blur.
+                        settings: model.continueWatchingSettings,
                         // STAB-07: the last source directly when it is still fresh, else the picker.
-                        onSelect: { resumeFromContinueWatching($0) },
+                        // An episode that has not aired has nothing to play: its page opens instead.
+                        onSelect: { entry in
+                            if ContinueWatchingPresentationKt.isUnairedContinueWatchingCard(
+                                entry: entry,
+                                todayIsoDate: CurrentDateProvider.shared.todayIsoDate()
+                            ) {
+                                homePath.append(TitleRoute(preview: previewFromEntry(entry)))
+                            } else {
+                                resumeFromContinueWatching(entry)
+                            }
+                        },
                         // CW-3: the whole title leaves the row (an Up Next card is dismissed).
                         onRemove: { model.removeFromContinueWatching($0) },
                         // CW-5: the card's menu reaches the title's page too.
@@ -2363,7 +2411,10 @@ struct HomeView: View {
             return Theme.Size.landscapeHeight + fallbackCaption + pinnedUniformShelfChrome
         }
         if !model.continueWatching.isEmpty {
-            return Theme.Size.landscapeHeight + fallbackCaption + pinnedUniformShelfChrome
+            // Poster-style Continue Watching cards are as tall as the catalog posters.
+            let artworkHeight = model.continueWatchingSettings.style == .poster
+                ? posterStyle.height : Theme.Size.landscapeHeight
+            return artworkHeight + fallbackCaption + pinnedUniformShelfChrome
         }
         return nil
     }
@@ -4018,6 +4069,8 @@ final class HeroPresentArtWait {
 /// episode instead, as an "Up Next" card (no progress bar).
 struct ContinueWatchingRow: View {
     let entries: [WatchProgressEntry]
+    /// Card style, thumbnail and blur preferences (Settings > Home Screen > Continue Watching).
+    var settings = ContinueWatchingSettings()
     let onSelect: (WatchProgressEntry) -> Void
     let onRemove: (WatchProgressEntry) -> Void
     /// CW-5: the long-press menu's "Go to Details".
@@ -4054,6 +4107,8 @@ struct ContinueWatchingRow: View {
     /// BUG-87/89 (rc11): see `EnvironmentValues.rowCardLinkFrameFloor`. 0 for every row but Home's
     /// last.
     @Environment(\.rowCardLinkFrameFloor) private var cardLinkFrameFloor
+    /// Poster-style cards follow the catalog posters' size.
+    @Environment(\.posterStyle) private var posterStyle
 
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.Spacing.md) {
@@ -4076,14 +4131,7 @@ struct ContinueWatchingRow: View {
                         ForEach(cards) { card in
                             let entry = card.entry
                             Button { onSelect(entry) } label: {
-                                LandscapeCard(
-                                    title: entry.title,
-                                    imageURL: imageURL(entry),
-                                    progress: fraction(entry),
-                                    overlayLeading: episodeCode(entry),
-                                    overlayTrailing: ContinueWatchingNextUpModel.isNextUp(entry)
-                                        ? String(localized: "Up Next") : nil
-                                )
+                                cardLabel(for: entry)
                                 .padding(.top, cardTopReach)
                                 .padding(.bottom, cardBottomReach)
                                 // BUG-87/89 (rc11): transparent floor on the REVEALED frame — 0 for
@@ -4150,7 +4198,8 @@ struct ContinueWatchingRow: View {
                             // Codex r7 P2: `isFocused` picks which clearance the belt judges this
                             // row by — only a FOCUSED row's cards are raised by the treatment.
                             .pinnedRowTitleTracking(rowKey: "continue-watching",
-                                                    artworkHeight: Theme.Size.landscapeHeight,
+                                                    artworkHeight: settings.style == .poster
+                                                        ? posterStyle.height : Theme.Size.landscapeHeight,
                                                     isFocused: focusedVideoId != nil)
                             .padding(.top, Theme.Size.heroPinnedRowTitleInset)
                             .allowsHitTesting(false)
@@ -4220,11 +4269,73 @@ struct ContinueWatchingRow: View {
         return explicit > 0 ? explicit : nil
     }
 
-    private func imageURL(_ entry: WatchProgressEntry) -> String? {
-        let bg: String? = entry.background
-        if let bg, !bg.isEmpty { return bg }
-        let poster: String? = entry.poster
-        return poster
+    /// The card for `entry` in the chosen style: landscape artwork (Card, Wide) or a portrait
+    /// poster (Poster), each with its progress bar.
+    @ViewBuilder
+    private func cardLabel(for entry: WatchProgressEntry) -> some View {
+        if settings.style == .poster {
+            PosterCard(
+                title: entry.title,
+                imageURL: ContinueWatchingPresentationKt.continueWatchingPosterArtworkUrl(entry: entry),
+                progress: fraction(entry),
+                customPoster: CustomPosterTarget(id: entry.parentMetaId, type: entry.parentMetaType, surface: .continueWatching)
+            )
+        } else {
+            let artwork = ContinueWatchingPresentationKt.continueWatchingCardArtworkUrl(
+                entry: entry,
+                useEpisodeThumbnails: settings.useEpisodeThumbnails
+            )
+            LandscapeCard(
+                title: entry.title,
+                imageURL: artwork,
+                progress: fraction(entry),
+                subtitle: settings.style == .wide ? wideCaption(entry) : nil,
+                overlayLeading: episodeCode(entry),
+                overlayTrailing: trailingBadge(entry),
+                blurArtwork: ContinueWatchingPresentationKt.shouldBlurContinueWatchingArtwork(
+                    entry: entry,
+                    blurUnwatched: settings.blurUnwatched,
+                    useEpisodeThumbnails: settings.useEpisodeThumbnails,
+                    artworkUrl: artwork
+                ),
+                // An episode still (the setting's choice for episodes) is never replaced by a
+                // show-level custom poster.
+                customPoster: settings.useEpisodeThumbnails && entry.isEpisode
+                    ? nil
+                    : CustomPosterTarget(id: entry.parentMetaId, type: entry.parentMetaType, surface: .continueWatching)
+            )
+        }
+    }
+
+    /// "Up Next" on a released Up Next card, a countdown ("TOMORROW", "IN 4 DAYS") on one whose
+    /// episode has not aired.
+    private func trailingBadge(_ entry: WatchProgressEntry) -> String? {
+        guard ContinueWatchingNextUpModel.isNextUp(entry) else { return nil }
+        if let days = ContinueWatchingPresentationKt.continueWatchingDaysUntilAir(
+            entry: entry,
+            todayIsoDate: CurrentDateProvider.shared.todayIsoDate()
+        ) {
+            return UpcomingRow.airDateLabel(daysUntilAir: Int(days.intValue))
+        }
+        return String(localized: "Up Next")
+    }
+
+    /// The Wide style's second caption line: the episode's title, and how long is left of it.
+    private func wideCaption(_ entry: WatchProgressEntry) -> String? {
+        var parts: [String] = []
+        if let episodeTitle = entry.episodeTitle?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !episodeTitle.isEmpty {
+            parts.append(episodeTitle)
+        }
+        if !ContinueWatchingNextUpModel.isNextUp(entry), entry.durationMs > 0 {
+            let minutesLeft = Int(max(0, entry.durationMs - entry.lastPositionMs) / 60_000)
+            if minutesLeft >= 60 {
+                parts.append(String(localized: "\(minutesLeft / 60)h \(minutesLeft % 60)m left"))
+            } else if minutesLeft > 0 {
+                parts.append(String(localized: "\(minutesLeft)m left"))
+            }
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: " \u{00B7} ")
     }
 
     /// `S02E05` artwork badge for series entries (nil for movies — no badge). Same code shape as
@@ -5112,6 +5223,7 @@ struct HomeHeroForeground: View {
     /// that needs it (Large today; Small/Medium compute 0 and are bit-identical to Wave 9).
     var compression: CGFloat = 0
     @AppStorage("hero_nuvio_style") private var heroNuvioStyle = false
+    @ObservedObject private var ratingSetting = HeroRatingSetting.shared
 
     /// The compression split across the two elastic slots, each bounded by its own floor.
     ///
@@ -5346,10 +5458,9 @@ struct HomeHeroForeground: View {
                         .frame(height: logoSlotHeight, alignment: .bottomLeading)
                         .frame(maxWidth: .infinity, alignment: .leading)
 
-                    Text(metaLine)
+                    metaRow
                         .font(Theme.Font.meta)
                         .foregroundStyle(Theme.Palette.textPrimary.opacity(0.9))
-                        .lineLimit(1)
                         .frame(height: Theme.Size.heroMetaSlotHeight, alignment: .leading)
 
                     Text(synopsis)
@@ -5392,10 +5503,9 @@ struct HomeHeroForeground: View {
                         .frame(height: Theme.Size.heroLogoSlotHeight, alignment: .bottomLeading)
                         .frame(maxWidth: .infinity, alignment: .leading)
 
-                    Text(metaLine)
+                    metaRow
                         .font(Theme.Font.meta)
                         .foregroundStyle(Theme.Palette.textPrimary.opacity(0.9))
-                        .lineLimit(1)
                         .frame(height: Theme.Size.heroMetaSlotHeight, alignment: .leading)
 
                     Text(synopsis)
@@ -5416,6 +5526,37 @@ struct HomeHeroForeground: View {
     private var synopsis: String {
         let description: String? = item.description_
         return description ?? ""
+    }
+
+    /// Rating chip text: nil when the title has no rating or Overall Ratings is off in Settings.
+    private var ratingText: String? {
+        ratingSetting.showOverallRatings ? HeroRatingSetting.displayText(for: item.imdbRating) : nil
+    }
+
+    /// The meta line plus, when the title has a rating, the same star + value the Detail page draws.
+    /// One row in the meta slot's fixed height, so the hero's geometry never moves.
+    private var metaRow: some View {
+        HStack(spacing: Theme.Spacing.sm) {
+            let line = metaLine
+            if !line.isEmpty {
+                Text(line)
+                    .lineLimit(1)
+            }
+            if let ratingText {
+                if !line.isEmpty {
+                    Text(verbatim: "\u{00B7}")
+                        .accessibilityHidden(true)
+                }
+                HStack(spacing: Theme.Spacing.xxs) {
+                    Image(systemName: "star.fill")
+                        .foregroundStyle(Theme.Palette.star)
+                        .accessibilityHidden(true)
+                    Text(verbatim: ratingText)
+                        .lineLimit(1)
+                }
+                .accessibilityElement(children: .combine)
+            }
+        }
     }
 
     private var metaLine: String {

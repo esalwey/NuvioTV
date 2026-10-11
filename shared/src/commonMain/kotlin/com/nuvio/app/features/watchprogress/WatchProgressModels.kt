@@ -61,6 +61,12 @@ data class WatchProgressEntry(
     override val trackingSourceUrl: String? = null,
     /** Stable server/storage identity. [videoId] remains the playback identity. */
     val progressKey: String? = null,
+    /**
+     * Release date of the episode an Up Next card points at (ISO date or timestamp, as the add-on
+     * published it). Only set on synthetic Up Next cards, so the Continue Watching row can tell an
+     * unaired episode from a released one; never persisted by a progress write.
+     */
+    val released: String? = null,
 ) : TrackingAttributedItem {
     override val trackingContentId: String
         get() = parentMetaId

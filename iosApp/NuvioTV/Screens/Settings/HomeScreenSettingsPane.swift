@@ -45,7 +45,144 @@ struct HomeScreenSettingsPane: View {
     @State private var heroSourcesExpanded = false
     @State private var catalogsExpanded = false
 
+    @State private var renamingKey: String?
+
+    /// Blends the focused title's artwork colors into the Home (and collection folder) background.
+    /// Mirrors `FocusGradientSetting.defaultsKey`. Default OFF. Local-only, not synced.
+    @AppStorage(FocusGradientSetting.defaultsKey) private var focusGradientEnabled = false
+
+    /// Ambient Mode, for the summary on its link row.
+    @ObservedObject private var ambient = AmbientModeSettingsModel.shared
+
     var body: some View {
+        continueWatchingSection
+        homeRowsBody
+        ambientModeSection
+    }
+
+    // MARK: - Ambient Mode
+
+    private var ambientModeSection: some View {
+        SettingsSection(String(localized: "Idle")) {
+            SettingsLinkRow(
+                title: String(localized: "Ambient Mode"),
+                subtitle: ambient.settings.enabled
+                    ? String(localized: "After \(AmbientModeSettings.timeoutLabel(minutes: ambient.settings.timeoutMinutes))")
+                    : String(localized: "Off")
+            ) {
+                AmbientModeSettingsPage(model: model)
+            }
+        }
+    }
+
+    // MARK: - Continue Watching
+
+    /// Everything that shapes the Continue Watching row. Each preference is the shared, synced one
+    /// (`ContinueWatchingPreferencesRepository`), so the choices follow the profile to the other
+    /// apps. Card style, order and thumbnails only matter while the row is on, so they hide with it;
+    /// the Up Next and launch rows stay (the title pages and the launch prompt read them too).
+    @ViewBuilder
+    private var continueWatchingSection: some View {
+        let cw = model.continueWatching
+        SettingsSection(String(localized: "Continue Watching")) {
+            SettingsToggleRow(
+                title: String(localized: "Show Continue Watching"),
+                subtitle: cw.isVisible
+                    ? String(localized: "A row of what you are watching and what comes next, at the top of Home")
+                    : String(localized: "Home does not show Continue Watching"),
+                isOn: Binding(
+                    get: { model.continueWatching.isVisible },
+                    set: { model.setContinueWatchingVisible($0) }
+                )
+            )
+
+            if cw.isVisible {
+                SettingsPickerRow(
+                    title: String(localized: "Card Style"),
+                    subtitle: cw.style.detail,
+                    selection: Binding(
+                        get: { model.continueWatching.style },
+                        set: { model.setContinueWatchingStyle($0) }
+                    ),
+                    options: ContinueWatchingCardStyle.allCases,
+                    label: { $0.title }
+                )
+
+                SettingsPickerRow(
+                    title: String(localized: "Sort Order"),
+                    subtitle: cw.order.detail,
+                    selection: Binding(
+                        get: { model.continueWatching.order },
+                        set: { model.setContinueWatchingOrder($0) }
+                    ),
+                    options: ContinueWatchingOrder.allCases,
+                    label: { $0.title }
+                )
+
+                // A poster card is a portrait poster: there is no episode still to prefer or hide.
+                if cw.style != .poster {
+                    SettingsToggleRow(
+                        title: String(localized: "Episode Thumbnails"),
+                        subtitle: cw.useEpisodeThumbnails
+                            ? String(localized: "Cards show the episode's own still")
+                            : String(localized: "Cards show the series artwork"),
+                        isOn: Binding(
+                            get: { model.continueWatching.useEpisodeThumbnails },
+                            set: { model.setContinueWatchingEpisodeThumbnails($0) }
+                        )
+                    )
+
+                    if cw.useEpisodeThumbnails {
+                        SettingsToggleRow(
+                            title: String(localized: "Blur Unwatched Episodes"),
+                            subtitle: String(localized: "Hide the still of an episode you have not watched, so it cannot spoil"),
+                            isOn: Binding(
+                                get: { model.continueWatching.blurUnwatched },
+                                set: { model.setContinueWatchingBlurUnwatched($0) }
+                            )
+                        )
+                    }
+                }
+            }
+
+            SettingsToggleRow(
+                title: String(localized: "Next Up From Furthest Episode"),
+                subtitle: cw.upNextFromFurthestEpisode
+                    ? String(localized: "After a show, continue from the furthest episode you have watched")
+                    : String(localized: "After a show, continue from the episode you watched last, for rewatches"),
+                isOn: Binding(
+                    get: { model.continueWatching.upNextFromFurthestEpisode },
+                    set: { model.setContinueWatchingFurthestEpisode($0) }
+                )
+            )
+
+            SettingsToggleRow(
+                title: String(localized: "Show Unaired Episodes"),
+                subtitle: cw.showUnairedNextUp
+                    ? String(localized: "The next episode appears before it airs, with a countdown")
+                    : String(localized: "The next episode appears once it has aired"),
+                isOn: Binding(
+                    get: { model.continueWatching.showUnairedNextUp },
+                    set: { model.setContinueWatchingUnairedNextUp($0) }
+                )
+            )
+
+            SettingsToggleRow(
+                title: String(localized: "Resume Prompt on Launch"),
+                subtitle: cw.showResumePromptOnLaunch
+                    ? String(localized: "When Nuvio opens after you left during playback, offer to pick up where you stopped")
+                    : String(localized: "Nuvio opens on Home without asking"),
+                isOn: Binding(
+                    get: { model.continueWatching.showResumePromptOnLaunch },
+                    set: { model.setContinueWatchingResumePrompt($0) }
+                )
+            )
+        }
+    }
+
+    // MARK: - Home rows
+
+    private var homeRowsBody: some View {
         SettingsSection(String(localized: "Home Rows")) {
             // Catalog-independent: the Upcoming row is fed by watch progress + Library, so its
             // switch must stay reachable when no catalog add-on is installed (Codex round 1).
@@ -198,6 +335,14 @@ struct HomeScreenSettingsPane: View {
                 )
 
                 SettingsToggleRow(
+                    title: String(localized: "Focused Item Gradient"),
+                    subtitle: focusGradientEnabled
+                        ? String(localized: "The focused title's colors tint the background behind the rows")
+                        : String(localized: "The background stays a flat dark"),
+                    isOn: $focusGradientEnabled
+                )
+
+                SettingsToggleRow(
                     title: String(localized: "Show Catalog Type in Titles"),
                     subtitle: model.showCatalogType
                         ? String(localized: "rows read like \u{201C}Popular - Movies\u{201D}")
@@ -227,14 +372,32 @@ struct HomeScreenSettingsPane: View {
 
                 if catalogsExpanded && !model.catalogs.isEmpty {
                     ForEach(model.catalogs, id: \.key) { item in
-                        CatalogSettingRow(
-                            item: item,
-                            onToggle: { model.toggleCatalog(item) },
-                            onUp: { model.moveUp(item) },
-                            onDown: { model.moveDown(item) }
-                        )
+                        if renamingKey == item.key {
+                            CatalogRenameRows(
+                                item: item,
+                                onSave: { title in
+                                    model.renameCatalog(item, to: title)
+                                    renamingKey = nil
+                                },
+                                onCancel: { renamingKey = nil }
+                            )
+                        } else {
+                            CatalogSettingRow(
+                                item: item,
+                                onToggle: { model.toggleCatalog(item) },
+                                onUp: { model.moveUp(item) },
+                                onDown: { model.moveDown(item) },
+                                onRename: { renamingKey = item.key },
+                                onTogglePin: { model.setCatalogPinned(item, !item.isPinnedToTop) }
+                            )
+                        }
                     }
                 }
+
+                HomeRowsResetRow(onReset: {
+                    renamingKey = nil
+                    model.resetHomeRows()
+                })
             }
         }
         // The expansion flags now outlive the branches that render their groups (they used to be
@@ -477,18 +640,50 @@ private struct CatalogSettingRow: View {
     let onToggle: () -> Void
     let onUp: () -> Void
     let onDown: () -> Void
+    let onRename: () -> Void
+    let onTogglePin: () -> Void
+
+    /// The add-on (or collection) name, with the row's original title after it once the row has
+    /// been renamed, so a renamed row can always be traced back to what it is.
+    private var subtitle: String {
+        let custom = item.customTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !custom.isEmpty, custom != item.defaultTitle else { return item.addonName }
+        return "\(item.addonName) \u{00B7} \(item.defaultTitle)"
+    }
 
     var body: some View {
         Button(action: onToggle) {
             HStack(spacing: Theme.Spacing.lg) {
-                SettingsRowLabel(title: item.displayTitle, subtitle: item.addonName)
+                SettingsRowLabel(title: item.displayTitle, subtitle: subtitle)
                     .opacity(item.enabled ? 1 : 0.55)
                 Spacer()
+                if item.isPinnedToTop {
+                    Image(systemName: "pin.fill")
+                        .font(SettingsRowFont.title)
+                        .foregroundStyle(.secondary)
+                        .accessibilityHidden(true)
+                }
                 Image(systemName: item.enabled ? "checkmark.circle.fill" : "circle")
                     .rowAccentTint(item.enabled)
             }
         }
         .contextMenu {
+            Button {
+                onRename()
+            } label: {
+                Label(String(localized: "Rename"), systemImage: "pencil")
+            }
+            // Only collections can be pinned: the flag belongs to the collection.
+            if item.isCollection {
+                Button {
+                    onTogglePin()
+                } label: {
+                    Label(
+                        item.isPinnedToTop ? String(localized: "Unpin from Top") : String(localized: "Pin to Top"),
+                        systemImage: item.isPinnedToTop ? "pin.slash" : "pin"
+                    )
+                }
+            }
             Button {
                 onUp()
             } label: {
@@ -502,5 +697,78 @@ private struct CatalogSettingRow: View {
         }
         .accessibilityLabel(item.displayTitle)
         .accessibilityValue(item.enabled ? Text("Enabled") : Text("Disabled"))
+    }
+}
+
+/// The inline editor that replaces a Home row while it is being renamed: a `TextField` (which opens
+/// the system keyboard on select) plus Save / Use Original Name / Cancel, each its own list row,
+/// the same shape as the other entry rows in Settings (`TmdbKeyEntryRow`). An empty name clears the
+/// custom title.
+private struct CatalogRenameRows: View {
+    let item: HomeCatalogSettingsItem
+    let onSave: (String) -> Void
+    let onCancel: () -> Void
+    @State private var text: String
+
+    init(item: HomeCatalogSettingsItem, onSave: @escaping (String) -> Void, onCancel: @escaping () -> Void) {
+        self.item = item
+        self.onSave = onSave
+        self.onCancel = onCancel
+        _text = State(initialValue: item.customTitle)
+    }
+
+    var body: some View {
+        Group {
+            // The placeholder is the row's original title, which is what an empty field restores.
+            TextField(item.defaultTitle, text: $text)
+                .font(Theme.Font.body)
+                .onSubmit { onSave(text) }
+
+            Button {
+                onSave(text)
+            } label: {
+                Label(String(localized: "Save Name"), systemImage: "checkmark")
+                    .font(Theme.Font.body)
+            }
+
+            if !item.customTitle.isEmpty {
+                Button {
+                    onSave("")
+                } label: {
+                    Label(String(localized: "Use Original Name"), systemImage: "arrow.uturn.backward")
+                        .font(Theme.Font.body)
+                }
+            }
+
+            Button(role: .cancel) {
+                onCancel()
+            } label: {
+                Label(String(localized: "Cancel"), systemImage: "xmark")
+                    .font(Theme.Font.body)
+            }
+        }
+    }
+}
+
+/// "Reset Home Rows": the shared repository's `resetToDefaults` (order, names, enabled rows, hero
+/// and title options). Destructive, so it asks first.
+private struct HomeRowsResetRow: View {
+    let onReset: () -> Void
+    @State private var confirming = false
+
+    var body: some View {
+        SettingsDestructiveRow(
+            title: String(localized: "Reset Home Rows"),
+            subtitle: String(localized: "Order, names and visibility go back to the defaults"),
+            systemImage: "arrow.counterclockwise"
+        ) {
+            confirming = true
+        }
+        .alert(String(localized: "Reset Home Rows?"), isPresented: $confirming) {
+            Button(String(localized: "Reset"), role: .destructive, action: onReset)
+            Button(String(localized: "Cancel"), role: .cancel) {}
+        } message: {
+            Text("Rows return to the add-ons' own names and order, every row is shown again, and the hero and title options go back to their defaults.")
+        }
     }
 }

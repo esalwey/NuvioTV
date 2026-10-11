@@ -12,6 +12,8 @@ struct PosterStyle: Equatable {
     var cornerRadius: CGFloat = Theme.Radius.card
     var showTitle: Bool = true
     var landscapeCatalogRows: Bool = false
+    /// Landscape catalog cards always carry the title logo over the backdrop.
+    var alwaysShowLandscapeClearlogo: Bool = false
 
     static let `default` = PosterStyle()
 
@@ -27,6 +29,7 @@ struct PosterStyle: Equatable {
         cornerRadius = CGFloat(state.cornerRadiusDp)
         showTitle = !state.hideLabelsEnabled
         landscapeCatalogRows = state.catalogLandscapeModeEnabled
+        alwaysShowLandscapeClearlogo = state.alwaysShowLandscapeClearlogo
     }
 }
 
