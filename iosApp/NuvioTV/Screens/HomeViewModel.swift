@@ -167,6 +167,13 @@ final class HomeViewModel: ObservableObject {
     @Published private(set) var sections: [HomeCatalogSection] = []
     @Published private(set) var rows: [HomeRow] = []
     @Published private(set) var continueWatching: [WatchProgressEntry] = []
+    /// The Continue Watching preferences the row is drawn with (card style, thumbnails, blur) —
+    /// published beside `continueWatching` so the row re-renders when Settings changes them.
+    @Published private(set) var continueWatchingSettings = ContinueWatchingSettings()
+    /// The title Home offers to pick up again after a launch that followed leaving mid-playback
+    /// (Settings > Home Screen > Resume Prompt on Launch). Set once per launch, cleared by the alert.
+    @Published private(set) var resumePrompt: WatchProgressEntry?
+    private static var didCheckResumePrompt = false
     /// Home "Upcoming" row: next airing episode per followed show (shared
     /// `UpcomingEpisodesRepository`). Empty while the row is disabled or nothing is airing.
     @Published private(set) var upcoming: [UpcomingEpisodeItem] = []
@@ -846,11 +853,53 @@ final class HomeViewModel: ObservableObject {
     }
     #endif
 
+    /// Once per launch: asks the shared `ResumePromptRepository` whether the previous run ended inside
+    /// the player (the player marks itself entered/left, see `PlayerScreen`) and, if so and the
+    /// setting is on, publishes that title's unfinished progress for Home's "Resume Watching?" alert.
+    /// The shared call consumes the marker either way, so a stale one never prompts a later launch.
+    /// A finished episode (the shared call's "next episode" answer) is not prompted for: its Up Next
+    /// card is already first in the row.
+    func consumeResumePromptOnce() {
+        guard !Self.didCheckResumePrompt else { return }
+        Self.didCheckResumePrompt = true
+        ResumePromptRepository.shared.consumeResumePrompt { [weak self] item, _ in
+            DispatchQueue.main.async {
+                guard let self, let item, !item.isNextUp,
+                      ContinueWatchingSettings.current().showResumePromptOnLaunch,
+                      let entry = WatchProgressRepository.shared.progressForVideo(
+                          videoId: item.videoId,
+                          parentMetaId: item.parentMetaId,
+                          seasonNumber: nil,
+                          episodeNumber: nil
+                      ),
+                      entry.isResumable else { return }
+                self.resumePrompt = entry
+            }
+        }
+    }
+
+    func dismissResumePrompt() {
+        resumePrompt = nil
+    }
+
     /// Rebuilds the Continue Watching row from the shared provider-aware builder. Called by every
     /// watcher that can change what the row contains: the progress entries themselves, the active
     /// progress source, the Trakt continue-watching days cap — and the Up Next cards (CW-2).
     private func refreshContinueWatching() {
-        let row = nextUp.row(inProgress: inProgressContinueWatching())
+        let settings = ContinueWatchingSettings.current()
+        if settings != continueWatchingSettings { continueWatchingSettings = settings }
+        // "Show Continue Watching" off: the row is empty, so Home neither draws it nor lets it
+        // feed the hero, and no Up Next card is resolved for it. Turning it back on republishes.
+        guard settings.isVisible else {
+            if !continueWatching.isEmpty { continueWatching = [] }
+            return
+        }
+        let merged = nextUp.row(inProgress: inProgressContinueWatching())
+        let row = ContinueWatchingPresentationKt.applyContinueWatchingSortMode(
+            entries: merged,
+            mode: settings.order.shared,
+            todayIsoDate: CurrentDateProvider.shared.todayIsoDate()
+        )
         // A rebuild that changes nothing (a watched or preference emission elsewhere, a card that
         // resolved to what the row already shows) republishes nothing.
         if row != continueWatching { continueWatching = row }

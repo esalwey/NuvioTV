@@ -864,6 +864,9 @@ struct PosterCard: View {
     var width: CGFloat? = nil
     var height: CGFloat? = nil
     var showTitle: Bool? = nil
+    /// 0...1 watched fraction drawn as the inset capsule along the artwork's bottom edge (the
+    /// portrait Continue Watching card); nil = no bar.
+    var progress: Double? = nil
 
     @Environment(\.isFocused) private var isFocused
     @Environment(\.posterStyle) private var style
@@ -934,6 +937,15 @@ struct PosterCard: View {
                 // `DebugAXIdentifier` for why the probe has to publish this rect as well as the
                 // rail's.
                 .modifier(DebugAXIdentifier("poster_card"))
+                // Continue Watching's portrait style: the same inset progress capsule the
+                // landscape card draws, inside the ring band, riding the artwork's focus lift.
+                .overlay(alignment: .bottom) {
+                    if let progress {
+                        CardProgressStrip(progress: progress)
+                            .padding(.horizontal, CardProgressStrip.edgeInset + inset)
+                            .padding(.bottom, CardProgressStrip.edgeInset + inset)
+                    }
+                }
                 // FEAT-14 (final): the ring is drawn on the artwork, inside its own clip bounds —
                 // same inside-strokeBorder treatment as the trailer surface's ring in
                 // `InlineTrailerCard`. See the file-level comment above for why this replaced the
@@ -1019,6 +1031,9 @@ struct LandscapeCard: View {
     var overlayLeading: String? = nil
     /// Upcoming row: optional `TODAY` / `IN 4 DAYS` pill drawn bottom-trailing on the artwork.
     var overlayTrailing: String? = nil
+    /// Continue Watching's "Blur Unwatched Episodes": hides an unwatched episode's still behind a
+    /// heavy blur so it cannot spoil. The badges and progress bar stay sharp.
+    var blurArtwork: Bool = false
 
     @Environment(\.isFocused) private var isFocused
     @Environment(\.posterStyle) private var style
@@ -1040,6 +1055,8 @@ struct LandscapeCard: View {
             ZStack(alignment: .bottom) {
                 CachedAsyncImage(string: imageURL)
                     .frame(width: width - 2 * inset, height: height - 2 * inset)
+                    // Spoiler blur: applied before the clip below so the soft edge is cropped.
+                    .blur(radius: blurArtwork ? 28 : 0, opaque: blurArtwork)
                     // BUG-31: same fill-overflow → hover-lift ghosting as PosterCard; artwork whose
                     // ratio isn't 16:9 spills out of this fixed frame unless clipped here.
                     // BUG-36: and like PosterCard, this clip stays on the image's own frame so it

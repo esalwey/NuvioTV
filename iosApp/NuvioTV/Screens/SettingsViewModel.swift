@@ -14,6 +14,9 @@ final class SettingsViewModel: ObservableObject {
     /// the tvOS ThemeSettingsStore adapter; the root AppThemeModel applies it to the palette.
     @Published private(set) var themeName = "CRIMSON"
     @Published private(set) var catalogs: [HomeCatalogSettingsItem] = []
+    /// Continue Watching preferences (card style, order, thumbnails, spoiler blur, Up Next
+    /// behaviour, resume prompt). Per profile, synced by the shared repository.
+    @Published private(set) var continueWatching = ContinueWatchingSettings()
     /// Whether the Home hero (rotating banner built from up to 2 catalog sources) shows at all.
     @Published private(set) var heroEnabled = true
     /// Home rows append the media type to catalog titles (synced; default on).
@@ -114,6 +117,7 @@ final class SettingsViewModel: ObservableObject {
     private var searchStateWatcher: FlowWatcher?
     private var searchHistoryWatcher: FlowWatcher?
     private var metaScreenWatcher: FlowWatcher?
+    private var continueWatchingWatcher: FlowWatcher?
     private var enabledAddons: [ManagedAddon] = []
 
     func start() {
@@ -234,6 +238,13 @@ final class SettingsViewModel: ObservableObject {
             self.episodeRatingsVisibility = state.episodeRatingsVisibility.name
         }
 
+        ContinueWatchingPreferencesRepository.shared.ensureLoaded()
+        continueWatchingWatcher = FlowWatcherKt.watch(ContinueWatchingPreferencesRepository.shared.uiState) { [weak self] emitted in
+            guard let self, let state = emitted as? ContinueWatchingPreferencesUiState else { return }
+            let next = ContinueWatchingSettings(state)
+            if next != self.continueWatching { self.continueWatching = next }
+        }
+
         // "Home Rows blank" bug: Settings must not depend on Home/Search having mounted first to
         // hydrate the addon list. Without this call, entering Settings directly — post-wipe or
         // post-profile-switch, before Home ever ran its own `AddonRepository.initialize()` — left
@@ -255,6 +266,7 @@ final class SettingsViewModel: ObservableObject {
         searchStateWatcher?.cancel(); searchStateWatcher = nil
         searchHistoryWatcher?.cancel(); searchHistoryWatcher = nil
         metaScreenWatcher?.cancel(); metaScreenWatcher = nil
+        continueWatchingWatcher?.cancel(); continueWatchingWatcher = nil
     }
 
     // MARK: - Actions
@@ -688,6 +700,65 @@ final class SettingsViewModel: ObservableObject {
     /// item's exact `key`; never construct or split it (BUG-12 class of bug).
     func setHeroSource(key: String, enabled: Bool) {
         HomeCatalogSettingsRepository.shared.setHeroSourceEnabled(key: key, enabled: enabled)
+    }
+
+    // MARK: - Continue Watching
+
+    func setContinueWatchingVisible(_ enabled: Bool) {
+        ContinueWatchingPreferencesRepository.shared.setVisible(isVisible: enabled)
+    }
+
+    func setContinueWatchingStyle(_ style: ContinueWatchingCardStyle) {
+        ContinueWatchingPreferencesRepository.shared.setStyle(style: style.shared)
+    }
+
+    func setContinueWatchingOrder(_ order: ContinueWatchingOrder) {
+        ContinueWatchingPreferencesRepository.shared.setSortMode(mode: order.shared)
+    }
+
+    func setContinueWatchingEpisodeThumbnails(_ enabled: Bool) {
+        ContinueWatchingPreferencesRepository.shared.setUseEpisodeThumbnails(enabled: enabled)
+    }
+
+    func setContinueWatchingBlurUnwatched(_ enabled: Bool) {
+        ContinueWatchingPreferencesRepository.shared.setBlurNextUp(enabled: enabled)
+    }
+
+    func setContinueWatchingFurthestEpisode(_ enabled: Bool) {
+        ContinueWatchingPreferencesRepository.shared.setUpNextFromFurthestEpisode(enabled: enabled)
+    }
+
+    func setContinueWatchingUnairedNextUp(_ enabled: Bool) {
+        ContinueWatchingPreferencesRepository.shared.setShowUnairedNextUp(enabled: enabled)
+    }
+
+    func setContinueWatchingResumePrompt(_ enabled: Bool) {
+        ContinueWatchingPreferencesRepository.shared.setShowResumePromptOnLaunch(enabled: enabled)
+    }
+
+    // MARK: - Home row management
+
+    /// Gives a Home row its own title. An empty (or whitespace-only) title clears it, so the row
+    /// reads as the add-on's catalog name again. Pass the item's exact `key` (BUG-12 class).
+    func renameCatalog(_ item: HomeCatalogSettingsItem, to title: String) {
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed != item.customTitle else { return }
+        // No `refreshHome()`: the shared repository republishes Home's titles itself
+        // (`applyCurrentSettings`), and nothing needs fetching for a new caption.
+        HomeCatalogSettingsRepository.shared.setCustomTitle(key: item.key, title: trimmed)
+    }
+
+    /// Pins a collection row to the top of Home (or releases it). Only collections can be pinned:
+    /// the flag lives on the collection itself, as in the other apps.
+    func setCatalogPinned(_ item: HomeCatalogSettingsItem, _ pinned: Bool) {
+        guard item.isCollection, let collectionId = item.collectionId else { return }
+        HomeCatalogSettingsRepository.shared.setCollectionPinnedToTop(collectionId: collectionId, pinned: pinned)
+    }
+
+    /// Hero, titles, order, enabled rows and custom names back to how a fresh install has them.
+    func resetHomeRows() {
+        HomeCatalogSettingsRepository.shared.resetToDefaults()
+        refreshHome()
     }
 
     func toggleCatalog(_ item: HomeCatalogSettingsItem) {

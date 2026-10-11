@@ -94,19 +94,28 @@ struct PlayerScreen: View {
         .onChange(of: context.id) {
             // Another episode or source in the same player: its own wait starts now.
             loadStartedAt = Date()
+            // The launch resume prompt follows what is playing now.
+            ResumePromptRepository.shared.markPlayerEntered(videoId: context.videoId)
         }
         .task(id: context.id) { await decideEngine() }
         .onAppear {
             // Orchestrate Up Next only when a presenter can swap contexts (series autoplay,
             // source switching); the engine no-ops the rest for movies.
             if onPlayNext != nil { upNext.start() }
+            // Resume Prompt on Launch: the marker stays set until the player is left normally, so
+            // a launch that follows the app being closed mid-playback can offer to resume. Here,
+            // above both engines, so mpv and the native player behave the same.
+            ResumePromptRepository.shared.markPlayerEntered(videoId: context.videoId)
         }
         .onDisappear {
             // The end screen's full-screen cover also makes the player "disappear" — but the
             // engine is still in use under it (the next episode's source may be resolving for its
             // "Next Episode"): stop only on a real exit. The engine's own exits (details, a source
             // pick, a hand-off) release its search and observers, and `deinit` covers the rest.
-            if upNext.endScreen == nil { upNext.stop() }
+            if upNext.endScreen == nil {
+                upNext.stop()
+                ResumePromptRepository.shared.markPlayerExitedNormally()
+            }
         }
     }
 
