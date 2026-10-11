@@ -276,34 +276,21 @@ enum SettingsSearchIndex {
             ["poster", "labels"])
         add(.appearance, poster, "landscapeRows", String(localized: "Landscape Rows"),
             ["wide", "16:9", "cards", "home", "search"])
-        add(.appearance, poster, "hideHeroArtwork", String(localized: "Hide Hero Artwork While Browsing"),
-            ["hero", "backdrop", "focus"])
-        add(.appearance, poster, "trailerAutoplay", String(localized: "Auto-Play Trailer on Detail"),
-            ["trailer", "full screen", "autoplay"])
-        add(.appearance, poster, "trailerBackground", String(localized: "Background Trailer on Detail"),
-            ["trailer", "muted", "detail"])
-        add(.appearance, poster, "trailerDuration", String(localized: "Trailer Duration"),
-            ["trailer", "seconds", "loop"])
-        add(.appearance, poster, "posterBackdrop", String(localized: "Poster in Detail Background"),
-            ["detail", "artwork"])
-        add(.appearance, poster, "iconOnlyButtons", String(localized: "Icon-Only Detail Buttons"),
-            ["detail", "buttons", "labels"])
+        add(.appearance, poster, "posterTitlesAlways",
+            String(localized: "settings.appearance.posterTitlesAlwaysVisible", defaultValue: "Always Show Poster Titles",
+                   comment: "Appearance toggle: show titles under every poster, not only the focused one"),
+            ["poster", "labels", "captions"])
         let ratings = String(localized: "Ratings")
         add(.appearance, ratings, "overallRatings", String(localized: "Overall Ratings"),
             ["rating visibility", "imdb", "tmdb", "score", "mdblist", "hide ratings"])
         add(.appearance, ratings, "episodeRatings", String(localized: "Episode Ratings"),
             ["rating visibility", "score", "hide ratings", "spoiler"])
-        let focus = String(localized: "settings.appearance.focusEffects.title", defaultValue: "Advanced Focus Effects",
-                           comment: "Appearance settings section grouping the optional focus ring and no-zoom effects")
+        let focus = String(localized: "Advanced")
         add(.appearance, focus, "accentFocusRing", String(localized: "Accent Focus Ring"),
             ["focus", "highlight", "ring", "border"])
         add(.appearance, focus, "noZoom", String(localized: "No Zoom on Focus"),
             ["focus", "motion", "scale", "reduce motion"])
-        add(.appearance, focus, "posterTitlesAlways",
-            String(localized: "settings.appearance.posterTitlesAlwaysVisible", defaultValue: "Always Show Poster Titles",
-                   comment: "Appearance toggle: show titles under every poster, not only the focused one"),
-            ["poster", "labels", "captions"])
-        add(.appearance, String(localized: "Card Depth"), "cardDepth", String(localized: "Card Depth"),
+        add(.appearance, focus, "cardDepth", String(localized: "Card Depth"),
             ["edge", "sheen", "highlight", "gloss", "3d"])
         let badges = String(localized: "Stream Badges")
         add(.appearance, badges, "fileSizeBadges", String(localized: "File Size Badges"),
@@ -315,26 +302,57 @@ enum SettingsSearchIndex {
         add(.appearance, badges, "importBadgePack", String(localized: "Import Badge Pack"),
             ["stream badges", "pack", "custom badges"])
 
+        // MARK: Detail Page
+        let detailAppearance = String(localized: "Appearance")
+        add(.detailPage, detailAppearance, "detailBackground", String(localized: "Background"),
+            ["detail", "backdrop", "cinematic", "dominant color", "artwork"])
+        add(.detailPage, detailAppearance, "posterBackdrop", String(localized: "Poster in Detail Background"),
+            ["detail", "artwork"])
+        add(.detailPage, detailAppearance, "iconOnlyButtons", String(localized: "Icon-Only Detail Buttons"),
+            ["detail", "buttons", "labels"])
+        add(.detailPage, detailAppearance, "fullReleaseDate", String(localized: "Full Release Date"),
+            ["detail", "year", "movie"])
+        let detailTrailers = String(localized: "Trailers")
+        add(.detailPage, detailTrailers, "trailerAutoplay", String(localized: "Auto-Play Trailer on Detail"),
+            ["trailer", "full screen", "autoplay"])
+        add(.detailPage, detailTrailers, "trailerBackground", String(localized: "Background Trailer on Detail"),
+            ["trailer", "muted", "detail"])
+        add(.detailPage, detailTrailers, "trailerDuration", String(localized: "Trailer Duration"),
+            ["trailer", "seconds", "loop"])
+        add(.detailPage, detailTrailers, "trailerButton", String(localized: "Trailer Button on Detail"),
+            ["trailer", "play", "button"])
+        let detailEpisodes = String(localized: "Episodes")
+        add(.detailPage, detailEpisodes, "episodeCards", String(localized: "Episode Cards"),
+            ["episodes", "list", "shelf", "stills"])
+        add(.detailPage, detailEpisodes, "blurUnwatched", String(localized: "Blur Unwatched Episodes"),
+            ["spoiler", "stills", "episodes"])
+        add(.detailPage, detailEpisodes, "seasonSelector", String(localized: "Season Selector"),
+            ["seasons", "posters", "text"])
+
         // MARK: Home Screen
         let homeRows = String(localized: "Home Rows")
         add(.homeScreen, homeRows, "upcoming", String(localized: "Upcoming Episodes"),
             ["calendar", "next up", "new episodes"])
-        add(.homeScreen, homeRows, "showHero", String(localized: "Show Hero"),
+        let homeHero = String(localized: "Hero")
+        add(.homeScreen, homeHero, "showHero", String(localized: "Show Hero"),
             ["featured", "banner", "top"])
-        add(.homeScreen, homeRows, "nuvioHero", String(localized: "Nuvio-Style Hero"),
+        add(.homeScreen, homeHero, "nuvioHero", String(localized: "Nuvio-Style Hero"),
             ["hero", "layout"])
-        add(.homeScreen, homeRows, "heroSources", String(localized: "Hero Sources"),
+        add(.homeScreen, homeHero, "heroSources", String(localized: "Hero Sources"),
             ["hero", "catalogs", "featured"])
-        add(.homeScreen, homeRows, "trailersOnFocus", String(localized: "Trailers on Focus"),
+        add(.homeScreen, homeHero, "hideHeroArtwork", String(localized: "Hide Hero Artwork While Browsing"),
+            ["hero", "backdrop", "focus"])
+        let homeTrailers = String(localized: "Trailers")
+        add(.homeScreen, homeTrailers, "trailersOnFocus", String(localized: "Trailers on Focus"),
             ["hero", "preview", "autoplay"])
-        add(.homeScreen, homeRows, "heroTrailer", String(localized: "Autoplay Hero Trailer"),
+        add(.homeScreen, homeTrailers, "heroTrailer", String(localized: "Autoplay Hero Trailer"),
             ["hero", "trailer"])
+        add(.homeScreen, homeTrailers, "trailerLocation", String(localized: "Trailer Location"),
+            ["hero", "poster", "trailer"])
         add(.homeScreen, homeRows, "catalogType", String(localized: "Show Catalog Type in Titles"),
             ["movie", "series", "row titles"])
         add(.homeScreen, homeRows, "catalogs", String(localized: "Catalogs"),
             ["rows", "order", "reorder", "hide", "show", "home rows"])
-        add(.homeScreen, homeRows, "trailerLocation", String(localized: "Trailer Location"),
-            ["hero", "poster", "trailer"])
         add(.homeScreen, homeRows, "refreshAddons", String(localized: "Refresh Add-ons"),
             ["catalogs", "reload", "update"])
 

@@ -28,29 +28,6 @@ struct AppearanceSettingsPane: View {
     /// such descendant per row.
     @FocusState private var appearanceRowFocus: String?
 
-    /// Mirrors HomeView's `hero_poster_focus_only` @AppStorage key (same UserDefaults key, read
-    /// independently here) so this toggle can flip the Home hero's focus-gated artwork fade back
-    /// on for testers who preferred the original behavior. Local-only, not synced.
-    @AppStorage("hero_poster_focus_only") private var heroPosterFocusOnly = false
-    /// Mirrors DetailView's `detail_trailer_autoplay` key. Local-only, not synced.
-    ///
-    /// F2 / decision D5: a trailer never takes the screen over by itself, so the full-screen
-    /// auto-play defaults OFF (the muted in-place background trailer below stays on). This
-    /// default must match DetailView's own `@AppStorage("detail_trailer_autoplay")` declaration
-    /// (batch P7), or a fresh install shows this switch off while the trailer still opens.
-    @AppStorage("detail_trailer_autoplay") private var detailTrailerAutoplay = false
-    /// Mirrors DetailView's `detail_poster_backdrop` key. Local-only, not synced.
-    @AppStorage("detail_poster_backdrop") private var detailPosterBackdrop = true
-    /// UX-4b: the muted background trailer on detail pages (distinct from auto-play above).
-    @AppStorage("detail_trailer_background") private var detailTrailerBackground = true
-    /// FEAT-8: mirrors DetailView's `detail_trailer_duration` key. 0 = play forever.
-    @AppStorage("detail_trailer_duration") private var detailTrailerDuration = 0
-    /// FEAT-9: mirrors DetailView's `detail_action_icons_only` key.
-    @AppStorage("detail_action_icons_only") private var detailActionIconsOnly = false
-    /// Mirrors DetailView's `detail_trailer_button_enabled` key (default ON). Local-only, not synced.
-    @AppStorage("detail_trailer_button_enabled") private var detailTrailerButton = true
-    /// Mirrors DetailView's `detail_show_full_release_date` key (default OFF). Local-only, not synced.
-    @AppStorage("detail_show_full_release_date") private var detailFullReleaseDate = false
     /// FEAT-7: mirrors SettingsView's own `settings_style` key (same UserDefaults key, read
     /// independently here) so this pane's chip row and the sidebar it controls stay in sync.
     @AppStorage("settings_style") private var settingsStyle = "default"
@@ -58,15 +35,6 @@ struct AppearanceSettingsPane: View {
     /// — `"system"` (default) or `"openSans"`. Also folded into ContentView's `.id` remount key, so
     /// writing this key remounts the tree the same way a theme change does.
     @AppStorage(Theme.AppFontFamily.defaultsKey) private var uiFont = Theme.AppFontFamily.system.rawValue
-    /// FEAT-14: opt-in accent-colored focus ring on artwork cards (PosterCard/LandscapeCard).
-    /// Default OFF — off must render byte-identical to the pre-FEAT-14 tree, so PosterCard reads
-    /// this same key independently rather than through a passed-down flag.
-    @AppStorage("accent_focus_ring") private var accentFocusRing = false
-    /// BUG-36: opt-in "focus without motion" for artwork cards (PosterCard/LandscapeCard). Default
-    /// OFF — off keeps the two existing treatments (system lift, or the accent ring's manual
-    /// scale). Same independent-read pattern as the ring above; the cards resolve both keys into a
-    /// single `CardFocusMode`.
-    @AppStorage("no_zoom_on_focus") private var noZoomOnFocus = false
     /// Spec gap 13 opt-out: poster titles show only on the focused poster by default; this
     /// device-local key (read by `PosterCard`) keeps them visible under every poster.
     @AppStorage(PosterTitleReveal.alwaysVisibleKey) private var posterTitlesAlwaysVisible = false
@@ -74,12 +42,6 @@ struct AppearanceSettingsPane: View {
     private static let settingsStyleOptions: [(value: String, label: String)] = [
         ("default", String(localized: "Default")),
         ("minimal", String(localized: "Minimal")),
-    ]
-    private static let trailerDurationOptions: [(value: Int, label: String)] = [
-        (30, String(localized: "30s")),
-        (60, String(localized: "1 min")),
-        (90, String(localized: "90s")),
-        (0, String(localized: "Always")),
     ]
     /// SET-2 row options. Values are `EpisodeRatingsVisibility.name`.
     private static let episodeRatingsOptions: [(value: String, label: String)] = [
@@ -213,67 +175,13 @@ struct AppearanceSettingsPane: View {
                 hideLabels: model.posterHideLabels,
                 landscapeRows: model.posterLandscapeRows,
                 landscapeClearlogo: model.posterLandscapeClearlogo,
+                titlesAlwaysVisible: $posterTitlesAlwaysVisible,
                 onSize: { model.setPosterWidth($0) },
                 onCorner: { model.setPosterCorner($0) },
                 onHideLabels: { model.setPosterHideLabels($0) },
                 onLandscape: { model.setPosterLandscapeRows($0) },
                 onLandscapeClearlogo: { model.setPosterLandscapeClearlogo($0) },
                 onReset: { model.resetPosterStyle() }
-            )
-            // Default (off) always shows the Home hero's backdrop artwork — a beta
-            // tester read the old focus-only fade as a bug ("hero posts don't
-            // work"). This restores that original fade for anyone who preferred it.
-            // BUG-24/UX-1: the old name ("Hero Poster Only When Focused") confused two
-            // testers in opposite directions — one asked for the OFF behavior thinking it
-            // was missing (UX-1), one reported the toggle "does nothing" while describing
-            // exactly what ON does (BUG-24). The name now states the action.
-            SettingsToggleRow(
-                title: String(localized: "Hide Hero Artwork While Browsing"),
-                subtitle: String(localized: "Artwork shows while the hero is highlighted and hides once you move down into the rows"),
-                isOn: $heroPosterFocusOnly
-            )
-            SettingsToggleRow(
-                title: String(localized: "Auto-Play Trailer on Detail"),
-                subtitle: String(localized: "Play the trailer full screen shortly after opening a title"),
-                isOn: $detailTrailerAutoplay
-            )
-            // UX-4b (tester ask): the auto-play toggle above never controlled the muted
-            // trailer looping BEHIND the detail description — that had no switch at all.
-            SettingsToggleRow(
-                title: String(localized: "Background Trailer on Detail"),
-                subtitle: String(localized: "A muted trailer plays behind the description on detail pages"),
-                isOn: $detailTrailerBackground
-            )
-            // Independent of the two switches above: this one only removes the action-row button.
-            SettingsToggleRow(
-                title: String(localized: "Trailer Button on Detail"),
-                subtitle: String(localized: "Show the Trailer button beside Play"),
-                isOn: $detailTrailerButton
-            )
-            // FEAT-8: only meaningful while the background trailer itself is on.
-            if detailTrailerBackground {
-                SettingsPickerRow(
-                    title: String(localized: "Trailer Duration"),
-                    selection: $detailTrailerDuration,
-                    options: Self.trailerDurationOptions.map(\.value),
-                    label: { value in Self.trailerDurationOptions.first { $0.value == value }?.label ?? "\(value)" }
-                )
-            }
-            SettingsToggleRow(
-                title: String(localized: "Poster in Detail Background"),
-                subtitle: String(localized: "Show the title's poster on the right side of detail pages"),
-                isOn: $detailPosterBackdrop
-            )
-            // FEAT-9
-            SettingsToggleRow(
-                title: String(localized: "Icon-Only Detail Buttons"),
-                subtitle: String(localized: "Buttons show icons only"),
-                isOn: $detailActionIconsOnly
-            )
-            SettingsToggleRow(
-                title: String(localized: "Full Release Date"),
-                subtitle: String(localized: "A movie's detail page shows its release date instead of the year"),
-                isOn: $detailFullReleaseDate
             )
         }
 
@@ -308,57 +216,83 @@ struct AppearanceSettingsPane: View {
             )
         }
 
-        // Spec gap 12: the default focus treatment is the system highlight (lift, specular,
-        // gimbal). The ring and no-zoom variants stay for testers who asked for them, grouped
-        // next to Card Depth as advanced options instead of leading the pane.
-        SettingsSection(
-            String(localized: "settings.appearance.focusEffects.title", defaultValue: "Advanced Focus Effects",
-                   comment: "Appearance settings section grouping the optional focus ring and no-zoom effects")
-        ) {
-            // FEAT-14: opt-in accent focus ring on artwork cards. Default OFF — off renders
-            // byte-identical to today (PosterCard/LandscapeCard skip the overlay entirely).
-            SettingsToggleRow(
-                title: String(localized: "Accent Focus Ring"),
-                subtitle: String(localized: "Focused artwork shows a ring in your accent color"),
-                isOn: $accentFocusRing
-            )
-
-            // BUG-36 (tester ask, twice): focus on a card lifts and zooms it slightly. This
-            // turns the zoom off outright — the card holds its size and marks focus with the
-            // ring (or a highlight border when the ring is off) and a shadow instead. Default
-            // OFF, so the stock focus motion is unchanged for everyone else.
-            SettingsToggleRow(
-                title: String(localized: "No Zoom on Focus"),
-                subtitle: String(localized: "Focused cards keep their size \u{2014} highlight and shadow only"),
-                isOn: $noZoomOnFocus
-            )
-
-            SettingsToggleRow(
-                title: String(localized: "settings.appearance.posterTitlesAlwaysVisible",
-                              defaultValue: "Always Show Poster Titles",
-                              comment: "Appearance toggle: show titles under every poster, not only the focused one"),
-                subtitle: String(localized: "settings.appearance.posterTitlesAlwaysVisible.subtitle",
-                                 defaultValue: "Off shows a title only under the focused poster",
-                                 comment: "Subtitle of the Always Show Poster Titles toggle"),
-                isOn: $posterTitlesAlwaysVisible
-            )
-        }
-
-        SettingsSection(String(localized: "Card Depth")) {
-            CardDepthControls(
-                style: model.cardDepth,
-                onEnabled: { model.setCardDepthEnabled($0) },
-                onEdge: { model.setCardDepthEdge($0) },
-                onSheen: { model.setCardDepthSheen($0) },
-                onCoverage: { model.setCardDepthCoverage($0) },
-                onSurface: { model.setCardDepthSurface($0, $1) },
-                onReset: { model.resetCardDepth() }
-            )
-        }
-
         SettingsSection(String(localized: "Stream Badges")) {
             StreamBadgesSection(badges: badges)
         }
+
+        // Spec gap 12: the default focus treatment is the system highlight (lift, specular,
+        // gimbal). The ring and no-zoom variants and the card-depth effect stay for testers who
+        // asked for them, one level down so they do not lead the pane.
+        SettingsSection(String(localized: "Advanced")) {
+            SettingsLinkRow(
+                title: String(localized: "settings.appearance.focusEffects.title", defaultValue: "Advanced Focus Effects",
+                              comment: "Appearance settings section grouping the optional focus ring and no-zoom effects")
+            ) {
+                FocusEffectsSettingsPage()
+            }
+            SettingsLinkRow(title: String(localized: "Card Depth")) {
+                CardDepthSettingsPage(model: model)
+            }
+        }
+    }
+}
+
+/// Appearance > Advanced > Advanced Focus Effects: the optional accent ring and the no-zoom
+/// treatment for artwork cards. Menu pops back to Appearance.
+private struct FocusEffectsSettingsPage: View {
+    /// FEAT-14: opt-in accent-colored focus ring on artwork cards (PosterCard/LandscapeCard).
+    /// Default OFF — off must render byte-identical to the pre-FEAT-14 tree, so PosterCard reads
+    /// this same key independently rather than through a passed-down flag.
+    @AppStorage("accent_focus_ring") private var accentFocusRing = false
+    /// BUG-36: opt-in "focus without motion" for artwork cards (PosterCard/LandscapeCard). Default
+    /// OFF — off keeps the two existing treatments (system lift, or the accent ring's manual
+    /// scale). Same independent-read pattern as the ring; the cards resolve both keys into a
+    /// single `CardFocusMode`.
+    @AppStorage("no_zoom_on_focus") private var noZoomOnFocus = false
+
+    var body: some View {
+        List {
+            SettingsSection(title: nil) {
+                SettingsToggleRow(
+                    title: String(localized: "Accent Focus Ring"),
+                    subtitle: String(localized: "Focused artwork shows a ring in your accent color"),
+                    isOn: $accentFocusRing
+                )
+                // BUG-36 (tester ask, twice): focus on a card lifts and zooms it slightly. This
+                // turns the zoom off outright — the card holds its size and marks focus with the
+                // ring (or a highlight border when the ring is off) and a shadow instead. Default
+                // OFF, so the stock focus motion is unchanged for everyone else.
+                SettingsToggleRow(
+                    title: String(localized: "No Zoom on Focus"),
+                    subtitle: String(localized: "Focused cards keep their size \u{2014} highlight and shadow only"),
+                    isOn: $noZoomOnFocus
+                )
+            }
+        }
+        .navigationTitle(String(localized: "settings.appearance.focusEffects.title", defaultValue: "Advanced Focus Effects",
+                                comment: "Appearance settings section grouping the optional focus ring and no-zoom effects"))
+    }
+}
+
+/// Appearance > Advanced > Card Depth: the edge highlight and top sheen on cards.
+private struct CardDepthSettingsPage: View {
+    @ObservedObject var model: SettingsViewModel
+
+    var body: some View {
+        List {
+            SettingsSection(title: nil) {
+                CardDepthControls(
+                    style: model.cardDepth,
+                    onEnabled: { model.setCardDepthEnabled($0) },
+                    onEdge: { model.setCardDepthEdge($0) },
+                    onSheen: { model.setCardDepthSheen($0) },
+                    onCoverage: { model.setCardDepthCoverage($0) },
+                    onSurface: { model.setCardDepthSurface($0, $1) },
+                    onReset: { model.resetCardDepth() }
+                )
+            }
+        }
+        .navigationTitle(String(localized: "Card Depth"))
     }
 }
 
@@ -482,6 +416,8 @@ private struct PosterStyleControls: View {
     let hideLabels: Bool
     let landscapeRows: Bool
     let landscapeClearlogo: Bool
+    /// `PosterTitleReveal.alwaysVisibleKey` (device-local, read by `PosterCard`).
+    let titlesAlwaysVisible: Binding<Bool>
     let onSize: (Int32) -> Void
     let onCorner: (Int32) -> Void
     let onHideLabels: (Bool) -> Void
@@ -520,6 +456,18 @@ private struct PosterStyleControls: View {
             subtitle: String(localized: "Show posters without a title label"),
             isOn: Binding(get: { hideLabels }, set: { onHideLabels($0) })
         )
+        // Only meaningful while titles are shown at all.
+        if !hideLabels {
+            SettingsToggleRow(
+                title: String(localized: "settings.appearance.posterTitlesAlwaysVisible",
+                              defaultValue: "Always Show Poster Titles",
+                              comment: "Appearance toggle: show titles under every poster, not only the focused one"),
+                subtitle: String(localized: "settings.appearance.posterTitlesAlwaysVisible.subtitle",
+                                 defaultValue: "Off shows a title only under the focused poster",
+                                 comment: "Subtitle of the Always Show Poster Titles toggle"),
+                isOn: titlesAlwaysVisible
+            )
+        }
         SettingsToggleRow(
             title: String(localized: "Landscape Rows"),
             subtitle: String(localized: "Show Home & Search catalog rows as wide 16:9 cards"),

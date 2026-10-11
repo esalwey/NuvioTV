@@ -11,6 +11,29 @@ import SharedCore
 struct DetailPageSettingsPane: View {
     @ObservedObject var model: SettingsViewModel
 
+    /// Local-only switches the title page reads through the same `@AppStorage` keys (DetailView).
+    ///
+    /// F2 / decision D5: a trailer never takes the screen over by itself, so the full-screen
+    /// auto-play defaults OFF (the muted in-place background trailer stays on). The defaults here
+    /// must match DetailView's own declarations, or a fresh install shows a switch off while the
+    /// behavior is on.
+    @AppStorage("detail_trailer_autoplay") private var detailTrailerAutoplay = false
+    @AppStorage("detail_poster_backdrop") private var detailPosterBackdrop = true
+    /// UX-4b: the muted background trailer (distinct from the full-screen auto-play above).
+    @AppStorage("detail_trailer_background") private var detailTrailerBackground = true
+    /// FEAT-8: 0 = play forever.
+    @AppStorage("detail_trailer_duration") private var detailTrailerDuration = 0
+    @AppStorage("detail_action_icons_only") private var detailActionIconsOnly = false
+    @AppStorage("detail_trailer_button_enabled") private var detailTrailerButton = true
+    @AppStorage("detail_show_full_release_date") private var detailFullReleaseDate = false
+
+    private static let trailerDurationOptions: [(value: Int, label: String)] = [
+        (30, String(localized: "30s")),
+        (60, String(localized: "1 min")),
+        (90, String(localized: "90s")),
+        (0, String(localized: "Always")),
+    ]
+
     var body: some View {
         let mode = DetailBackgroundMode(kotlinName: model.detailBackgroundModeName)
         let cardStyle = DetailEpisodeCardStyle(kotlinName: model.detailEpisodeCardStyleName)
@@ -25,6 +48,52 @@ struct DetailPageSettingsPane: View {
                 ),
                 options: DetailBackgroundMode.allCases,
                 label: { $0.title }
+            )
+            SettingsToggleRow(
+                title: String(localized: "Poster in Detail Background"),
+                subtitle: String(localized: "Show the title's poster on the right side of detail pages"),
+                isOn: $detailPosterBackdrop
+            )
+            // FEAT-9
+            SettingsToggleRow(
+                title: String(localized: "Icon-Only Detail Buttons"),
+                subtitle: String(localized: "Buttons show icons only"),
+                isOn: $detailActionIconsOnly
+            )
+            SettingsToggleRow(
+                title: String(localized: "Full Release Date"),
+                subtitle: String(localized: "A movie's detail page shows its release date instead of the year"),
+                isOn: $detailFullReleaseDate
+            )
+        }
+
+        SettingsSection(String(localized: "Trailers")) {
+            SettingsToggleRow(
+                title: String(localized: "Auto-Play Trailer on Detail"),
+                subtitle: String(localized: "Play the trailer full screen shortly after opening a title"),
+                isOn: $detailTrailerAutoplay
+            )
+            // UX-4b (tester ask): the auto-play toggle above never controlled the muted
+            // trailer looping BEHIND the detail description — that had no switch at all.
+            SettingsToggleRow(
+                title: String(localized: "Background Trailer on Detail"),
+                subtitle: String(localized: "A muted trailer plays behind the description on detail pages"),
+                isOn: $detailTrailerBackground
+            )
+            // FEAT-8: only meaningful while the background trailer itself is on.
+            if detailTrailerBackground {
+                SettingsPickerRow(
+                    title: String(localized: "Trailer Duration"),
+                    selection: $detailTrailerDuration,
+                    options: Self.trailerDurationOptions.map(\.value),
+                    label: { value in Self.trailerDurationOptions.first { $0.value == value }?.label ?? "\(value)" }
+                )
+            }
+            // Independent of the two switches above: this one only removes the action-row button.
+            SettingsToggleRow(
+                title: String(localized: "Trailer Button on Detail"),
+                subtitle: String(localized: "Show the Trailer button beside Play"),
+                isOn: $detailTrailerButton
             )
         }
 

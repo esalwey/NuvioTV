@@ -23,6 +23,11 @@ struct HomeScreenSettingsPane: View {
     /// toggle can turn off the muted trailer-on-focus preview. Local-only, not synced.
     @AppStorage("inline_trailers_enabled") private var inlineTrailersEnabled = false
 
+    /// Mirrors HomeView's `hero_poster_focus_only` @AppStorage key (same UserDefaults key, read
+    /// independently here) so this toggle can flip the Home hero's focus-gated artwork fade back
+    /// on for testers who preferred the original behavior. Local-only, not synced.
+    @AppStorage("hero_poster_focus_only") private var heroPosterFocusOnly = false
+
     /// Mirrors HomeHeroForeground's `hero_nuvio_style` key (UX-2 hero redesign v2, opt-in —
     /// classic layout is the default). Local-only.
     @AppStorage("hero_nuvio_style") private var heroNuvioStyle = false
@@ -182,7 +187,172 @@ struct HomeScreenSettingsPane: View {
 
     // MARK: - Home rows
 
+    /// Hero and Trailers sit in their own sections so the long Home Rows list stays about rows. Both
+    /// need at least one catalog (no catalogs, no hero and nothing to preview); Home Rows itself keeps
+    /// the Upcoming switch outside that condition, which is this pane's focus floor (BUG-47).
+    @ViewBuilder
     private var homeRowsBody: some View {
+        Group {
+            if !model.catalogs.isEmpty {
+                heroSection
+                trailersSection
+            }
+            homeRowsSection
+        }
+        // The expansion flags now outlive the branches that render their groups (they used to be
+        // `@State` INSIDE the group views, destroyed with them), so reset them when the owning
+        // branch disappears — otherwise toggling Show Hero off and on, or the catalog list
+        // emptying and repopulating, would resurrect a stale expanded state instead of the
+        // documented collapsed-on-recreation behavior (Codex 2026-08-30 P3).
+        .onChange(of: model.heroEnabled) { _, enabled in
+            if !enabled { heroSourcesExpanded = false }
+        }
+        .onChange(of: model.catalogs.isEmpty) { _, isEmpty in
+            if isEmpty {
+                heroSourcesExpanded = false
+                catalogsExpanded = false
+            }
+        }
+        // The Hero Sources group can also vanish alone: every remaining catalog being a
+        // collection removes just that header while the pane and Catalogs group stay.
+        .onChange(of: model.catalogs.contains(where: { !$0.isCollection })) { _, hasCatalogSources in
+            if !hasCatalogSources { heroSourcesExpanded = false }
+        }
+    }
+
+    // MARK: - Hero
+
+    private var heroSection: some View {
+        SettingsSection(String(localized: "Hero")) {
+            // FEAT-15 (and BUG-24, the same request in disguise): OFF no longer means "no
+            // hero region". It means "no ROTATING banner" — the top of Home becomes the
+            // focused title's own backdrop and description, updating as you move through the
+            // rows. The old copy ("Home starts directly with catalog rows") described a
+            // behavior that also silently took the description panel away with it, which is
+            // precisely the trap the reporter hit three times; both states now state what
+            // they DO, and neither implies losing the description.
+            SettingsToggleRow(
+                title: String(localized: "Show Hero"),
+                subtitle: model.heroEnabled
+                    ? String(localized: "A rotating banner built from up to 2 of your catalogs, switching to the focused title as you browse")
+                    : String(localized: "No rotating banner \u{2014} the top of Home shows the focused title's artwork and description"),
+                isOn: Binding(
+                    get: { model.heroEnabled },
+                    set: { model.setHeroEnabled($0) }
+                )
+            )
+
+            // Everything inside this branch configures the ROTATING banner specifically —
+            // its layout and which catalogs feed it — so it stays hidden with Show Hero off,
+            // where there are no hero pages to lay out or source (FEAT-15: the focus panel
+            // always uses the pinned Nuvio presentation, see HomeView.heroNuvioStyle).
+            if model.heroEnabled {
+                // UX-2 hero redesign v2: title/description on the left with the artwork
+                // reading on the right (Nuvio-style, OPT-IN) vs the classic lower-left
+                // logo layout (default). UX-7 extension: the Nuvio-style hero is also
+                // PINNED to the top of Home (it becomes the fixed top of a VStack and the
+                // rows get their own ScrollView below it) — only the rows scroll, so the ON
+                // copy names that too; classic still scrolls the hero away with the rows.
+                SettingsToggleRow(
+                    title: String(localized: "Nuvio-Style Hero"),
+                    subtitle: heroNuvioStyle
+                        ? String(localized: "Title and description on the left, artwork on the right, hero pinned while rows scroll")
+                        : String(localized: "Classic layout with the logo on the lower left"),
+                    isOn: $heroNuvioStyle
+                )
+
+                // Collections are hard-forced to heroSourceEnabled = false on the Kotlin side
+                // (HomeCatalogSettingsRepository.normalizePreferences), so they never appear
+                // as a hero source — filter defensively here too.
+                //
+                // Focus note (2026-08-30): "Hero Sources" is a `SettingsDisclosureRow` header
+                // row followed, only while expanded, by one `HeroSourceRow` per item below it
+                // — each a SEPARATE `SettingsSection` child, i.e. a separate List row with its
+                // own native focus target. Before this fix, the header and every expanded row
+                // lived together inside one `HeroSourcesGroup` view that was itself a single
+                // List row, so tvOS's one-focus-target-per-row rule meant none of the expanded
+                // toggles could ever be focused (see the file header comment for the device
+                // repro). There is no more group-local `isExpanded`, no `focusedChild`
+                // `@FocusState`, and no `settingsRowPlatterActive` publication to keep in sync
+                // with the data here — a removed row is just a removed List row, and the
+                // system reassigns focus to a surviving sibling on its own. If this list ever
+                // empties while expanded, `heroSourcesExpanded` simply stops mattering: the
+                // `if !heroSourceCatalogs.isEmpty` guard around the header below removes the
+                // header too, and the adjacent "Nuvio-Style Hero" toggle above is the
+                // guaranteed-present fallback landing row (same BUG-47 reasoning as always).
+                let heroSourceCatalogs = model.catalogs.filter { !$0.isCollection }
+                if !heroSourceCatalogs.isEmpty {
+                    SettingsDisclosureRow(
+                        title: String(localized: "Hero Sources"),
+                        subtitle: heroSourcesSummary,
+                        isExpanded: heroSourcesExpanded && !heroSourceCatalogs.isEmpty
+                    ) {
+                        heroSourcesExpanded.toggle()
+                    }
+
+                    if heroSourcesExpanded && !heroSourceCatalogs.isEmpty {
+                        ForEach(heroSourceCatalogs, id: \.key) { item in
+                            HeroSourceRow(
+                                item: item,
+                                interactive: item.heroSourceEnabled || heroSelectedCount < heroLimit
+                            ) { enabled in
+                                model.setHeroSource(key: item.key, enabled: enabled)
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Default (off) always shows the Home hero's backdrop artwork — a beta
+            // tester read the old focus-only fade as a bug ("hero posts don't
+            // work"). This restores that original fade for anyone who preferred it.
+            // BUG-24/UX-1: the old name ("Hero Poster Only When Focused") confused two
+            // testers in opposite directions — one asked for the OFF behavior thinking it
+            // was missing (UX-1), one reported the toggle "does nothing" while describing
+            // exactly what ON does (BUG-24). The name now states the action.
+            SettingsToggleRow(
+                title: String(localized: "Hide Hero Artwork While Browsing"),
+                subtitle: String(localized: "Artwork shows while the hero is highlighted and hides once you move down into the rows"),
+                isOn: $heroPosterFocusOnly
+            )
+        }
+    }
+
+    // MARK: - Trailers
+
+    private var trailersSection: some View {
+        SettingsSection(String(localized: "Trailers")) {
+            SettingsToggleRow(
+                title: String(localized: "Trailers on Focus"),
+                // Codex gate r3/r4: the enabled summary names the surface that will ACTUALLY
+                // play — "Hero" only when the hero location can take effect (same conditions
+                // as the two fallback captions below); otherwise the poster, which is what
+                // the user will see in the classic layout or with no hero source enabled.
+                subtitle: !inlineTrailersEnabled
+                    ? String(localized: "Posters show artwork only")
+                    : heroLocationEffective
+                        ? String(localized: "The hero plays a muted trailer preview after a moment of focus on a poster")
+                        : String(localized: "Posters play a muted trailer preview after a moment of focus"),
+                isOn: $inlineTrailersEnabled
+            )
+
+            if inlineTrailersEnabled {
+                trailerLocationRow
+            }
+
+            SettingsToggleRow(
+                title: String(localized: "Autoplay Hero Trailer"),
+                subtitle: heroTrailerAutoplay
+                    ? String(localized: "The hero plays its trailer by itself, without waiting for focus")
+                    : String(localized: "The hero shows artwork only"),
+                isOn: $heroTrailerAutoplay
+            )
+        }
+    }
+
+    // MARK: - Rows
+
+    private var homeRowsSection: some View {
         SettingsSection(String(localized: "Home Rows")) {
             // Catalog-independent: the Upcoming row is fed by watch progress + Library, so its
             // switch must stay reachable when no catalog add-on is installed (Codex round 1).
@@ -229,111 +399,6 @@ struct HomeScreenSettingsPane: View {
                     AddonRepository.shared.refreshAll()
                 }
             } else {
-                // FEAT-15 (and BUG-24, the same request in disguise): OFF no longer means "no
-                // hero region". It means "no ROTATING banner" — the top of Home becomes the
-                // focused title's own backdrop and description, updating as you move through the
-                // rows. The old copy ("Home starts directly with catalog rows") described a
-                // behavior that also silently took the description panel away with it, which is
-                // precisely the trap the reporter hit three times; both states now state what
-                // they DO, and neither implies losing the description.
-                SettingsToggleRow(
-                    title: String(localized: "Show Hero"),
-                    subtitle: model.heroEnabled
-                        ? String(localized: "A rotating banner built from up to 2 of your catalogs, switching to the focused title as you browse")
-                        : String(localized: "No rotating banner \u{2014} the top of Home shows the focused title's artwork and description"),
-                    isOn: Binding(
-                        get: { model.heroEnabled },
-                        set: { model.setHeroEnabled($0) }
-                    )
-                )
-
-                // Everything inside this branch configures the ROTATING banner specifically —
-                // its layout and which catalogs feed it — so it stays hidden with Show Hero off,
-                // where there are no hero pages to lay out or source (FEAT-15: the focus panel
-                // always uses the pinned Nuvio presentation, see HomeView.heroNuvioStyle).
-                if model.heroEnabled {
-                    // UX-2 hero redesign v2: title/description on the left with the artwork
-                    // reading on the right (Nuvio-style, OPT-IN) vs the classic lower-left
-                    // logo layout (default). UX-7 extension: the Nuvio-style hero is also
-                    // PINNED to the top of Home (it becomes the fixed top of a VStack and the
-                    // rows get their own ScrollView below it) — only the rows scroll, so the ON
-                    // copy names that too; classic still scrolls the hero away with the rows.
-                    SettingsToggleRow(
-                        title: String(localized: "Nuvio-Style Hero"),
-                        subtitle: heroNuvioStyle
-                            ? String(localized: "Title and description on the left, artwork on the right, hero pinned while rows scroll")
-                            : String(localized: "Classic layout with the logo on the lower left"),
-                        isOn: $heroNuvioStyle
-                    )
-
-                    // Collections are hard-forced to heroSourceEnabled = false on the Kotlin side
-                    // (HomeCatalogSettingsRepository.normalizePreferences), so they never appear
-                    // as a hero source — filter defensively here too.
-                    //
-                    // Focus note (2026-08-30): "Hero Sources" is a `SettingsDisclosureRow` header
-                    // row followed, only while expanded, by one `HeroSourceRow` per item below it
-                    // — each a SEPARATE `SettingsSection` child, i.e. a separate List row with its
-                    // own native focus target. Before this fix, the header and every expanded row
-                    // lived together inside one `HeroSourcesGroup` view that was itself a single
-                    // List row, so tvOS's one-focus-target-per-row rule meant none of the expanded
-                    // toggles could ever be focused (see the file header comment for the device
-                    // repro). There is no more group-local `isExpanded`, no `focusedChild`
-                    // `@FocusState`, and no `settingsRowPlatterActive` publication to keep in sync
-                    // with the data here — a removed row is just a removed List row, and the
-                    // system reassigns focus to a surviving sibling on its own. If this list ever
-                    // empties while expanded, `heroSourcesExpanded` simply stops mattering: the
-                    // `if !heroSourceCatalogs.isEmpty` guard around the header below removes the
-                    // header too, and the adjacent "Nuvio-Style Hero" toggle above is the
-                    // guaranteed-present fallback landing row (same BUG-47 reasoning as always).
-                    let heroSourceCatalogs = model.catalogs.filter { !$0.isCollection }
-                    if !heroSourceCatalogs.isEmpty {
-                        SettingsDisclosureRow(
-                            title: String(localized: "Hero Sources"),
-                            subtitle: heroSourcesSummary,
-                            isExpanded: heroSourcesExpanded && !heroSourceCatalogs.isEmpty
-                        ) {
-                            heroSourcesExpanded.toggle()
-                        }
-
-                        if heroSourcesExpanded && !heroSourceCatalogs.isEmpty {
-                            ForEach(heroSourceCatalogs, id: \.key) { item in
-                                HeroSourceRow(
-                                    item: item,
-                                    interactive: item.heroSourceEnabled || heroSelectedCount < heroLimit
-                                ) { enabled in
-                                    model.setHeroSource(key: item.key, enabled: enabled)
-                                }
-                            }
-                        }
-                    }
-                }
-
-                SettingsToggleRow(
-                    title: String(localized: "Trailers on Focus"),
-                    // Codex gate r3/r4: the enabled summary names the surface that will ACTUALLY
-                    // play — "Hero" only when the hero location can take effect (same conditions
-                    // as the two fallback captions below); otherwise the poster, which is what
-                    // the user will see in the classic layout or with no hero source enabled.
-                    subtitle: !inlineTrailersEnabled
-                        ? String(localized: "Posters show artwork only")
-                        : heroLocationEffective
-                            ? String(localized: "The hero plays a muted trailer preview after a moment of focus on a poster")
-                            : String(localized: "Posters play a muted trailer preview after a moment of focus"),
-                    isOn: $inlineTrailersEnabled
-                )
-
-                if inlineTrailersEnabled {
-                    trailerLocationRow
-                }
-
-                SettingsToggleRow(
-                    title: String(localized: "Autoplay Hero Trailer"),
-                    subtitle: heroTrailerAutoplay
-                        ? String(localized: "The hero plays its trailer by itself, without waiting for focus")
-                        : String(localized: "The hero shows artwork only"),
-                    isOn: $heroTrailerAutoplay
-                )
-
                 SettingsToggleRow(
                     title: String(localized: "Focused Item Gradient"),
                     subtitle: focusGradientEnabled
@@ -399,25 +464,6 @@ struct HomeScreenSettingsPane: View {
                     model.resetHomeRows()
                 })
             }
-        }
-        // The expansion flags now outlive the branches that render their groups (they used to be
-        // `@State` INSIDE the group views, destroyed with them), so reset them when the owning
-        // branch disappears — otherwise toggling Show Hero off and on, or the catalog list
-        // emptying and repopulating, would resurrect a stale expanded state instead of the
-        // documented collapsed-on-recreation behavior (Codex 2026-08-30 P3).
-        .onChange(of: model.heroEnabled) { _, enabled in
-            if !enabled { heroSourcesExpanded = false }
-        }
-        .onChange(of: model.catalogs.isEmpty) { _, isEmpty in
-            if isEmpty {
-                heroSourcesExpanded = false
-                catalogsExpanded = false
-            }
-        }
-        // The Hero Sources group can also vanish alone: every remaining catalog being a
-        // collection removes just that header while the pane and Catalogs group stay.
-        .onChange(of: model.catalogs.contains(where: { !$0.isCollection })) { _, hasCatalogSources in
-            if !hasCatalogSources { heroSourcesExpanded = false }
         }
     }
 
