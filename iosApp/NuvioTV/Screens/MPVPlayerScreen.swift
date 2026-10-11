@@ -530,11 +530,15 @@ final class MPVChromeCoordinator {
     private weak var chromeModel: MPVChromeModel?
     private var cancellables: Set<AnyCancellable> = []
     private var captionObserver: NSObjectProtocol?
-    private var chaptersRead = false
 
     func attach(controller: MPVTVPlayerViewController, state: MPVPlaybackState, chromeModel: MPVChromeModel) {
         self.controller = controller
         self.chromeModel = chromeModel
+        // The file's chapters arrive with mpv's own `chapter-list` event (no read of the core): the
+        // Chapters tab follows them.
+        controller.onFileChapters = { [weak chromeModel] chapters in
+            chromeModel?.fileChapters = chapters
+        }
         // Playback (re)started after opening the file or a seek: the file is open by then.
         state.$isBuffering
             .removeDuplicates()
@@ -551,6 +555,7 @@ final class MPVChromeCoordinator {
     }
 
     func detach() {
+        controller?.onFileChapters = nil
         cancellables.removeAll()
         if let captionObserver { NotificationCenter.default.removeObserver(captionObserver) }
         captionObserver = nil
@@ -559,31 +564,10 @@ final class MPVChromeCoordinator {
     private func playbackStarted() {
         guard let controller, controller.fileLoaded else { return }
         controller.applySubtitleAppearance()
-        if !chaptersRead {
-            chaptersRead = true
-            // Chapter reads are synchronous core calls: off the main thread, published back on it.
-            controller.onCore { core in
-                let chapters = core.fileChapters()
-                guard !chapters.isEmpty else { return }
-                DispatchQueue.main.async { [weak self] in self?.chromeModel?.fileChapters = chapters }
-            }
-        }
     }
 }
 
 extension MPVTVPlayerViewController {
-    /// The file's chapters (mpv `chapter-list`): each start in seconds with the name the file gives it.
-    /// A file with one chapter or none has nothing to jump between: empty.
-    func fileChapters() -> [PlayerFileChapter] {
-        guard mpv != nil else { return [] }
-        let count = getInt("chapter-list/count")
-        guard count > 1 else { return [] }
-        return (0..<count).compactMap { index -> PlayerFileChapter? in
-            guard let raw = getString("chapter-list/\(index)/time"), let start = Double(raw) else { return nil }
-            return PlayerFileChapter(start: start, title: getString("chapter-list/\(index)/title"))
-        }
-    }
-
     /// The Settings subtitle style, then the viewer's system caption choices on top (spec §8.3):
     /// the values marked to override video in Settings › Accessibility › Subtitles & Captioning
     /// win, and the system text size scales whatever size the app style picked. mpv then honours
@@ -591,13 +575,10 @@ extension MPVTVPlayerViewController {
     func applySubtitleAppearance() {
         guard mpv != nil, fileLoaded else { return }
         applySubtitleStyle()
-        // The system's caption choices are read here (main), written on `eventQueue` behind the style.
+        // The system's caption choices are read here (main) and posted behind the style.
         let caption = SystemCaptionStyle.current()
-        onCore { core in
-            caption.apply { name, value in
-                guard let mpv = core.mpv else { return }
-                core.checkError(mpv_set_property_string(mpv, name, value))
-            }
+        caption.apply { name, value in
+            postSet(name, value)
         }
     }
 }

@@ -448,11 +448,8 @@ extension MPVTVPlayerViewController: UIGestureRecognizerDelegate {
 
     private func applyPlaybackRate(_ rate: Double, muted: Bool) {
         guard mpv != nil else { return }
-        let speed = String(format: "%.2f", rate)
-        eventQueue.async { [weak self] in
-            self?.command("set", args: ["speed", speed])
-            self?.command("set", args: ["mute", muted ? "yes" : "no"])
-        }
+        postSet("speed", String(format: "%.2f", rate))
+        postSet("mute", flag: muted)
     }
 
     // MARK: Scrubbing (state in `MPVPlaybackState`)
@@ -522,9 +519,9 @@ extension MPVTVPlayerViewController: UIGestureRecognizerDelegate {
 
     private func setPlaybackPaused(_ paused: Bool) {
         guard mpv != nil else { return }
-        // Optimistic UI: reflect the new state immediately; the pause property event confirms it.
-        updateProps { $0.paused = paused }
-        eventQueue.async { [weak self] in self?.setFlag("pause", paused) }
+        // Optimistic UI: the glyph and the transport reflect the new state at once; the core is asked
+        // through `commandQueue` (never a call that can wait on it), and its answer confirms it.
+        requestPause(paused)
         refreshState()
     }
 
@@ -533,7 +530,7 @@ extension MPVTVPlayerViewController: UIGestureRecognizerDelegate {
         guard mpv != nil else { return }
         endSeek()
         seekAbsolute(0)
-        setFlag("pause", false)
+        requestPause(false)
         state.isEnded = false
         state.endedNaturally = true
         state.completedByHandOff = false
@@ -552,22 +549,14 @@ extension MPVTVPlayerViewController: UIGestureRecognizerDelegate {
         becomeFirstResponder()
     }
 
-    /// Relative seek through `eventQueue` (held-arrow and Now Playing callers must not park the main
-    /// thread on the core lock). `exact` decodes to the precise time instead of the nearest keyframe.
+    /// Relative seek, asynchronous (held-arrow and Now Playing callers must not park the main thread
+    /// on the core lock). `exact` decodes to the precise time instead of the nearest keyframe.
     func seekBy(_ seconds: Double, exact: Bool = false) {
-        guard mpv != nil else { return }
-        let mode = exact ? "relative+exact" : "relative"
-        eventQueue.async { [weak self] in
-            self?.command("seek", args: [String(format: "%.3f", seconds), mode])
-        }
+        postSeek(String(format: "%.3f", seconds), mode: exact ? "relative+exact" : "relative")
     }
 
     func seekAbsolute(_ seconds: Double, exact: Bool = false) {
-        guard mpv != nil else { return }
-        let mode = exact ? "absolute+exact" : "absolute"
-        eventQueue.async { [weak self] in
-            self?.command("seek", args: [String(format: "%.3f", seconds), mode])
-        }
+        postSeek(String(format: "%.3f", seconds), mode: exact ? "absolute+exact" : "absolute")
     }
 
     func flashControls() {
