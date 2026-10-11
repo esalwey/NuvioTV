@@ -690,9 +690,41 @@ extension MPVTVPlayerViewController {
         postSet("sub-font-size", String(style.mpvFontSize))
         postSet("sub-outline-size", String(style.mpvOutlineSize))
         postSet("sub-border-size", String(style.mpvOutlineSize))
-        postSet("sub-pos", String(style.mpvSubPos))
+        // Where the captions sit now: lifted above the chrome when it is up (`setSubtitleChromeLift`).
+        subtitleLiftGeneration += 1
+        subtitlePosShown = subtitleTargetPos(style)
+        postSet("sub-pos", String(subtitlePosShown))
         postSet("sub-filter-sdh", stripSdh ? "yes" : "no")
         postSet("sub-filter-sdh-harder", stripSdh ? "yes" : "no")
+    }
+
+    private func subtitleTargetPos(_ style: SubtitleRenderStyle) -> Int {
+        Int(subtitlesLifted ? style.mpvSubPosWithChrome : style.mpvSubPos)
+    }
+
+    /// The transport chrome came or went (main thread): the captions glide up above it and back down,
+    /// as they do on the system player, in a few steps of `sub-pos` posted to the core.
+    func setSubtitleChromeLift(_ lifted: Bool) {
+        guard mpv != nil, lifted != subtitlesLifted else { return }
+        subtitlesLifted = lifted
+        guard fileLoaded else { return }
+        let style = SubtitleRenderStyle(playerSettings?.subtitleStyle)
+        let from = subtitlePosShown
+        let to = subtitleTargetPos(style)
+        guard from != to else { return }
+        subtitleLiftGeneration += 1
+        let generation = subtitleLiftGeneration
+        let steps = 6
+        for step in 1...steps {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.04 * Double(step)) { [weak self] in
+                guard let self, self.mpv != nil, self.subtitleLiftGeneration == generation else { return }
+                let t = Double(step) / Double(steps)
+                let eased = t * t * (3 - 2 * t)
+                let value = Int((Double(from) + Double(to - from) * eased).rounded())
+                self.subtitlePosShown = value
+                self.postSet("sub-pos", String(value))
+            }
+        }
     }
 
     #if DEBUG

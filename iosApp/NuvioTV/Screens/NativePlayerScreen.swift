@@ -171,8 +171,10 @@ struct NativePlayerScreen: View {
                     .ignoresSafeArea()
                 }
             case .failed:
-                // Hand back to the dispatcher, which re-presents the mpv player for this context.
-                Color.clear.onAppear {
+                // Hand back to the dispatcher, which re-presents the mpv player for this context. The
+                // loading view stays up meanwhile (its delays count from the start of playback), so
+                // the hand-over is one continuous wait, not a bare black frame.
+                PlayerLoadingView().onAppear {
                     if let onFallback { onFallback(coordinator.lastPositionSec) } else { dismiss() }
                 }
             }

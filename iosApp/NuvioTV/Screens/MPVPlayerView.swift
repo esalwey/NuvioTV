@@ -136,6 +136,11 @@ final class MPVTVPlayerViewController: UIViewController {
     /// was replaced by a retry.
     let subtitleFetcher = MPVSubtitleFetcher()
     var subtitleGeneration = 0
+    /// The captions ride above the transport chrome while it is up; `sub-pos` as last posted, and the
+    /// counter that cancels a glide a newer one replaces.
+    var subtitlesLifted = false
+    var subtitlePosShown = 95
+    var subtitleLiftGeneration = 0
 
     /// Contract C1 (PLY-A9): the probe found Dolby Vision Profile 5 and this file plays on mpv. Its
     /// IPTPQc2 colours only come out right through libplacebo's reshaping, so the session renders

@@ -549,6 +549,13 @@ final class MPVChromeCoordinator {
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in self?.playbackStarted() }
             .store(in: &cancellables)
+        // The captions rise above the transport chrome while it is up (spec 8.3), as on the system player.
+        Publishers.CombineLatest4(state.$controlsVisible, state.$panelOpen, state.$isPaused, state.$pauseChromeDismissed)
+            .map { controls, panel, paused, dismissed in controls || panel || (paused && !dismissed) }
+            .removeDuplicates()
+            .receive(on: RunLoop.main)
+            .sink { [weak self] up in self?.controller?.setSubtitleChromeLift(up) }
+            .store(in: &cancellables)
         captionObserver = NotificationCenter.default.addObserver(
             forName: Notification.Name(kMACaptionAppearanceSettingsChangedNotification as String),
             object: nil, queue: .main

@@ -86,6 +86,14 @@ struct SubtitleRenderStyle: Equatable {
     /// `sub-pos`: 100 is the bottom edge.
     var mpvSubPos: Int64 { Int64(100 - bottomMarginPercent) }
 
+    /// Height of the transport chrome (title, scrubber, times, buttons, tabs) in percent of the picture
+    /// height. While it is on screen the captions ride above it, as the system player lifts them
+    /// (spec 8.3: "raised to clear the chrome while the chrome is visible").
+    static let chromeClearancePercent = 27
+
+    /// `sub-pos` while the chrome is up: never lower than the resting position's own margin.
+    var mpvSubPosWithChrome: Int64 { min(mpvSubPos, Int64(100 - Self.chromeClearancePercent)) }
+
     /// "#AARRGGBB" for `sub-color` and friends.
     static func mpvColor(_ argb: Int64) -> String {
         let a = (argb >> 24) & 0xFF, r = (argb >> 16) & 0xFF, g = (argb >> 8) & 0xFF, b = argb & 0xFF
