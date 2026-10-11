@@ -143,21 +143,23 @@ enum SettingsSearchIndex {
 
         // MARK: Playback
         let playback = String(localized: "Playback")
+        // Expert options sit behind the pane's "Advanced" rows; a search result lands on that section.
+        let advancedPlayback = String(localized: "Advanced")
         add(.playback, playback, "skipIntro",
             String(localized: "settings.skipIntro.title", defaultValue: "Skip Intro",
                    comment: "Playback settings toggle that shows a Skip button during intros and outros"),
             ["outro", "recap", "credits", "skip button"])
         add(.playback, playback, "matchFrameRate", String(localized: "Match Content Frame Rate"),
             ["match content", "refresh rate", "hdr", "dynamic range", "24p", "display mode"])
-        add(.playback, playback, "gpuNext", String(localized: "Enhanced Video Renderer"),
+        add(.playback, advancedPlayback, "gpuNext", String(localized: "Enhanced Video Renderer"),
             ["gpu-next", "libplacebo", "tone mapping", "mpv", "renderer"])
         add(.playback, playback, "nativePlayer", String(localized: "Native player (Dolby Vision & HDR)"),
             ["avplayer", "dolby vision", "hdr10", "dv", "mkv", "engine"])
         add(.playback, playback, "trailerSound", String(localized: "Trailer Sound by Default"),
             ["mute", "audio", "trailers"])
-        add(.playback, playback, "buffer", String(localized: "Streaming Buffer"),
+        add(.playback, advancedPlayback, "buffer", String(localized: "Streaming Buffer"),
             ["cache", "memory", "buffering", "stutter"])
-        add(.playback, playback, "readahead", String(localized: "Network Readahead"),
+        add(.playback, advancedPlayback, "readahead", String(localized: "Network Readahead"),
             ["cache", "buffering", "seconds"])
         add(.playback, playback, "defaultPlayer", String(localized: "Default Player"),
             ["external player", "infuse", "vlc", "outplayer", "built-in"])
@@ -172,7 +174,7 @@ enum SettingsSearchIndex {
             ["up next", "seconds"])
         add(.playback, nextEpisode, "stillWatching", String(localized: "Ask \u{201C}Still Watching?\u{201D}"),
             ["are you still watching", "inactivity", "binge"])
-        let nextStream = String(localized: "Next Episode Stream")
+        let nextStream = advancedPlayback
         add(.playback, nextStream, "streamSelection", String(localized: "Stream Selection"),
             ["autoplay", "first stream", "regex", "source"])
         add(.playback, nextStream, "sourceScope", String(localized: "Source Scope"),
@@ -213,8 +215,7 @@ enum SettingsSearchIndex {
             String(localized: "settings.subtitles.preferredOnly", defaultValue: "Show Only Preferred Languages",
                    comment: "Playback settings toggle: hide add-on subtitles in other languages"),
             ["addon subtitles", "filter"])
-        let recommendations = String(localized: "settings.streams.section", defaultValue: "Stream Recommendations",
-                                     comment: "Playback settings section: how the source picker ranks streams")
+        let recommendations = advancedPlayback
         add(.playback, recommendations, "recommend",
             String(localized: "settings.streams.enabled", defaultValue: "Recommend Streams",
                    comment: "Playback settings toggle: rank streams and mark the recommended one"),
