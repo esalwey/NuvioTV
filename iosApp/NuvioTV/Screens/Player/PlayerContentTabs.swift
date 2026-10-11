@@ -174,9 +174,13 @@ struct PlayerInfoSummary: Equatable {
     let episodeLine: String?
     let ageRating: String?
     let genres: String?
+    /// The title's artwork for the Chapters cards: the backdrop, else the episode still, else the poster.
+    let chapterArtwork: String?
 
     init(context: PlaybackContext) {
         header = NativeInfoHeader(context: context)
+        chapterArtwork = [context.background, context.episodeStill, context.poster]
+            .compactMap { CachedTitleArt.nonEmpty($0) }.first
         episodeLine = context.season != nil ? CachedTitleArt.nonEmpty(header.subtitle) : nil
         ageRating = CachedTitleArt.nonEmpty(context.meta?.ageRating)
         let genres = context.meta?.genres ?? []
@@ -243,17 +247,24 @@ struct PlayerInfoSummaryTab: View {
     }
 }
 
-/// The system Chapters tab, reproduced: a shelf of chapter cards (title and start time); selecting
-/// one plays from there. The chapter that holds the playhead is focused first.
+/// The system Chapters tab, reproduced: one shelf of 16:9 cards, each with the title's artwork (a
+/// different crop of it per chapter, left to right through the film), the chapter's start time in
+/// monospaced digits and its name; the chapter that holds the playhead wears a quiet "Now Playing"
+/// badge and is focused first. Select plays from that chapter. Without artwork the cards are clean
+/// material tiles. Cards focus like the Episodes tab's (lift and highlight).
 struct PlayerChaptersTab: View {
     let chapters: [PlayerChapter]
     let positionSec: Double
+    /// Title artwork used as the card image (backdrop, still or poster); nil = material tiles.
+    let artwork: String?
     let onSelect: (PlayerChapter) -> Void
 
     @FocusState private var focused: Double?
 
-    static let tabHeight: CGFloat = 260
-    private static let cardSize = CGSize(width: 360, height: 150)
+    static let tabHeight: CGFloat = 400
+    private static let cardSize = CGSize(width: 410, height: 231)
+    /// How far the artwork is enlarged so each chapter can show its own part of it.
+    private static let cropZoom: CGFloat = 1.4
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -277,34 +288,82 @@ struct PlayerChaptersTab: View {
         chapters.last { $0.start <= positionSec + 0.5 } ?? chapters.first
     }
 
+    private var nowPlayingTitle: String {
+        String(localized: "player.episodes.nowPlaying", defaultValue: "Now Playing",
+               comment: "Native player Episodes tab: marks the episode that is playing.")
+    }
+
     private func card(_ chapter: PlayerChapter) -> some View {
         let isCurrent = chapter.id == currentChapter?.id
+        let time = PlayerChromeFormat.time(chapter.start)
         return Button { onSelect(chapter) } label: {
-            VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
-                Text(verbatim: chapter.title)
-                    .font(Font.headline)
-                    .lineLimit(2)
-                Spacer(minLength: 0)
-                HStack(spacing: Theme.Spacing.xs) {
-                    if isCurrent {
-                        Image(systemName: "play.fill")
-                            .accessibilityHidden(true)
-                    }
-                    Text(verbatim: PlayerChromeFormat.time(chapter.start))
+            VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
+                image(for: chapter, time: time, isCurrent: isCurrent)
+                    .frame(width: Self.cardSize.width, height: Self.cardSize.height)
+                    .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous))
+                    .contentShape(.hoverEffect, RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous))
+                    .hoverEffect(.highlight)
+                VStack(alignment: .leading, spacing: Theme.Spacing.xxs) {
+                    Text(verbatim: time)
+                        .font(Theme.Font.caption)
                         .monospacedDigit()
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                    Text(verbatim: chapter.title)
+                        .font(Theme.Font.meta)
+                        .foregroundStyle(.primary)
+                        .lineLimit(2)
                 }
-                .font(Font.caption)
-                .foregroundStyle(.secondary)
+                .frame(width: Self.cardSize.width, alignment: .leading)
             }
-            .padding(Theme.Spacing.lg)
-            .frame(width: Self.cardSize.width, height: Self.cardSize.height, alignment: .topLeading)
-            .background(Color.white.opacity(0.08),
-                        in: RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous))
-            .contentShape(.hoverEffect, RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous))
-            .hoverEffect(.highlight)
         }
         .buttonStyle(.borderless)
         .focused($focused, equals: chapter.id)
-        .accessibilityLabel(Text(verbatim: "\(chapter.title), \(PlayerChromeFormat.time(chapter.start))"))
+        .accessibilityLabel(Text(verbatim: isCurrent
+                                 ? "\(chapter.title), \(time), \(nowPlayingTitle)"
+                                 : "\(chapter.title), \(time)"))
+    }
+
+    /// The card picture: the title's artwork cropped to this chapter's share of the film, or a
+    /// material tile showing the start time when there is no artwork.
+    @ViewBuilder
+    private func image(for chapter: PlayerChapter, time: String, isCurrent: Bool) -> some View {
+        ZStack(alignment: .bottomLeading) {
+            if let artwork {
+                CachedAsyncImage(string: artwork, contentMode: .fill)
+                    .frame(width: Self.cardSize.width, height: Self.cardSize.height)
+                    .scaleEffect(Self.cropZoom, anchor: UnitPoint(x: cropAnchor(for: chapter), y: 0.5))
+                    .clipped()
+                    .accessibilityHidden(true)
+                LinearGradient(colors: [.clear, .black.opacity(0.4)], startPoint: .center, endPoint: .bottom)
+            } else {
+                Rectangle().fill(.regularMaterial)
+                Text(verbatim: time)
+                    .font(Theme.Font.sectionTitle)
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+            if isCurrent {
+                HStack(spacing: Theme.Spacing.xxs) {
+                    Image(systemName: "play.fill")
+                        .accessibilityHidden(true)
+                    Text(verbatim: nowPlayingTitle)
+                }
+                .font(Font.caption.weight(.semibold))
+                .foregroundStyle(.primary)
+                .padding(.horizontal, Theme.Spacing.sm)
+                .padding(.vertical, Theme.Spacing.xs)
+                .background(.ultraThinMaterial, in: Capsule())
+                .padding(Theme.Spacing.sm)
+            }
+        }
+    }
+
+    /// Where the enlarged artwork is pinned, 0 (its left edge) to 1 (its right edge): the chapter's
+    /// place in the film, so the cards read left to right as the film runs.
+    private func cropAnchor(for chapter: PlayerChapter) -> CGFloat {
+        guard let total = chapters.last?.end, total > 0 else { return 0.5 }
+        return CGFloat(min(max(chapter.start / total, 0), 1))
     }
 }

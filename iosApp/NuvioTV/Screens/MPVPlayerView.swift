@@ -283,6 +283,8 @@ final class MPVTVPlayerViewController: UIViewController {
             guard let self else { return }
             let target = self.state.durationSec > 0 ? min(seconds, max(self.state.durationSec - 1, 0)) : seconds
             self.seekAbsolute(target, exact: true)
+            // Picking a chapter plays from there, as on the system player (also from a pause).
+            if self.state.isPaused { self.togglePause() }
         }
         state.startOver = { [weak self] in
             guard let self else { return }

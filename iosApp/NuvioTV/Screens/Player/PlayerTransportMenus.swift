@@ -157,6 +157,12 @@ enum PlayerChromeMetrics {
     static let autoHideDelay: TimeInterval = 5
 }
 
+/// A chapter mark as the file carries it: where it starts and the name the muxer gave it (if any).
+struct PlayerFileChapter: Equatable {
+    let start: Double
+    let title: String?
+}
+
 /// One chapter of the Chapters tab.
 struct PlayerChapter: Identifiable, Equatable {
     let start: Double
@@ -190,17 +196,47 @@ enum PlayerChapters {
         return chapters(from: points, end: end)
     }
 
-    /// Chapters from the file's own chapter marks (mpv `chapter-list` starts, the opening one left
-    /// out): "Chapter 1" from 0, then one per mark.
-    static func fromFileChapters(_ starts: [Double], durationSec: Double) -> [PlayerChapter] {
-        let marks = starts.filter { $0 > 1 }.sorted()
-        guard !marks.isEmpty else { return [] }
-        let all = [0] + marks
-        let points = all.enumerated().map { index, start in
-            (start: start, title: String(localized: "player.chapter.number", defaultValue: "Chapter \(index + 1)",
-                                         comment: "Player Chapters tab: a chapter of the file that has no name of its own."))
+    /// Chapters from the file's own chapter marks (mpv `chapter-list`). The file's own names are kept;
+    /// a chapter with no real name (empty, a bare number or dash, the muxer's "Chapter 01") reads
+    /// "Chapter N". The opening chapter always starts at 0. Empty when the file has one chapter or
+    /// none: there is nothing to jump between.
+    static func fromFileChapters(_ marks: [PlayerFileChapter], durationSec: Double) -> [PlayerChapter] {
+        let sorted = marks.filter { $0.start.isFinite && $0.start >= 0 }.sorted { $0.start < $1.start }
+        guard !sorted.isEmpty else { return [] }
+        // The opening chapter is the one at (or within a second of) 0; without one, an unnamed one
+        // is put in front.
+        let openingTitle: String? = sorted[0].start <= 1 ? sorted[0].title : nil
+        // Chapters closer than a second to each other are one jump.
+        var rest: [PlayerFileChapter] = []
+        for mark in sorted where mark.start > 1 {
+            if let last = rest.last, mark.start - last.start < 1 { continue }
+            rest.append(mark)
         }
-        return chapters(from: points, end: max(durationSec, marks.last ?? 0))
+        guard !rest.isEmpty else { return [] }
+        let all = [PlayerFileChapter(start: 0, title: openingTitle)] + rest
+        let points = all.enumerated().map { index, mark in
+            (start: mark.start, title: displayTitle(forFileChapter: mark.title, number: index + 1))
+        }
+        return chapters(from: points, end: max(durationSec, rest.last?.start ?? 0))
+    }
+
+    /// The file's name for a chapter, or "Chapter N" when it has none worth showing.
+    static func displayTitle(forFileChapter title: String?, number: Int) -> String {
+        if let name = title?.trimmingCharacters(in: .whitespacesAndNewlines), !isGeneric(chapterName: name) {
+            return name
+        }
+        return String(localized: "player.chapter.number", defaultValue: "Chapter \(number)",
+                      comment: "Player Chapters tab: a chapter of the file that has no name of its own.")
+    }
+
+    /// True for the names muxers and mpv make up ("Chapter 01", "(unnamed) chapter 3", "-", "12"),
+    /// which say nothing the card's own number does not.
+    static func isGeneric(chapterName name: String) -> Bool {
+        let lowered = name.lowercased()
+        guard lowered.contains(where: { $0.isLetter }) else { return true }
+        if lowered.hasPrefix("(unnamed)") { return true }
+        let stripped = lowered.filter { !$0.isNumber && !$0.isWhitespace && !".#:-_".contains($0) }
+        return ["chapter", "chap", "chapitre", "capitulo", "cap\u{00ED}tulo", "kapitel", "capitolo", "hoofdstuk"].contains(stripped)
     }
 
     private static func chapters(from points: [(start: Double, title: String)], end: Double) -> [PlayerChapter] {

@@ -563,7 +563,8 @@ struct MPVTransportFocusView: View {
                 actions.selectEpisode(video)
             }
         case .chapters:
-            PlayerChaptersTab(chapters: chapters, positionSec: state.positionSec) { chapter in
+            PlayerChaptersTab(chapters: chapters, positionSec: state.positionSec,
+                              artwork: summary.chapterArtwork) { chapter in
                 actions.seek(chapter.start)
             }
         case .streamInfo:

@@ -563,26 +563,25 @@ final class MPVChromeCoordinator {
             chaptersRead = true
             // Chapter reads are synchronous core calls: off the main thread, published back on it.
             controller.onCore { core in
-                let chapters = core.chapterTimes()
+                let chapters = core.fileChapters()
                 guard !chapters.isEmpty else { return }
-                DispatchQueue.main.async { [weak self] in self?.chromeModel?.chapterTimes = chapters }
+                DispatchQueue.main.async { [weak self] in self?.chromeModel?.fileChapters = chapters }
             }
         }
     }
 }
 
 extension MPVTVPlayerViewController {
-    /// The file's chapter starts in seconds (mpv `chapter-list`), the opening one left out.
-    func chapterTimes() -> [Double] {
+    /// The file's chapters (mpv `chapter-list`): each start in seconds with the name the file gives it.
+    /// A file with one chapter or none has nothing to jump between: empty.
+    func fileChapters() -> [PlayerFileChapter] {
         guard mpv != nil else { return [] }
         let count = getInt("chapter-list/count")
         guard count > 1 else { return [] }
-        return (0..<count)
-            .compactMap { index -> Double? in
-                guard let raw = getString("chapter-list/\(index)/time") else { return nil }
-                return Double(raw)
-            }
-            .filter { $0 > 1 }
+        return (0..<count).compactMap { index -> PlayerFileChapter? in
+            guard let raw = getString("chapter-list/\(index)/time"), let start = Double(raw) else { return nil }
+            return PlayerFileChapter(start: start, title: getString("chapter-list/\(index)/title"))
+        }
     }
 
     /// The Settings subtitle style, then the viewer's system caption choices on top (spec §8.3):

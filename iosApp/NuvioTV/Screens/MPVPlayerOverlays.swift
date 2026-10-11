@@ -12,8 +12,8 @@ import SharedCore
 /// intro/recap/credits segments. The scrubber itself stays a plain track, as on the system player.
 @MainActor
 final class MPVChromeModel: ObservableObject {
-    /// File chapters (mpv `chapter-list`), in seconds, the first one (0) excluded.
-    @Published var chapterTimes: [Double] = []
+    /// File chapters (mpv `chapter-list`): start in seconds and the file's own name for each.
+    @Published var fileChapters: [PlayerFileChapter] = []
     /// The skip segments themselves — the Chapters tab names them like the native screen does.
     @Published var segments: [SkipSegment] = []
 
@@ -22,7 +22,7 @@ final class MPVChromeModel: ObservableObject {
     func chapters(durationSec: Double) -> [PlayerChapter] {
         let fromSegments = PlayerChapters.fromSegments(segments, durationSec: durationSec > 0 ? durationSec : nil)
         if !fromSegments.isEmpty { return fromSegments }
-        return PlayerChapters.fromFileChapters(chapterTimes, durationSec: durationSec)
+        return PlayerChapters.fromFileChapters(fileChapters, durationSec: durationSec)
     }
 }
 
