@@ -38,7 +38,7 @@ object ServerPlayback {
             Triple(provider, provider.preparePlayback(session, ServerPlaybackRequest(target, capabilities())), session)
         }
         val orphans = synchronized(lock) {
-            val unstarted = active.filterValues { !it.started }.keys.toList()
+            val unstarted = active.filterValues { !it.started && !it.finished }.keys.toList()
             active[playback.url] = ActivePlayback(provider, session, playback)
             unstarted.mapNotNull(active::remove)
         }
@@ -115,8 +115,10 @@ object ServerPlayback {
     ) {
         val playback = url?.let { synchronized(lock) { active[it] } } ?: return
         if (isEnded) {
-            playback.lastPositionMs = positionMs
-            stop(url)
+            // The server gets its stop report now, but the session stays registered until the
+            // player lets go of it: Play Again, or a seek back off the last frame, re-arms it and
+            // the replay is reported again (start, progress, stop).
+            playback.onEnded(positionMs)
             return
         }
         playback.onSnapshot(positionMs, isPlaying, isLoading)
@@ -162,6 +164,10 @@ object ServerPlayback {
         private val events = Channel<ServerPlaybackEvent>(Channel.UNLIMITED)
         var started = false
             private set
+
+        /** The natural end was reported (STOP sent); cleared again by the START of a replay. */
+        var finished = false
+            private set
         var lastPositionMs = 0L
         private var paused = false
         private var lastReportPositionMs = 0L
@@ -193,6 +199,8 @@ object ServerPlayback {
             if (!started) {
                 if (isPlaying && !isLoading) {
                     started = true
+                    finished = false
+                    paused = false
                     send(ServerPlaybackEventType.START, positionMs, isPaused = false)
                 }
                 return@synchronized
@@ -213,8 +221,18 @@ object ServerPlayback {
             }
         }
 
+        /** Playback reached the end: report STOP once and wait, ready to start again on a replay. */
+        fun onEnded(positionMs: Long) = synchronized(lock) {
+            lastPositionMs = positionMs
+            if (finished) return@synchronized
+            send(ServerPlaybackEventType.STOP, positionMs, isPaused = true)
+            finished = true
+            started = false
+        }
+
         fun stop() = synchronized(lock) {
-            send(ServerPlaybackEventType.STOP, lastPositionMs, isPaused = true)
+            // The end already told the server; do not stop twice.
+            if (!finished) send(ServerPlaybackEventType.STOP, lastPositionMs, isPaused = true)
             events.close()
         }
 
