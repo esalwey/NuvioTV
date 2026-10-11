@@ -7,6 +7,40 @@
     "%@": {
       "shouldTranslate": false
     },
+    "%@ %@ or later is required.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ %@ oder neuer ist erforderlich."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se requiere %@ %@ o posterior."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ %@ ou version ultérieure est requis."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "È richiesto %@ %@ o versione successiva."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yêu cầu %@ %@ trở lên."
+          }
+        }
+      }
+    },
     "%@ - %@ Instant": {
       "localizations": {
         "de": {
@@ -533,6 +567,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "%d nhà cung cấp"
+          }
+        }
+      }
+    },
+    "%lld connected": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld verbunden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conectados: %lld"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connectés \u0001 %lld"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connessi: %lld"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld đã kết nối"
           }
         }
       }
@@ -1733,6 +1801,74 @@
           "stringUnit": {
             "state": "translated",
             "value": "%lld/10"
+          }
+        }
+      }
+    },
+    "%lldh %lldm left": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld Std. %lld Min. übrig"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quedan %lld h %lld min"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld h %lld min restantes"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mancano %lld h %lld min"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Còn %lld giờ %lld phút"
+          }
+        }
+      }
+    },
+    "%lldm left": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld Min. übrig"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quedan %lld min"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld min restantes"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mancano %lld min"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Còn %lld phút"
           }
         }
       }
@@ -3249,6 +3385,40 @@
         }
       }
     },
+    "A row of what you are watching and what comes next, at the top of Home": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eine Reihe mit dem, was du schaust und was als Nächstes kommt, oben auf dem Start-Bildschirm"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Una fila con lo que estás viendo y lo que viene después, en la parte superior de Inicio"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Une rangée de ce que vous regardez et de la suite, en haut de l’accueil"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Una riga con ciò che stai guardando e cosa viene dopo, in cima alla Home"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Một hàng gồm những gì bạn đang xem và tập tiếp theo, ở đầu Trang chủ"
+          }
+        }
+      }
+    },
     "A row under Continue Watching with your shows' next episodes airing in the next 14 days": {
       "localizations": {
         "fr": {
@@ -3429,12 +3599,420 @@
         }
       }
     },
+    "Add a Server": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Server hinzufügen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Añadir un servidor"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajouter un serveur"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aggiungi un server"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thêm máy chủ"
+          }
+        }
+      }
+    },
+    "Add what you’re watching to Continue Watching.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fügt das, was du schaust, zu „Weiterschauen“ hinzu."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Añade lo que estás viendo a Seguir viendo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajoute ce que vous regardez à Continuer à regarder."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aggiunge ciò che stai guardando a Continua a guardare."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thêm những gì bạn đang xem vào Tiếp tục xem."
+          }
+        }
+      }
+    },
+    "Add-on metadata makes server titles open and sync like any other catalog title, with playback and watched marks still sent to %@. Some titles may not match or play if your add-ons number or identify them differently.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mit Add-on-Metadaten werden Server-Titel wie jeder andere Katalogtitel geöffnet und synchronisiert, wobei Wiedergabe und Gesehen-Markierungen weiterhin an %@ gesendet werden. Manche Titel passen eventuell nicht oder lassen sich nicht abspielen, wenn deine Add-ons sie anders nummerieren oder identifizieren."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los metadatos de los complementos hacen que los títulos del servidor se abran y sincronicen como cualquier otro título del catálogo, y la reproducción y las marcas de visto se siguen enviando a %@. Es posible que algunos títulos no coincidan o no se reproduzcan si tus complementos los numeran o identifican de otra forma."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les métadonnées des add-ons font que les titres du serveur s’ouvrent et se synchronisent comme n’importe quel titre de catalogue, la lecture et les marques de visionnage étant toujours envoyées à %@. Certains titres peuvent ne pas correspondre ou ne pas se lire si vos add-ons les numérotent ou les identifient différemment."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I metadati dei componenti aggiuntivi fanno sì che i titoli del server si aprano e si sincronizzino come qualsiasi altro titolo del catalogo, mentre la riproduzione e i segni di visto continuano a essere inviati a %@. Alcuni titoli potrebbero non corrispondere o non essere riprodotti se i tuoi componenti aggiuntivi li numerano o li identificano in modo diverso."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Metadata của addon giúp phim trên máy chủ mở và đồng bộ như mọi phim trong danh mục khác, còn việc phát và đánh dấu đã xem vẫn được gửi đến %@. Một số phim có thể không khớp hoặc không phát được nếu addon của bạn đánh số hoặc nhận diện chúng khác đi."
+          }
+        }
+      }
+    },
+    "Address": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adresse"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dirección"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adresse"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indirizzo"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Địa chỉ"
+          }
+        }
+      }
+    },
+    "After %@": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nach %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Después de %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Après %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dopo %@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sau %@"
+          }
+        }
+      }
+    },
+    "After a show, continue from the episode you watched last, for rewatches": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nach einer Serie geht es ab der zuletzt gesehenen Episode weiter, praktisch beim erneuten Anschauen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tras una serie, continúa desde el último episodio que viste, útil para volver a verla"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Après une série, continue depuis le dernier épisode que vous avez regardé, pour les revisionnages"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dopo una serie, continua dall’ultimo episodio che hai guardato, utile per le rivisioni"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sau một loạt phim, tiếp tục từ tập bạn xem gần nhất, tiện khi xem lại"
+          }
+        }
+      }
+    },
+    "After a show, continue from the furthest episode you have watched": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nach einer Serie geht es ab der am weitesten gesehenen Episode weiter"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tras una serie, continúa desde el episodio más avanzado que hayas visto"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Après une série, continue depuis l’épisode le plus avancé que vous avez vu"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dopo una serie, continua dall’episodio più avanzato che hai guardato"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sau một loạt phim, tiếp tục từ tập xa nhất bạn đã xem"
+          }
+        }
+      }
+    },
+    "Aired First": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ausgestrahlte zuerst"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ya emitidos primero"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Déjà diffusés d’abord"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Già usciti prima"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đã phát sóng trước"
+          }
+        }
+      }
+    },
+    "Always Show Logo": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Logo immer anzeigen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar siempre el logotipo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toujours afficher le logo"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra sempre il logo"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Luôn hiện logo"
+          }
+        }
+      }
+    },
+    "Ambient Mode": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ambient-Modus"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modo ambiente"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mode Ambiance"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modalità ambiente"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chế độ Ambient"
+          }
+        }
+      }
+    },
     "API key saved": {
       "localizations": {
         "fr": {
           "stringUnit": {
             "state": "translated",
             "value": "Clé API enregistrée"
+          }
+        }
+      }
+    },
+    "Apply this pattern to your posters": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieses Muster auf deine Poster anwenden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aplicar este patrón a tus pósteres"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Appliquer ce modèle à vos affiches"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Applica questo modello ai tuoi poster"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Áp dụng mẫu này cho poster của bạn"
+          }
+        }
+      }
+    },
+    "Artwork From": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Artwork aus"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Imágenes de"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Visuels issus de"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Immagini da"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ảnh từ"
           }
         }
       }
@@ -7448,6 +8026,40 @@
         }
       }
     },
+    "Card": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Karte"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tarjeta"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Carte"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scheda"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thẻ"
+          }
+        }
+      }
+    },
     "Card Depth": {
       "localizations": {
         "de": {
@@ -7478,6 +8090,108 @@
           "stringUnit": {
             "state": "translated",
             "value": "Chiều sâu thẻ"
+          }
+        }
+      }
+    },
+    "Card Style": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kartenstil"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Estilo de tarjeta"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Style des cartes"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stile delle schede"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kiểu thẻ"
+          }
+        }
+      }
+    },
+    "Cards show the episode's own still": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Karten zeigen das Standbild der Episode"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las tarjetas muestran la imagen del propio episodio"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les cartes affichent l’image de l’épisode"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le schede mostrano l’immagine dell’episodio"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thẻ hiện ảnh của chính tập phim"
+          }
+        }
+      }
+    },
+    "Cards show the series artwork": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Karten zeigen das Artwork der Serie"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las tarjetas muestran la imagen de la serie"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les cartes affichent le visuel de la série"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le schede mostrano l’immagine della serie"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thẻ hiện ảnh của loạt phim"
           }
         }
       }
@@ -7788,6 +8502,40 @@
         }
       }
     },
+    "Check MDBList now instead of waiting for the next automatic check (every %lld minutes).": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prüfe MDBList jetzt, statt auf die nächste automatische Prüfung zu warten (alle %lld Minuten)."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comprueba MDBList ahora en lugar de esperar a la siguiente comprobación automática (cada %lld minutos)."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vérifiez MDBList maintenant au lieu d’attendre la prochaine vérification automatique (toutes les %lld minutes)."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Controlla MDBList ora invece di attendere il prossimo controllo automatico (ogni %lld minuti)."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kiểm tra MDBList ngay thay vì chờ lần kiểm tra tự động tiếp theo (mỗi %lld phút)."
+          }
+        }
+      }
+    },
     "Check Server": {
       "localizations": {
         "de": {
@@ -7954,6 +8702,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Kiểm tra kết nối và đảm bảo Trakt đã được kết nối trong Cài đặt."
+          }
+        }
+      }
+    },
+    "Checking MDBList for changes made in another app or on the website…": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MDBList wird auf Änderungen aus einer anderen App oder von der Website geprüft…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Buscando en MDBList cambios hechos en otra app o en el sitio web…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recherche de modifications sur MDBList faites dans une autre app ou sur le site web…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Controllo su MDBList di modifiche fatte in un’altra app o sul sito web…"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đang kiểm tra MDBList xem có thay đổi từ ứng dụng khác hoặc từ trang web…"
           }
         }
       }
@@ -8294,6 +9076,40 @@
         }
       }
     },
+    "Choose up to %lld catalogs. With none chosen, Ambient Mode uses the titles of your Home hero.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wähle bis zu %lld Kataloge. Ist keiner gewählt, nutzt der Ambient-Modus die Titel des Hero auf dem Start-Bildschirm."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elige hasta %lld catálogos. Si no eliges ninguno, el modo ambiente usa los títulos del hero de Inicio."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choisissez jusqu’à %lld catalogues. Si aucun n’est choisi, le mode Ambiance utilise les titres du hero de l’accueil."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scegli fino a %lld cataloghi. Se non ne scegli nessuno, la modalità ambiente usa i titoli dell’hero della Home."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chọn tối đa %lld danh mục. Nếu không chọn danh mục nào, Chế độ Ambient dùng các phim của banner Trang chủ."
+          }
+        }
+      }
+    },
     "Choose where your library and watch progress are saved. Connect Trakt or Simkl in Account & Services first to use them as a source — otherwise this Apple TV falls back to its local/Nuvio option automatically.": {
       "localizations": {
         "de": {
@@ -8379,6 +9195,74 @@
           "stringUnit": {
             "state": "translated",
             "value": "Choisissez quelles notes d’épisode sont visibles."
+          }
+        }
+      }
+    },
+    "Choose which libraries to show in Settings, under Account & Services, then Media Servers.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wähle in den Einstellungen unter Konto & Dienste und dann Medienserver, welche Bibliotheken angezeigt werden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elige qué bibliotecas mostrar en Ajustes, en Cuenta y servicios y después en Servidores multimedia."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choisissez les bibliothèques à afficher dans Réglages, sous Compte et services, puis Serveurs multimédias."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scegli quali librerie mostrare in Impostazioni, sotto Account e servizi, poi Server multimediali."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chọn thư viện cần hiển thị trong Cài đặt, mục Tài khoản & dịch vụ, rồi Máy chủ đa phương tiện."
+          }
+        }
+      }
+    },
+    "Choose which MDBList lists appear in your library.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wähle, welche MDBList-Listen in deiner Bibliothek erscheinen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elige qué listas de MDBList aparecen en tu biblioteca."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choisissez les listes MDBList qui apparaissent dans votre bibliothèque."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scegli quali liste MDBList appaiono nella tua libreria."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chọn danh sách MDBList nào hiển thị trong thư viện của bạn."
           }
         }
       }
@@ -9049,6 +9933,40 @@
         }
       }
     },
+    "Collapsed": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eingeklappt"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Contraído"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Réduit"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compresso"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đã thu gọn"
+          }
+        }
+      }
+    },
     "Collection": {
       "localizations": {
         "de": {
@@ -9423,6 +10341,74 @@
         }
       }
     },
+    "Connect a server to browse and play your own library.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbinde einen Server, um deine eigene Bibliothek zu durchsuchen und abzuspielen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conecta un servidor para explorar y reproducir tu propia biblioteca."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connectez un serveur pour parcourir et lire votre propre bibliothèque."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connetti un server per sfogliare e riprodurre la tua libreria."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kết nối máy chủ để duyệt và phát thư viện của riêng bạn."
+          }
+        }
+      }
+    },
+    "Connect MDBList": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MDBList verbinden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conectar MDBList"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connecter MDBList"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connetti MDBList"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kết nối MDBList"
+          }
+        }
+      }
+    },
     "Connect Simkl": {
       "localizations": {
         "de": {
@@ -9729,6 +10715,74 @@
         }
       }
     },
+    "Connected": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbunden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conectado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connecté"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connesso"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đã kết nối"
+          }
+        }
+      }
+    },
+    "Connected as %@": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbunden als %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conectado como %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connecté en tant que %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connesso come %@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đã kết nối: %@"
+          }
+        }
+      }
+    },
     "Connected as %@ · watched history is scrobbled automatically as you play.": {
       "localizations": {
         "de": {
@@ -9793,6 +10847,74 @@
           "stringUnit": {
             "state": "translated",
             "value": "Đã kết nối đến %@"
+          }
+        }
+      }
+    },
+    "Connecting…": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbindung wird hergestellt…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conectando…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connexion…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connessione in corso…"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đang kết nối…"
+          }
+        }
+      }
+    },
+    "Connection was declined. Try again to connect your account.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Verbindung wurde abgelehnt. Versuche es erneut, um dein Konto zu verbinden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se rechazó la conexión. Inténtalo de nuevo para conectar tu cuenta."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La connexion a été refusée. Réessayez pour connecter votre compte."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La connessione è stata rifiutata. Riprova per connettere il tuo account."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kết nối đã bị từ chối. Hãy thử lại để kết nối tài khoản của bạn."
           }
         }
       }
@@ -10395,6 +11517,40 @@
         }
       }
     },
+    "Could not connect to the server.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbindung zum Server nicht möglich."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo conectar con el servidor."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de se connecter au serveur."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossibile connettersi al server."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không thể kết nối với máy chủ."
+          }
+        }
+      }
+    },
     "Could not open this link.": {
       "localizations": {
         "de": {
@@ -10425,6 +11581,142 @@
           "stringUnit": {
             "state": "translated",
             "value": "Không thể mở liên kết này"
+          }
+        }
+      }
+    },
+    "Could not reach the server.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Server ist nicht erreichbar."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo contactar con el servidor."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de joindre le serveur."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossibile raggiungere il server."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không thể truy cập máy chủ."
+          }
+        }
+      }
+    },
+    "Could not refresh the libraries.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Bibliotheken konnten nicht aktualisiert werden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudieron actualizar las bibliotecas."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible d’actualiser les bibliothèques."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossibile aggiornare le librerie."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không thể làm mới các thư viện."
+          }
+        }
+      }
+    },
+    "Could not start playback from the server.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Wiedergabe vom Server konnte nicht gestartet werden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo iniciar la reproducción desde el servidor."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de lancer la lecture depuis le serveur."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossibile avviare la riproduzione dal server."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không thể bắt đầu phát từ máy chủ."
+          }
+        }
+      }
+    },
+    "Could not sync with MDBList. Please try again.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Synchronisierung mit MDBList nicht möglich. Bitte versuche es erneut."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo sincronizar con MDBList. Inténtalo de nuevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de synchroniser avec MDBList. Veuillez réessayer."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossibile sincronizzare con MDBList. Riprova."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không thể đồng bộ với MDBList. Vui lòng thử lại."
           }
         }
       }
@@ -11251,6 +12543,74 @@
         }
       }
     },
+    "Couldn’t switch the audio track.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Audiospur konnte nicht gewechselt werden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo cambiar la pista de audio."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de changer de piste audio."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossibile cambiare la traccia audio."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không thể chuyển bản âm thanh."
+          }
+        }
+      }
+    },
+    "Couldn’t switch the subtitle track.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Untertitelspur konnte nicht gewechselt werden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo cambiar la pista de subtítulos."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de changer de piste de sous-titres."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossibile cambiare la traccia dei sottotitoli."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không thể chuyển bản phụ đề."
+          }
+        }
+      }
+    },
     "Couldn’t Update Your Lists": {
       "localizations": {
         "de": {
@@ -11787,6 +13147,176 @@
           "stringUnit": {
             "state": "translated",
             "value": "Modèle personnalisé, p. ex. 4K|2160p|Remux"
+          }
+        }
+      }
+    },
+    "custom poster screens changed": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bildschirme für eigene Poster geändert"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "pantallas de pósteres personalizados modificadas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "écrans d’affiches personnalisées modifiés"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "schermate dei poster personalizzati modificate"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "đã đổi các màn hình poster tùy chỉnh"
+          }
+        }
+      }
+    },
+    "Custom Poster URL": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eigene Poster-URL"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "URL de póster personalizado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "URL d’affiche personnalisée"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "URL poster personalizzato"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "URL poster tùy chỉnh"
+          }
+        }
+      }
+    },
+    "custom poster URL removed": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eigene Poster-URL entfernt"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "URL de póster personalizado eliminada"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "URL d’affiche personnalisée supprimée"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "URL poster personalizzato rimosso"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "đã xóa URL poster tùy chỉnh"
+          }
+        }
+      }
+    },
+    "custom poster URL set": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eigene Poster-URL gesetzt"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "URL de póster personalizado establecida"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "URL d’affiche personnalisée définie"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "URL poster personalizzato impostato"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "đã đặt URL poster tùy chỉnh"
+          }
+        }
+      }
+    },
+    "Custom Posters": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eigene Poster"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pósteres personalizados"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Affiches personnalisées"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Poster personalizzati"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Poster tùy chỉnh"
           }
         }
       }
@@ -13035,6 +14565,74 @@
         }
       }
     },
+    "Direct play": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Direkte Wiedergabe"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reproducción directa"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lecture directe"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Riproduzione diretta"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Phát trực tiếp"
+          }
+        }
+      }
+    },
+    "Direct stream": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Direktes Streaming"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transmisión directa"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diffusion directe"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Streaming diretto"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Truyền trực tiếp"
+          }
+        }
+      }
+    },
     "Directed by %@": {
       "localizations": {
         "de": {
@@ -13201,6 +14799,74 @@
           "stringUnit": {
             "state": "translated",
             "value": "Ngắt kết nối"
+          }
+        }
+      }
+    },
+    "Disconnect MDBList": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MDBList trennen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desconectar MDBList"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Déconnecter MDBList"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disconnetti MDBList"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ngắt kết nối MDBList"
+          }
+        }
+      }
+    },
+    "Disconnect MDBList?": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MDBList trennen?"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "¿Desconectar MDBList?"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Déconnecter MDBList \u0001"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disconnettere MDBList?"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ngắt kết nối MDBList?"
           }
         }
       }
@@ -13375,6 +15041,40 @@
         }
       }
     },
+    "Disconnected on this device. Remove this app in your MDBList account settings to revoke its access.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auf diesem Gerät getrennt. Entferne diese App in den Einstellungen deines MDBList-Kontos, um ihren Zugriff zu widerrufen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desconectado en este dispositivo. Elimina esta app en los ajustes de tu cuenta de MDBList para revocar su acceso."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Déconnecté sur cet appareil. Supprimez cette app dans les réglages de votre compte MDBList pour révoquer son accès."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disconnesso su questo dispositivo. Rimuovi questa app nelle impostazioni del tuo account MDBList per revocarne l’accesso."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đã ngắt kết nối trên thiết bị này. Hãy gỡ ứng dụng này trong cài đặt tài khoản MDBList để thu hồi quyền truy cập."
+          }
+        }
+      }
+    },
     "Discover": {
       "localizations": {
         "de": {
@@ -13405,6 +15105,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Khám phá"
+          }
+        }
+      }
+    },
+    "Discover is its own item in the sidebar. Search shows only the search field and recent searches": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Entdecken ist ein eigener Eintrag in der Seitenleiste. Die Suche zeigt nur das Suchfeld und letzte Suchen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Descubrir es un elemento propio de la barra lateral. Buscar solo muestra el campo de búsqueda y las búsquedas recientes"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Découvrir est un élément à part dans la barre latérale. Rechercher n’affiche que le champ de recherche et les recherches récentes"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scopri è una voce a sé nella barra laterale. Cerca mostra solo il campo di ricerca e le ricerche recenti"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Khám phá là một mục riêng trong thanh bên. Tìm kiếm chỉ hiện ô tìm kiếm và các lần tìm gần đây"
           }
         }
       }
@@ -14415,6 +16149,40 @@
         }
       }
     },
+    "Enter a valid server address.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gib eine gültige Serveradresse ein."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Introduce una dirección de servidor válida."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saisissez une adresse de serveur valide."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inserisci un indirizzo del server valido."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nhập địa chỉ máy chủ hợp lệ."
+          }
+        }
+      }
+    },
     "Enter PIN for %@": {
       "localizations": {
         "de": {
@@ -14619,6 +16387,40 @@
         }
       }
     },
+    "Enter your server address and the %@ user to sign in with. Your password is only used to sign in.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gib deine Serveradresse und den %@-Benutzer zur Anmeldung ein. Dein Passwort wird nur zur Anmeldung verwendet."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Introduce la dirección de tu servidor y el usuario de %@ con el que iniciar sesión. Tu contraseña solo se usa para iniciar sesión."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saisissez l’adresse de votre serveur et l’utilisateur %@ avec lequel vous connecter. Votre mot de passe sert uniquement à vous connecter."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inserisci l’indirizzo del server e l’utente %@ con cui accedere. La tua password serve solo per accedere."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nhập địa chỉ máy chủ và người dùng %@ để đăng nhập. Mật khẩu của bạn chỉ dùng để đăng nhập."
+          }
+        }
+      }
+    },
     "Episode Cards": {
       "localizations": {
         "de": {
@@ -14765,6 +16567,40 @@
         }
       }
     },
+    "Episode Thumbnails": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Episoden-Vorschaubilder"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Miniaturas de episodios"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vignettes des épisodes"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Miniature degli episodi"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ảnh thu nhỏ của tập"
+          }
+        }
+      }
+    },
     "Episode titles, overviews, thumbnails, and runtime from TMDB": {
       "localizations": {
         "de": {
@@ -14829,6 +16665,108 @@
           "stringUnit": {
             "state": "translated",
             "value": "Danh sách tập"
+          }
+        }
+      }
+    },
+    "Episodes that have aired first, upcoming ones at the end": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bereits ausgestrahlte Episoden zuerst, kommende am Ende"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Primero los episodios ya emitidos, los próximos al final"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les épisodes déjà diffusés d’abord, ceux à venir à la fin"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prima gli episodi già usciti, quelli in arrivo alla fine"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Các tập đã phát sóng trước, tập sắp ra mắt ở cuối"
+          }
+        }
+      }
+    },
+    "Episodes that have not aired move to the Upcoming row": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Noch nicht ausgestrahlte Episoden wandern in die Reihe „Demnächst“"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los episodios aún no emitidos pasan a la fila Próximamente"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les épisodes pas encore diffusés passent dans la rangée À venir"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gli episodi non ancora usciti passano nella riga In uscita"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Các tập chưa phát sóng chuyển sang hàng Sắp ra mắt"
+          }
+        }
+      }
+    },
+    "Everything by when you last watched it": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alles danach sortiert, wann du es zuletzt geschaut hast"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Todo según cuándo lo viste por última vez"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tout, selon la date de votre dernier visionnage"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tutto in base a quando l’hai guardato l’ultima volta"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tất cả theo lần xem gần nhất"
           }
         }
       }
@@ -15241,6 +17179,40 @@
         }
       }
     },
+    "Expanded": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ausgeklappt"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Expandido"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Développé"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Espanso"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đã mở rộng"
+          }
+        }
+      }
+    },
     "File Size": {
       "localizations": {
         "de": {
@@ -15305,6 +17277,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Huy hiệu dung lượng tệp"
+          }
+        }
+      }
+    },
+    "Fills the screen with artwork from your catalogs while nothing is happening": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Füllt den Bildschirm mit Artwork aus deinen Katalogen, solange nichts passiert"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Llena la pantalla con imágenes de tus catálogos mientras no ocurre nada"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remplit l’écran avec les visuels de vos catalogues lorsque rien ne se passe"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Riempie lo schermo con le immagini dei tuoi cataloghi quando non succede nulla"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lấp đầy màn hình bằng ảnh từ các danh mục của bạn khi không có thao tác nào"
           }
         }
       }
@@ -15583,6 +17589,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Les cartes sélectionnées gardent leur taille — surbrillance et ombre uniquement"
+          }
+        }
+      }
+    },
+    "Focused Item Gradient": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Farbverlauf des fokussierten Elements"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Degradado del elemento enfocado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dégradé de l’élément sélectionné"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gradiente dell’elemento in primo piano"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Màu nền theo mục đang chọn"
           }
         }
       }
@@ -17416,6 +19456,40 @@
         }
       }
     },
+    "Hide the still of an episode you have not watched, so it cannot spoil": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Blendet das Standbild einer nicht gesehenen Episode aus, damit nichts gespoilert wird"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oculta la imagen de un episodio que no has visto para que no haga spoilers"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Masque l’image d’un épisode que vous n’avez pas vu, pour éviter tout spoiler"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nasconde l’immagine di un episodio che non hai guardato, così non fa spoiler"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ẩn ảnh của tập bạn chưa xem để không bị lộ nội dung"
+          }
+        }
+      }
+    },
     "Hide the visible steps in skies and other smooth gradients.": {
       "localizations": {
         "de": {
@@ -17742,6 +19816,40 @@
         }
       }
     },
+    "Home does not show Continue Watching": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Start-Bildschirm zeigt „Weiterschauen“ nicht an"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inicio no muestra Seguir viendo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’accueil n’affiche pas Continuer à regarder"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La Home non mostra Continua a guardare"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trang chủ không hiện Tiếp tục xem"
+          }
+        }
+      }
+    },
     "Home Rows": {
       "localizations": {
         "de": {
@@ -17956,6 +20064,40 @@
         }
       }
     },
+    "https://example.com/{imdb_id}.jpg": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "https://example.com/{imdb_id}.jpg"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "https://example.com/{imdb_id}.jpg"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "https://example.com/{imdb_id}.jpg"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "https://example.com/{imdb_id}.jpg"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "https://example.com/{imdb_id}.jpg"
+          }
+        }
+      }
+    },
     "Hue": {
       "localizations": {
         "de": {
@@ -17986,6 +20128,108 @@
           "stringUnit": {
             "state": "translated",
             "value": "Sắc độ"
+          }
+        }
+      }
+    },
+    "Idle": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inaktivität"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inactividad"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inactivité"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inattività"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không hoạt động"
+          }
+        }
+      }
+    },
+    "Import Watch Progress": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wiedergabefortschritt importieren"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importar progreso de visualización"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importer la progression de visionnage"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importa i progressi di visione"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nhập tiến độ xem"
+          }
+        }
+      }
+    },
+    "Imported watch progress and watched marks come from %@. Playback resumes from %@ either way.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importierter Wiedergabefortschritt und Gesehen-Markierungen stammen von %@. Die Wiedergabe wird in jedem Fall von %@ fortgesetzt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El progreso de visualización y las marcas de visto importados proceden de %@. La reproducción se reanuda desde %@ en cualquier caso."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La progression de visionnage et les marques de visionnage importées proviennent de %@. La lecture reprend de %@ dans tous les cas."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I progressi di visione e i segni di visto importati provengono da %@. La riproduzione riprende comunque da %@."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tiến độ xem và dấu đã xem được nhập từ %@. Dù thế nào, việc phát vẫn tiếp tục từ %@."
           }
         }
       }
@@ -18286,6 +20530,74 @@
         }
       }
     },
+    "In Search": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In der Suche"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En la búsqueda"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dans la recherche"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nella ricerca"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trong tìm kiếm"
+          }
+        }
+      }
+    },
+    "In Sidebar": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In der Seitenleiste"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En la barra lateral"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dans la barre latérale"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nella barra laterale"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trong thanh bên"
+          }
+        }
+      }
+    },
     "In the classic hero layout, trailers play in the poster.": {
       "localizations": {
         "de": {
@@ -18384,6 +20696,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "PIN không đúng. Thử lại."
+          }
+        }
+      }
+    },
+    "Incorrect username or password.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Benutzername oder Passwort ist falsch."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nombre de usuario o contraseña incorrectos."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nom d’utilisateur ou mot de passe incorrect."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nome utente o password non corretti."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tên người dùng hoặc mật khẩu không đúng."
           }
         }
       }
@@ -18520,6 +20866,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Hãy cài một kho plugin trước. Các nhà cung cấp của kho sẽ được liệt kê ở đây."
+          }
+        }
+      }
+    },
+    "Install add-ons to choose catalogs.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Installiere Add-ons, um Kataloge auszuwählen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Instala complementos para elegir catálogos."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Installez des add-ons pour choisir des catalogues."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Installa componenti aggiuntivi per scegliere i cataloghi."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cài addon để chọn danh mục."
           }
         }
       }
@@ -19176,6 +21556,40 @@
         }
       }
     },
+    "Jellyfin & Emby": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jellyfin & Emby"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jellyfin y Emby"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jellyfin et Emby"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jellyfin ed Emby"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jellyfin & Emby"
+          }
+        }
+      }
+    },
     "JS plugin providers add extra stream sources. Install a repository by its manifest URL — it syncs to your other Nuvio devices automatically.": {
       "localizations": {
         "de": {
@@ -19488,6 +21902,74 @@
           "stringUnit": {
             "state": "translated",
             "value": "Tiếng Hàn"
+          }
+        }
+      }
+    },
+    "Landscape artwork with the episode underneath": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Querformat-Artwork mit der Episode darunter"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Imagen horizontal con el episodio debajo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Visuel paysage avec l’épisode en dessous"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Immagine orizzontale con l’episodio sotto"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ảnh ngang kèm tập phim bên dưới"
+          }
+        }
+      }
+    },
+    "Landscape artwork with the title underneath": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Querformat-Artwork mit dem Titel darunter"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Imagen horizontal con el título debajo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Visuel paysage avec le titre en dessous"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Immagine orizzontale con il titolo sotto"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ảnh ngang kèm tiêu đề bên dưới"
           }
         }
       }
@@ -19900,6 +22382,40 @@
         }
       }
     },
+    "Libraries": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bibliotheken"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bibliotecas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bibliothèques"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Librerie"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thư viện"
+          }
+        }
+      }
+    },
     "Library": {
       "localizations": {
         "de": {
@@ -19964,6 +22480,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Thư viện & tiến độ xem"
+          }
+        }
+      }
+    },
+    "Library Lists": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bibliothekslisten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Listas de la biblioteca"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Listes de la bibliothèque"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Liste della libreria"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Danh sách thư viện"
           }
         }
       }
@@ -20243,6 +22793,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Giới hạn số kết quả hiển thị."
+          }
+        }
+      }
+    },
+    "Limit reached — turn another catalog off first": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Limit erreicht — deaktiviere zuerst einen anderen Katalog"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Límite alcanzado — desactiva antes otro catálogo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Limite atteinte — désactivez d’abord un autre catalogue"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Limite raggiunto — disattiva prima un altro catalogo"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đã đạt giới hạn — hãy tắt một danh mục khác trước"
           }
         }
       }
@@ -20529,6 +23113,40 @@
         }
       }
     },
+    "Lists in Your Library": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Listen in deiner Bibliothek"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Listas en tu biblioteca"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Listes dans votre bibliothèque"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Liste nella tua libreria"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Danh sách trong thư viện của bạn"
+          }
+        }
+      }
+    },
     "Load More Comments": {
       "localizations": {
         "de": {
@@ -20729,6 +23347,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Đang tải phụ đề…"
+          }
+        }
+      }
+    },
+    "Loading your lists…": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deine Listen werden geladen…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cargando tus listas…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chargement de vos listes…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Caricamento delle tue liste…"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đang tải danh sách của bạn…"
           }
         }
       }
@@ -21005,6 +23657,40 @@
         }
       }
     },
+    "MDBList account sign-in isn't configured in this build. Add MDBLIST_CLIENT_ID to local.properties, then rebuild the shared framework. An API key still works for ratings in Content Sources.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die MDBList-Kontoanmeldung ist in dieser Version nicht konfiguriert. Füge MDBLIST_CLIENT_ID zu local.properties hinzu und erstelle dann das gemeinsame Framework erneut. Ein API-Schlüssel funktioniert weiterhin für Bewertungen unter Inhaltsquellen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El inicio de sesión de la cuenta de MDBList no está configurado en esta compilación. Añade MDBLIST_CLIENT_ID a local.properties y luego reconstruye el marco compartido. Una clave API sigue funcionando para las valoraciones en Fuentes de contenido."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La connexion au compte MDBList n’est pas configurée dans cette version. Ajoutez MDBLIST_CLIENT_ID à local.properties, puis recompilez le framework partagé. Une clé API fonctionne toujours pour les notes dans Sources de contenu."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’accesso all’account MDBList non è configurato in questa build. Aggiungi MDBLIST_CLIENT_ID a local.properties, quindi ricostruisci il framework condiviso. Una chiave API funziona ancora per le valutazioni in Fonti di contenuto."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đăng nhập tài khoản MDBList chưa được cấu hình trong bản dựng này. Thêm MDBLIST_CLIENT_ID vào local.properties, rồi build lại framework chia sẻ. API key vẫn dùng được cho điểm đánh giá trong Nguồn nội dung."
+          }
+        }
+      }
+    },
     "MDBList API key": {
       "localizations": {
         "de": {
@@ -21035,6 +23721,108 @@
           "stringUnit": {
             "state": "translated",
             "value": "API key MDBList"
+          }
+        }
+      }
+    },
+    "MDBList connection is unavailable in this build.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Verbindung zu MDBList ist in dieser Version nicht verfügbar."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La conexión con MDBList no está disponible en esta compilación."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La connexion à MDBList n’est pas disponible dans cette version."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La connessione a MDBList non è disponibile in questa build."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kết nối MDBList không khả dụng trong bản dựng này."
+          }
+        }
+      }
+    },
+    "MDBList did not grant permission to update watch history. Reconnect and allow write access.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MDBList hat die Berechtigung zum Aktualisieren des Wiedergabeverlaufs nicht erteilt. Verbinde dich erneut und erlaube den Schreibzugriff."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MDBList no concedió permiso para actualizar el historial de visionado. Vuelve a conectar y permite el acceso de escritura."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MDBList n’a pas accordé l’autorisation de mettre à jour l’historique de visionnage. Reconnectez-vous et autorisez l’accès en écriture."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MDBList non ha concesso l’autorizzazione ad aggiornare la cronologia di visione. Riconnetti e consenti l’accesso in scrittura."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MDBList không cấp quyền cập nhật lịch sử đã xem. Hãy kết nối lại và cho phép quyền ghi."
+          }
+        }
+      }
+    },
+    "MDBList Lists": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MDBList-Listen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Listas de MDBList"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Listes MDBList"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Liste MDBList"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Danh sách MDBList"
           }
         }
       }
@@ -21337,6 +24125,108 @@
           "stringUnit": {
             "state": "translated",
             "value": "MDBList"
+          }
+        }
+      }
+    },
+    "MDBList returned an incomplete response. Please try again.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MDBList hat eine unvollständige Antwort geliefert. Bitte versuche es erneut."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MDBList devolvió una respuesta incompleta. Inténtalo de nuevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MDBList a renvoyé une réponse incomplète. Veuillez réessayer."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MDBList ha restituito una risposta incompleta. Riprova."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MDBList trả về phản hồi không đầy đủ. Vui lòng thử lại."
+          }
+        }
+      }
+    },
+    "MDBList’s request limit has been reached. Syncing will resume after the limit resets.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Anfragelimit von MDBList wurde erreicht. Die Synchronisierung wird fortgesetzt, sobald das Limit zurückgesetzt wird."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se ha alcanzado el límite de solicitudes de MDBList. La sincronización se reanudará cuando se restablezca el límite."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La limite de requêtes de MDBList a été atteinte. La synchronisation reprendra après la réinitialisation de la limite."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "È stato raggiunto il limite di richieste di MDBList. La sincronizzazione riprenderà dopo il ripristino del limite."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đã đạt giới hạn yêu cầu của MDBList. Việc đồng bộ sẽ tiếp tục sau khi giới hạn được đặt lại."
+          }
+        }
+      }
+    },
+    "Media Servers": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Medienserver"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Servidores multimedia"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Serveurs multimédias"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Server multimediali"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Máy chủ đa phương tiện"
           }
         }
       }
@@ -21895,6 +24785,40 @@
         }
       }
     },
+    "Most Recent": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zuletzt"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Más reciente"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plus récent"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Più recente"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mới nhất"
+          }
+        }
+      }
+    },
     "Motion Smoothing": {
       "localizations": {
         "de": {
@@ -22027,6 +24951,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Phim"
+          }
+        }
+      }
+    },
+    "Movies & Series": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Filme & Serien"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Películas y series"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Films et séries"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Film e serie TV"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Phim & loạt phim"
           }
         }
       }
@@ -22732,6 +25690,40 @@
         }
       }
     },
+    "Next Up From Furthest Episode": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Als Nächstes ab der weitesten Episode"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Siguiente desde el episodio más avanzado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Suivant depuis l’épisode le plus avancé"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prossimo dall’episodio più avanzato"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tập tiếp theo từ tập xa nhất"
+          }
+        }
+      }
+    },
     "No CAM/TS": {
       "localizations": {
         "fr": {
@@ -22810,6 +25802,40 @@
         }
       }
     },
+    "No libraries selected": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keine Bibliotheken ausgewählt"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ninguna biblioteca seleccionada"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucune bibliothèque sélectionnée"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nessuna libreria selezionata"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chưa chọn thư viện nào"
+          }
+        }
+      }
+    },
     "No limit": {
       "localizations": {
         "de": {
@@ -22840,6 +25866,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Không giới hạn"
+          }
+        }
+      }
+    },
+    "No lists yet. Create a static list on mdblist.com and it will appear here.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Noch keine Listen. Erstelle auf mdblist.com eine statische Liste, dann erscheint sie hier."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aún no hay listas. Crea una lista estática en mdblist.com y aparecerá aquí."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucune liste pour l’instant. Créez une liste statique sur mdblist.com et elle apparaîtra ici."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ancora nessuna lista. Crea una lista statica su mdblist.com e comparirà qui."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chưa có danh sách nào. Hãy tạo danh sách tĩnh trên mdblist.com và nó sẽ xuất hiện ở đây."
           }
         }
       }
@@ -22878,12 +25938,80 @@
         }
       }
     },
+    "No movie or series libraries are available to this user.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Für diesen Benutzer sind keine Film- oder Serienbibliotheken verfügbar."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No hay bibliotecas de películas o series disponibles para este usuario."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucune bibliothèque de films ou de séries n’est disponible pour cet utilisateur."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nessuna libreria di film o serie è disponibile per questo utente."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không có thư viện phim hoặc loạt phim nào dành cho người dùng này."
+          }
+        }
+      }
+    },
     "No REMUX/HDR": {
       "localizations": {
         "fr": {
           "stringUnit": {
             "state": "translated",
             "value": "Sans REMUX/HDR"
+          }
+        }
+      }
+    },
+    "No servers connected yet.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Noch keine Server verbunden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aún no hay servidores conectados."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucun serveur connecté pour l’instant."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nessun server ancora connesso."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chưa kết nối máy chủ nào."
           }
         }
       }
@@ -23697,6 +26825,40 @@
         }
       }
     },
+    "Not available in this build": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In dieser Version nicht verfügbar"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No disponible en esta compilación"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indisponible dans cette version"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Non disponibile in questa build"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không khả dụng trong bản dựng này"
+          }
+        }
+      }
+    },
     "Not cached on your debrid service.": {
       "localizations": {
         "de": {
@@ -23727,6 +26889,74 @@
           "stringUnit": {
             "state": "translated",
             "value": "Chưa được cache trên dịch vụ debrid của bạn."
+          }
+        }
+      }
+    },
+    "Not connected": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nicht verbunden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No conectado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Non connecté"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Non connesso"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chưa kết nối"
+          }
+        }
+      }
+    },
+    "Not Now": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nicht jetzt"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ahora no"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plus tard"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Non ora"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Để sau"
           }
         }
       }
@@ -23901,6 +27131,40 @@
         }
       }
     },
+    "Nuvio connects to MDBList for account authentication, watched history, playback progress, lists and ratings. Nuvio is not affiliated with or endorsed by MDBList.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nuvio verbindet sich mit MDBList für Kontoauthentifizierung, Wiedergabeverlauf, Wiedergabefortschritt, Listen und Bewertungen. Nuvio ist weder mit MDBList verbunden noch wird es von MDBList unterstützt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nuvio se conecta a MDBList para la autenticación de la cuenta, el historial de visionado, el progreso de reproducción, las listas y las valoraciones. Nuvio no está afiliado a MDBList ni cuenta con su respaldo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nuvio se connecte à MDBList pour l’authentification du compte, l’historique de visionnage, la progression de lecture, les listes et les notes. Nuvio n’est ni affilié à MDBList ni approuvé par MDBList."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nuvio si connette a MDBList per l’autenticazione dell’account, la cronologia di visione, i progressi di riproduzione, le liste e le valutazioni. Nuvio non è affiliato né approvato da MDBList."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nuvio kết nối với MDBList để xác thực tài khoản, lịch sử đã xem, tiến độ phát, danh sách và điểm đánh giá. Nuvio không liên kết với hay được MDBList xác nhận."
+          }
+        }
+      }
+    },
     "Nuvio connects to TorBox for account authentication, cloud library access, cache checks, and cloud playback features. Nuvio is not affiliated with or endorsed by TorBox.": {
       "localizations": {
         "de": {
@@ -23965,6 +27229,74 @@
           "stringUnit": {
             "state": "translated",
             "value": "Nuvio-Bibliothek"
+          }
+        }
+      }
+    },
+    "Nuvio opens on Home without asking": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nuvio öffnet den Start-Bildschirm, ohne nachzufragen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nuvio se abre en Inicio sin preguntar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nuvio s’ouvre sur l’accueil sans rien demander"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nuvio si apre sulla Home senza chiedere"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nuvio mở Trang chủ mà không hỏi"
+          }
+        }
+      }
+    },
+    "Nuvio stays on Home when idle": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nuvio bleibt bei Inaktivität auf dem Start-Bildschirm"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nuvio permanece en Inicio cuando está inactivo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nuvio reste sur l’accueil en cas d’inactivité"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nuvio rimane nella Home quando è inattivo"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nuvio ở lại Trang chủ khi không hoạt động"
           }
         }
       }
@@ -24373,6 +27705,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "NuvioTV (Tích hợp)"
+          }
+        }
+      }
+    },
+    "Off. Replace posters with a rating-poster service.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aus. Ersetze Poster durch einen Bewertungs-Poster-Dienst."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desactivado. Sustituye los pósteres por un servicio de pósteres con valoración."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Désactivé. Remplacez les affiches par un service d’affiches avec notes."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Off. Sostituisci i poster con un servizio di poster con valutazione."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tắt. Thay poster bằng dịch vụ poster có điểm đánh giá."
           }
         }
       }
@@ -26791,6 +30157,40 @@
         }
       }
     },
+    "Open titles with your add-ons’ details.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Titel mit den Details deiner Add-ons öffnen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abre los títulos con los detalles de tus complementos."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ouvrir les titres avec les détails de vos add-ons."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apri i titoli con i dettagli dei tuoi componenti aggiuntivi."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mở phim với thông tin từ addon của bạn."
+          }
+        }
+      }
+    },
     "Open-source licenses and the services Nuvio uses.": {
       "localizations": {
         "de": {
@@ -26855,6 +30255,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Phông chữ giao diện tùy chọn."
+          }
+        }
+      }
+    },
+    "Or connect your MDBList account in Account & Services and skip the key.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oder verbinde dein MDBList-Konto unter Konto & Dienste und verzichte auf den Schlüssel."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O conecta tu cuenta de MDBList en Cuenta y servicios y olvídate de la clave."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ou connectez votre compte MDBList dans Compte et services et oubliez la clé."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oppure connetti il tuo account MDBList in Account e servizi e salta la chiave."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hoặc kết nối tài khoản MDBList trong Tài khoản & dịch vụ và bỏ qua key."
           }
         }
       }
@@ -27059,6 +30493,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Thứ tự các tựa phim trong nguồn này."
+          }
+        }
+      }
+    },
+    "Order, names and visibility go back to the defaults": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reihenfolge, Namen und Sichtbarkeit werden auf die Standardwerte zurückgesetzt"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El orden, los nombres y la visibilidad vuelven a los valores predeterminados"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’ordre, les noms et la visibilité reviennent aux valeurs par défaut"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ordine, nomi e visibilità tornano ai valori predefiniti"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thứ tự, tên và chế độ hiển thị trở về mặc định"
           }
         }
       }
@@ -27355,6 +30823,40 @@
         }
       }
     },
+    "Override ratings key (optional)": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "API-Schlüssel für Bewertungen überschreiben (optional)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sustituir clave de valoraciones (opcional)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clé de remplacement des notes (facultatif)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chiave valutazioni sostitutiva (facoltativa)"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "API key ghi đè điểm đánh giá (không bắt buộc)"
+          }
+        }
+      }
+    },
     "Pick a starting point, then fine-tune it below.": {
       "localizations": {
         "de": {
@@ -27419,6 +30921,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Hình ảnh"
+          }
+        }
+      }
+    },
+    "Pin to Top": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oben anheften"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fijar arriba"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Épingler en haut"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fissa in cima"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ghim lên đầu"
           }
         }
       }
@@ -27747,6 +31283,90 @@
         }
       }
     },
+    "player.menu.serverAudio": {
+      "comment": "Player transport-bar menu: the audio tracks the media server can transcode to.",
+      "extractionState": "extracted_with_value",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Server Audio"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Server-Audio"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Audio del servidor"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Audio du serveur"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Audio del server"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Âm thanh từ máy chủ"
+          }
+        }
+      }
+    },
+    "player.menu.serverSubtitles": {
+      "comment": "Player transport-bar menu: the media server's own subtitles, burned into the transcoded video.",
+      "extractionState": "extracted_with_value",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Server Subtitles"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Server-Untertitel"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Subtítulos del servidor"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sous-titres du serveur"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sottotitoli del server"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Phụ đề từ máy chủ"
+          }
+        }
+      }
+    },
     "player.nowPlaying.episodeNumber": {
       "extractionState": "extracted_with_value",
       "localizations": {
@@ -27866,6 +31486,74 @@
           "stringUnit": {
             "state": "translated",
             "value": "Khác"
+          }
+        }
+      }
+    },
+    "Portrait poster artwork": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Poster-Artwork im Hochformat"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Póster vertical"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Affiche en format portrait"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Locandina verticale"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Poster dọc"
+          }
+        }
+      }
+    },
+    "Poster URL": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Poster-URL"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "URL del póster"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "URL d’affiche"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "URL del poster"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "URL poster"
           }
         }
       }
@@ -30373,6 +34061,40 @@
         }
       }
     },
+    "QR code for the MDBList approval page": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "QR-Code für die MDBList-Bestätigungsseite"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Código QR de la página de aprobación de MDBList"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "QR code de la page d’approbation MDBList"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codice QR della pagina di approvazione di MDBList"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mã QR cho trang phê duyệt MDBList"
+          }
+        }
+      }
+    },
     "QR sign-in from your phone": {
       "localizations": {
         "de": {
@@ -30747,6 +34469,74 @@
         }
       }
     },
+    "Ratings use your connected MDBList account again.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bewertungen nutzen wieder dein verbundenes MDBList-Konto."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las valoraciones vuelven a usar tu cuenta de MDBList conectada."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les notes utilisent à nouveau votre compte MDBList connecté."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le valutazioni usano di nuovo il tuo account MDBList connesso."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Điểm đánh giá lại dùng tài khoản MDBList đã kết nối của bạn."
+          }
+        }
+      }
+    },
+    "Ratings use your connected MDBList account to show IMDb, TMDB, Rotten Tomatoes, Audience Score, Metacritic, Trakt, Letterboxd and MyAnimeList scores in a title's Details. An API key overrides the account; remove it to use the account again.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bewertungen nutzen dein verbundenes MDBList-Konto, um IMDb-, TMDB-, Rotten-Tomatoes-, Publikums-, Metacritic-, Trakt-, Letterboxd- und MyAnimeList-Bewertungen in den Details eines Titels anzuzeigen. Ein API-Schlüssel hat Vorrang vor dem Konto; entferne ihn, um wieder das Konto zu verwenden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las valoraciones usan tu cuenta de MDBList conectada para mostrar las puntuaciones de IMDb, TMDB, Rotten Tomatoes, Audience Score, Metacritic, Trakt, Letterboxd y MyAnimeList en los detalles de un título. Una clave API tiene prioridad sobre la cuenta; elimínala para volver a usar la cuenta."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les notes utilisent votre compte MDBList connecté pour afficher les notes IMDb, TMDB, Rotten Tomatoes, Audience Score, Metacritic, Trakt, Letterboxd et MyAnimeList dans les détails d’un titre. Une clé API prend le pas sur le compte \u0001 supprimez-la pour réutiliser le compte."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le valutazioni usano il tuo account MDBList connesso per mostrare i voti di IMDb, TMDB, Rotten Tomatoes, Audience Score, Metacritic, Trakt, Letterboxd e MyAnimeList nei dettagli del titolo. Una chiave API ha la precedenza sull’account; rimuovila per usare di nuovo l’account."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Điểm đánh giá dùng tài khoản MDBList đã kết nối để hiện điểm IMDb, TMDB, Rotten Tomatoes, Audience Score, Metacritic, Trakt, Letterboxd và MyAnimeList trong Thông tin của phim. API key được ưu tiên hơn tài khoản; hãy xóa nó để dùng lại tài khoản."
+          }
+        }
+      }
+    },
     "Re-check": {
       "localizations": {
         "de": {
@@ -31103,6 +34893,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Actualiser les add-ons"
+          }
+        }
+      }
+    },
+    "Refresh Libraries": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bibliotheken aktualisieren"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Actualizar bibliotecas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Actualiser les bibliothèques"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aggiorna librerie"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Làm mới thư viện"
           }
         }
       }
@@ -31739,6 +35563,40 @@
         }
       }
     },
+    "Remove Custom Poster URL": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eigene Poster-URL entfernen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eliminar URL de póster personalizado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Supprimer l’URL d’affiche personnalisée"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rimuovi URL poster personalizzato"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Xóa URL poster tùy chỉnh"
+          }
+        }
+      }
+    },
     "Remove from %@?": {
       "localizations": {
         "de": {
@@ -31909,6 +35767,74 @@
         }
       }
     },
+    "Remove Server": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Server entfernen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eliminar servidor"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Supprimer le serveur"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rimuovi server"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Xóa máy chủ"
+          }
+        }
+      }
+    },
+    "Remove this server?": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diesen Server entfernen?"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "¿Eliminar este servidor?"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Supprimer ce serveur \u0001"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rimuovere questo server?"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Xóa máy chủ này?"
+          }
+        }
+      }
+    },
     "Removes cached Continue Watching data and refreshes your watch progress. Your history is kept.": {
       "localizations": {
         "de": {
@@ -32007,6 +35933,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Việc xóa “%@” khỏi %@ cũng sẽ xóa %@ tại đó. Không thể hoàn tác."
+          }
+        }
+      }
+    },
+    "Rename": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Umbenennen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Renombrar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Renommer"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rinomina"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đổi tên"
           }
         }
       }
@@ -32347,6 +36307,74 @@
           "stringUnit": {
             "state": "translated",
             "value": "Đặt lại định dạng?"
+          }
+        }
+      }
+    },
+    "Reset Home Rows": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Start-Reihen zurücksetzen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restablecer filas de inicio"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Réinitialiser les rangées de l’accueil"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ripristina righe home"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đặt lại các hàng Trang chủ"
+          }
+        }
+      }
+    },
+    "Reset Home Rows?": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Start-Reihen zurücksetzen?"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "¿Restablecer las filas de inicio?"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Réinitialiser les rangées de l’accueil \u0001"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ripristinare le righe home?"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đặt lại các hàng Trang chủ?"
           }
         }
       }
@@ -32793,6 +36821,108 @@
         }
       }
     },
+    "Resume": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fortsetzen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reanudar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reprendre"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Riprendi"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tiếp tục"
+          }
+        }
+      }
+    },
+    "Resume Prompt on Launch": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fortsetzen-Abfrage beim Start"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aviso de reanudación al iniciar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Proposition de reprise au lancement"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Richiesta di ripresa all’avvio"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hỏi tiếp tục khi mở app"
+          }
+        }
+      }
+    },
+    "Resume Watching?": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wiedergabe fortsetzen?"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "¿Reanudar la reproducción?"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reprendre la lecture \u0001"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Riprendere la visione?"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tiếp tục xem?"
+          }
+        }
+      }
+    },
     "Retry": {
       "localizations": {
         "fr": {
@@ -33129,6 +37259,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Khởi động lại, cuộn mười hàng trên Trang chủ xuống rồi lên, sau đó chụp ảnh bảng này"
+          }
+        }
+      }
+    },
+    "Rows return to the add-ons' own names and order, every row is shown again, and the hero and title options go back to their defaults.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Reihen übernehmen wieder Namen und Reihenfolge der Add-ons, alle Reihen werden wieder angezeigt, und die Optionen für Hero und Titel werden auf die Standardwerte zurückgesetzt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las filas recuperan los nombres y el orden de los complementos, se vuelven a mostrar todas las filas y las opciones del hero y de los títulos vuelven a sus valores predeterminados."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les rangées retrouvent les noms et l’ordre propres aux add-ons, toutes les rangées sont de nouveau affichées, et les options du hero et des titres reviennent à leurs valeurs par défaut."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le righe tornano ai nomi e all’ordine dei componenti aggiuntivi, tutte le righe vengono mostrate di nuovo e le opzioni dell’hero e dei titoli tornano ai valori predefiniti."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Các hàng trở về tên và thứ tự của addon, mọi hàng được hiện lại, và các tùy chọn banner và tiêu đề trở về mặc định."
           }
         }
       }
@@ -33473,6 +37637,40 @@
         }
       }
     },
+    "Same as the Home hero": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wie der Hero auf dem Start-Bildschirm"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Igual que el hero de Inicio"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Identique au hero de l’accueil"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Come l’hero della Home"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Giống banner Trang chủ"
+          }
+        }
+      }
+    },
     "Sample": {
       "localizations": {
         "de": {
@@ -33711,6 +37909,40 @@
         }
       }
     },
+    "Save Name": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Namen speichern"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Guardar nombre"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enregistrer le nom"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Salva nome"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lưu tên"
+          }
+        }
+      }
+    },
     "Save Pattern": {
       "localizations": {
         "fr": {
@@ -33897,6 +38129,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Quét mã, hoặc mở trong trình duyệt bất kỳ:"
+          }
+        }
+      }
+    },
+    "Scan the QR code with your phone, or go to": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scanne den QR-Code mit deinem Telefon oder gehe zu"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Escanea el código QR con tu teléfono o ve a"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scannez le QR code avec votre téléphone, ou rendez-vous sur"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scansiona il codice QR con il telefono oppure vai su"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quét mã QR bằng điện thoại, hoặc truy cập"
           }
         }
       }
@@ -34810,6 +39076,40 @@
         }
       }
     },
+    "Selected libraries appear in Home rows, Library, search, and stream results.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ausgewählte Bibliotheken erscheinen in den Start-Reihen, in der Bibliothek, in der Suche und in den Stream-Ergebnissen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las bibliotecas seleccionadas aparecen en las filas de Inicio, la biblioteca, la búsqueda y los resultados de streams."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les bibliothèques sélectionnées apparaissent dans les rangées de l’accueil, la bibliothèque, la recherche et les résultats de flux."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le librerie selezionate compaiono nelle righe home, nella libreria, nella ricerca e nei risultati degli stream."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Các thư viện đã chọn xuất hiện trong các hàng Trang chủ, Thư viện, tìm kiếm và kết quả luồng phát."
+          }
+        }
+      }
+    },
     "Selected values sort first, in the default order, when results are sorted by quality, audio or language. At least one stays on.": {
       "localizations": {
         "de": {
@@ -35014,6 +39314,74 @@
         }
       }
     },
+    "Server Address": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Serveradresse"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dirección del servidor"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adresse du serveur"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indirizzo del server"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Địa chỉ máy chủ"
+          }
+        }
+      }
+    },
+    "Server unavailable": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Server nicht verfügbar"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Servidor no disponible"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Serveur indisponible"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Server non disponibile"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Máy chủ không khả dụng"
+          }
+        }
+      }
+    },
     "Server: %@": {
       "localizations": {
         "de": {
@@ -35044,6 +39412,74 @@
           "stringUnit": {
             "state": "translated",
             "value": "Máy chủ: %@"
+          }
+        }
+      }
+    },
+    "Servers": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Server"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Servidores"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Serveurs"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Server"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Máy chủ"
+          }
+        }
+      }
+    },
+    "Servers on your home network work over plain HTTP. Your password is only used to sign in and is never stored.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Server in deinem Heimnetzwerk funktionieren über einfaches HTTP. Dein Passwort wird nur zur Anmeldung verwendet und nie gespeichert."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los servidores de tu red doméstica funcionan con HTTP sin cifrar. Tu contraseña solo se usa para iniciar sesión y nunca se guarda."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les serveurs de votre réseau domestique fonctionnent en HTTP simple. Votre mot de passe sert uniquement à vous connecter et n’est jamais enregistré."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I server della tua rete domestica funzionano con HTTP semplice. La tua password serve solo per accedere e non viene mai salvata."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Máy chủ trong mạng gia đình của bạn hoạt động qua HTTP thường. Mật khẩu của bạn chỉ dùng để đăng nhập và không bao giờ được lưu."
           }
         }
       }
@@ -37727,6 +42163,40 @@
         }
       }
     },
+    "Show Continue Watching": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "„Weiterschauen“ anzeigen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar Seguir viendo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher Continuer à regarder"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra Continua a guardare"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hiện Tiếp tục xem"
+          }
+        }
+      }
+    },
     "Show Hero": {
       "localizations": {
         "de": {
@@ -37795,6 +42265,40 @@
         }
       }
     },
+    "Show in Home, search, and stream results.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In Start, Suche und Stream-Ergebnissen anzeigen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar en Inicio, la búsqueda y los resultados de streams."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher dans l’accueil, la recherche et les résultats de flux."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra in Home, ricerca e risultati degli stream."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hiện trong Trang chủ, tìm kiếm và kết quả luồng phát."
+          }
+        }
+      }
+    },
     "Show Loading Screen": {
       "localizations": {
         "de": {
@@ -37859,6 +42363,74 @@
           "stringUnit": {
             "state": "translated",
             "value": "Hiện cảnh báo nội dung"
+          }
+        }
+      }
+    },
+    "Show the title logo over the artwork of landscape cards": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zeigt das Titel-Logo über dem Artwork von Querformat-Karten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Muestra el logotipo del título sobre la imagen de las tarjetas horizontales"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Affiche le logo du titre sur le visuel des cartes paysage"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra il logo del titolo sopra l’immagine delle schede orizzontali"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hiện logo của phim trên ảnh của các thẻ ngang"
+          }
+        }
+      }
+    },
+    "Show Unaired Episodes": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Noch nicht ausgestrahlte Episoden anzeigen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar episodios no emitidos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher les épisodes non diffusés"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra episodi non ancora usciti"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hiện tập chưa phát sóng"
           }
         }
       }
@@ -38155,6 +42727,40 @@
         }
       }
     },
+    "Shows a QR code and a short code to approve on your phone or computer.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zeigt einen QR-Code und einen kurzen Code zur Bestätigung auf deinem Telefon oder Computer."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Muestra un código QR y un código corto para aprobar en tu teléfono u ordenador."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Affiche un QR code et un code court à valider sur votre téléphone ou votre ordinateur."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra un codice QR e un codice breve da approvare sul telefono o sul computer."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hiện mã QR và mã ngắn để bạn duyệt trên điện thoại hoặc máy tính."
+          }
+        }
+      }
+    },
     "Shows a short code to enter at simkl.com/pin on your phone or computer.": {
       "localizations": {
         "de": {
@@ -38429,6 +43035,108 @@
         }
       }
     },
+    "Sign in again": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erneut anmelden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Iniciar sesión de nuevo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se reconnecter"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Accedi di nuovo"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đăng nhập lại"
+          }
+        }
+      }
+    },
+    "Sign In Again": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erneut anmelden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Iniciar sesión de nuevo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se reconnecter"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Accedi di nuovo"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đăng nhập lại"
+          }
+        }
+      }
+    },
+    "Sign in to %@": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bei %@ anmelden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Iniciar sesión en %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se connecter à %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Accedi a %@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đăng nhập vào %@"
+          }
+        }
+      }
+    },
     "Sign In to Nuvio": {
       "localizations": {
         "de": {
@@ -38459,6 +43167,74 @@
           "stringUnit": {
             "state": "translated",
             "value": "Đăng nhập Nuvio"
+          }
+        }
+      }
+    },
+    "Sign in to this server again in Settings.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Melde dich in den Einstellungen erneut an diesem Server an."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inicia sesión de nuevo en este servidor desde Ajustes."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reconnectez-vous à ce serveur dans Réglages."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Accedi di nuovo a questo server dalle Impostazioni."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hãy đăng nhập lại máy chủ này trong Cài đặt."
+          }
+        }
+      }
+    },
+    "Sign in to this server again to refresh its libraries.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Melde dich erneut an diesem Server an, um seine Bibliotheken zu aktualisieren."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inicia sesión de nuevo en este servidor para actualizar sus bibliotecas."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reconnectez-vous à ce serveur pour actualiser ses bibliothèques."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Accedi di nuovo a questo server per aggiornare le sue librerie."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hãy đăng nhập lại máy chủ này để làm mới các thư viện."
           }
         }
       }
@@ -38595,6 +43371,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Đăng nhập bằng điện thoại"
+          }
+        }
+      }
+    },
+    "Sign in with your server address and %@ user.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Melde dich mit deiner Serveradresse und deinem %@-Benutzer an."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inicia sesión con la dirección de tu servidor y el usuario de %@."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connectez-vous avec l’adresse de votre serveur et l’utilisateur %@."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Accedi con l’indirizzo del server e l’utente %@."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đăng nhập bằng địa chỉ máy chủ và người dùng %@ của bạn."
           }
         }
       }
@@ -39585,6 +44395,40 @@
         }
       }
     },
+    "Sort Order": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sortierreihenfolge"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Orden de clasificación"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ordre de tri"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ordinamento"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thứ tự sắp xếp"
+          }
+        }
+      }
+    },
     "Sorting and Limits": {
       "localizations": {
         "de": {
@@ -39897,6 +44741,40 @@
         }
       }
     },
+    "Start After": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Starten nach"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Iniciar después de"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Démarrer après"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Avvia dopo"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bắt đầu sau"
+          }
+        }
+      }
+    },
     "Start Remote Setup": {
       "localizations": {
         "de": {
@@ -39975,6 +44853,40 @@
         }
       }
     },
+    "Starts after the Siri Remote has been idle for the time you choose. Pick a time shorter than your Apple TV screen saver delay, or the screen saver starts first. Any button returns to where you were.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Startet, wenn die Siri Remote für die gewählte Zeit inaktiv war. Wähle eine Zeit, die kürzer als die Bildschirmschoner-Verzögerung deines Apple TV ist, sonst startet zuerst der Bildschirmschoner. Jede Taste bringt dich dorthin zurück, wo du warst."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se inicia cuando el Siri Remote lleva inactivo el tiempo que elijas. Elige un tiempo menor que el retraso del salvapantallas de tu Apple TV; si no, el salvapantallas se iniciará primero. Cualquier botón te devuelve a donde estabas."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Démarre lorsque la Siri Remote est restée inactive pendant la durée choisie. Choisissez une durée inférieure au délai de l’économiseur d’écran de votre Apple TV, sinon l’économiseur d’écran démarre en premier. Un appui sur n’importe quel bouton vous ramène là où vous étiez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Si avvia dopo che il Siri Remote è rimasto inattivo per il tempo che scegli. Scegli un tempo inferiore al ritardo dello screensaver del tuo Apple TV, altrimenti parte prima lo screensaver. Qualsiasi tasto ti riporta dove eri."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bắt đầu sau khi Siri Remote không hoạt động trong khoảng thời gian bạn chọn. Hãy chọn thời gian ngắn hơn độ trễ trình bảo vệ màn hình của Apple TV, nếu không trình bảo vệ màn hình sẽ chạy trước. Nhấn bất kỳ nút nào để quay lại nơi bạn đang xem."
+          }
+        }
+      }
+    },
     "Status": {
       "localizations": {
         "de": {
@@ -40039,6 +44951,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Stereo"
+          }
+        }
+      }
+    },
+    "Still checking this server’s library. Try again in a moment.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Bibliothek dieses Servers wird noch geprüft. Versuche es gleich noch einmal."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aún se está comprobando la biblioteca de este servidor. Inténtalo de nuevo en un momento."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vérification de la bibliothèque de ce serveur en cours. Réessayez dans un instant."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La libreria di questo server è ancora in fase di verifica. Riprova tra un momento."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vẫn đang kiểm tra thư viện của máy chủ này. Hãy thử lại sau giây lát."
           }
         }
       }
@@ -40923,6 +45869,40 @@
         }
       }
     },
+    "Sync your watched history, resume points and lists with your MDBList account (movies and episodes are marked watched automatically).": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Synchronisiere deinen Wiedergabeverlauf, Fortsetzungspunkte und Listen mit deinem MDBList-Konto (Filme und Episoden werden automatisch als gesehen markiert)."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sincroniza tu historial de visionado, puntos de reanudación y listas con tu cuenta de MDBList (las películas y los episodios se marcan como vistos automáticamente)."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Synchronisez votre historique de visionnage, vos points de reprise et vos listes avec votre compte MDBList (les films et épisodes sont marqués comme vus automatiquement)."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sincronizza la cronologia di visione, i punti di ripresa e le liste con il tuo account MDBList (i film e gli episodi sono contrassegnati come guardati automaticamente)."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đồng bộ lịch sử đã xem, điểm tiếp tục và danh sách với tài khoản MDBList của bạn (phim và tập được đánh dấu đã xem tự động)."
+          }
+        }
+      }
+    },
     "Syncing…": {
       "localizations": {
         "de": {
@@ -40988,6 +45968,482 @@
           "stringUnit": {
             "state": "translated",
             "value": "Hệ thống"
+          }
+        }
+      }
+    },
+    "The background stays a flat dark": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Hintergrund bleibt einfarbig dunkel"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El fondo permanece de un oscuro liso"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’arrière-plan reste d’un sombre uni"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lo sfondo resta scuro e uniforme"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nền giữ màu tối đơn sắc"
+          }
+        }
+      }
+    },
+    "The focused title's colors tint the background behind the rows": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Farben des fokussierten Titels färben den Hintergrund hinter den Reihen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los colores del título enfocado tiñen el fondo detrás de las filas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les couleurs du titre sélectionné teintent l’arrière-plan derrière les rangées"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I colori del titolo in primo piano colorano lo sfondo dietro le righe"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Màu của phim đang chọn nhuộm nền phía sau các hàng"
+          }
+        }
+      }
+    },
+    "The next episode appears before it airs, with a countdown": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die nächste Episode erscheint schon vor der Ausstrahlung, mit Countdown"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El siguiente episodio aparece antes de emitirse, con una cuenta atrás"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’épisode suivant apparaît avant sa diffusion, avec un compte à rebours"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’episodio successivo compare prima dell’uscita, con un conto alla rovescia"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tập tiếp theo xuất hiện trước khi phát sóng, kèm đếm ngược"
+          }
+        }
+      }
+    },
+    "The next episode appears once it has aired": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die nächste Episode erscheint erst nach der Ausstrahlung"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El siguiente episodio aparece una vez emitido"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’épisode suivant apparaît une fois diffusé"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’episodio successivo compare una volta uscito"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tập tiếp theo xuất hiện sau khi đã phát sóng"
+          }
+        }
+      }
+    },
+    "The server doesn’t support this item.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Server unterstützt dieses Element nicht."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El servidor no admite este elemento."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le serveur ne prend pas en charge cet élément."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il server non supporta questo elemento."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Máy chủ không hỗ trợ mục này."
+          }
+        }
+      }
+    },
+    "The server is unavailable.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Server ist nicht verfügbar."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El servidor no está disponible."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le serveur est indisponible."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il server non è disponibile."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Máy chủ không khả dụng."
+          }
+        }
+      }
+    },
+    "The Watchlist is always shown. Hidden lists are not downloaded from MDBList.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Watchlist wird immer angezeigt. Ausgeblendete Listen werden nicht von MDBList heruntergeladen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La Watchlist siempre se muestra. Las listas ocultas no se descargan de MDBList."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La Watchlist est toujours affichée. Les listes masquées ne sont pas téléchargées depuis MDBList."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La Watchlist è sempre mostrata. Le liste nascoste non vengono scaricate da MDBList."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Watchlist luôn được hiện. Các danh sách bị ẩn sẽ không được tải từ MDBList."
+          }
+        }
+      }
+    },
+    "This code has expired. Try again to get a new code.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Code ist abgelaufen. Versuche es erneut, um einen neuen Code zu erhalten."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este código ha caducado. Inténtalo de nuevo para obtener un código nuevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce code a expiré. Réessayez pour obtenir un nouveau code."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questo codice è scaduto. Riprova per ottenere un nuovo codice."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mã này đã hết hạn. Hãy thử lại để nhận mã mới."
+          }
+        }
+      }
+    },
+    "This item is no longer available on the server.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieses Element ist auf dem Server nicht mehr verfügbar."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este elemento ya no está disponible en el servidor."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cet élément n’est plus disponible sur le serveur."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questo elemento non è più disponibile sul server."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mục này không còn trên máy chủ."
+          }
+        }
+      }
+    },
+    "This server is no longer connected.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Server ist nicht mehr verbunden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este servidor ya no está conectado."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce serveur n’est plus connecté."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questo server non è più connesso."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Máy chủ này không còn được kết nối."
+          }
+        }
+      }
+    },
+    "This server version isn’t supported.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Serverversion wird nicht unterstützt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta versión del servidor no es compatible."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette version du serveur n’est pas prise en charge."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questa versione del server non è supportata."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Phiên bản máy chủ này không được hỗ trợ."
+          }
+        }
+      }
+    },
+    "This signs you out of %@ on this Apple TV. You can add it back anytime.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Damit wirst du auf diesem Apple TV von %@ abgemeldet. Du kannst ihn jederzeit wieder hinzufügen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esto cierra tu sesión de %@ en este Apple TV. Puedes volver a añadirlo cuando quieras."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cela vous déconnecte de %@ sur cette Apple TV. Vous pourrez le rajouter à tout moment."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questo ti disconnette da %@ su questo Apple TV. Puoi riaggiungerlo in qualsiasi momento."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thao tác này đăng xuất bạn khỏi %@ trên Apple TV này. Bạn có thể thêm lại bất cứ lúc nào."
+          }
+        }
+      }
+    },
+    "This user does not have access.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Benutzer hat keinen Zugriff."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este usuario no tiene acceso."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cet utilisateur n’a pas accès."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questo utente non ha accesso."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Người dùng này không có quyền truy cập."
+          }
+        }
+      }
+    },
+    "Titles you add to this list on Trakt, Simkl or MDBList appear here after a sync.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Titel, die du auf Trakt, Simkl oder MDBList zu dieser Liste hinzufügst, erscheinen hier nach einer Synchronisierung."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los títulos que añadas a esta lista en Trakt, Simkl o MDBList aparecerán aquí tras una sincronización."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les titres que vous ajoutez à cette liste sur Trakt, Simkl ou MDBList apparaissent ici après une synchronisation."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I titoli che aggiungi a questa lista su Trakt, Simkl o MDBList compaiono qui dopo una sincronizzazione."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Các phim bạn thêm vào danh sách này trên Trakt, Simkl hoặc MDBList sẽ xuất hiện ở đây sau khi đồng bộ."
           }
         }
       }
@@ -41236,6 +46692,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "NGÀY MAI"
+          }
+        }
+      }
+    },
+    "Transcoding": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transkodierung"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transcodificación"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transcodage"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transcodifica"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chuyển mã"
           }
         }
       }
@@ -44260,6 +49750,74 @@
         }
       }
     },
+    "Unpin from Top": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Von oben lösen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desfijar de la parte superior"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Désépingler du haut"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rimuovi dalla cima"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bỏ ghim khỏi đầu"
+          }
+        }
+      }
+    },
+    "Upcoming Separately": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Demnächst separat"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Próximamente por separado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "À venir séparément"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In uscita separatamente"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sắp ra mắt riêng"
+          }
+        }
+      }
+    },
     "US": {
       "localizations": {
         "de": {
@@ -44810,6 +50368,74 @@
         }
       }
     },
+    "Use Add-on Metadata": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add-on-Metadaten verwenden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usar metadatos de los complementos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utiliser les métadonnées des add-ons"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usa i metadati dei componenti aggiuntivi"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dùng metadata của addon"
+          }
+        }
+      }
+    },
+    "Use MDBList as your Library Source or Watch Progress Source in Content Sources. Ratings use this account unless you enter an API key there.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verwende MDBList in den Inhaltsquellen als Bibliotheksquelle oder Quelle für Wiedergabefortschritt. Bewertungen nutzen dieses Konto, sofern du dort keinen API-Schlüssel eingibst."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usa MDBList como Fuente de la biblioteca o Fuente del progreso de visualización en Fuentes de contenido. Las valoraciones usan esta cuenta salvo que introduzcas allí una clave API."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilisez MDBList comme Source de la bibliothèque ou Source de la progression dans Sources de contenu. Les notes utilisent ce compte, sauf si vous y saisissez une clé API."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usa MDBList come Sorgente libreria o Sorgente progressi di visione in Fonti di contenuto. Le valutazioni usano questo account, a meno che tu non inserisca lì una chiave API."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dùng MDBList làm Nguồn thư viện hoặc Nguồn tiến độ xem trong Nguồn nội dung. Điểm đánh giá dùng tài khoản này trừ khi bạn nhập API key ở đó."
+          }
+        }
+      }
+    },
     "Use Official Server": {
       "localizations": {
         "de": {
@@ -44840,6 +50466,74 @@
           "stringUnit": {
             "state": "translated",
             "value": "Dùng máy chủ chính thức"
+          }
+        }
+      }
+    },
+    "Use On": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verwenden auf"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usar en"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utiliser sur"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usa su"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dùng trên"
+          }
+        }
+      }
+    },
+    "Use Original Name": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Originalnamen verwenden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usar el nombre original"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utiliser le nom d’origine"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usa il nome originale"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dùng tên gốc"
           }
         }
       }
@@ -45286,6 +50980,40 @@
         }
       }
     },
+    "Use {imdb_id}, {tmdb_id}, {id}, {type} or {shape} where the service expects them, for example https://example.com/key/{imdb_id}.jpg. A title the pattern can't be filled for keeps its own poster. You can also set this from a phone in Advanced > Remote Setup.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verwende {imdb_id}, {tmdb_id}, {id}, {type} oder {shape} an den Stellen, die der Dienst erwartet, z. B. https://example.com/key/{imdb_id}.jpg. Ein Titel, für den das Muster nicht ausgefüllt werden kann, behält sein eigenes Poster. Du kannst das auch am Telefon unter Erweitert > Remote-Konfiguration festlegen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usa {imdb_id}, {tmdb_id}, {id}, {type} o {shape} donde el servicio los espere, por ejemplo https://example.com/key/{imdb_id}.jpg. Un título para el que no se pueda completar el patrón conserva su propio póster. También puedes configurarlo desde un teléfono en Avanzado > Configuración remota."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilisez {imdb_id}, {tmdb_id}, {id}, {type} ou {shape} là où le service les attend, par exemple https://example.com/key/{imdb_id}.jpg. Un titre pour lequel le modèle ne peut pas être complété garde sa propre affiche. Vous pouvez aussi le définir depuis un téléphone dans Avancé > Configuration à distance."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usa {imdb_id}, {tmdb_id}, {id}, {type} o {shape} dove il servizio li richiede, ad esempio https://example.com/key/{imdb_id}.jpg. Un titolo per cui il modello non può essere compilato mantiene il proprio poster. Puoi impostarlo anche da un telefono in Avanzate > Configurazione remota."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dùng {imdb_id}, {tmdb_id}, {id}, {type} hoặc {shape} ở chỗ dịch vụ yêu cầu, ví dụ https://example.com/key/{imdb_id}.jpg. Phim nào mà mẫu không điền được sẽ giữ poster riêng của nó. Bạn cũng có thể đặt từ điện thoại trong Nâng cao > Thiết lập từ xa."
+          }
+        }
+      }
+    },
     "Used for playback of formats Apple’s player cannot open.": {
       "localizations": {
         "de": {
@@ -45316,6 +51044,108 @@
           "stringUnit": {
             "state": "translated",
             "value": "Dùng để phát các định dạng mà trình phát của Apple không mở được."
+          }
+        }
+      }
+    },
+    "Username": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Benutzername"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nombre de usuario"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nom d’utilisateur"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nome utente"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tên người dùng"
+          }
+        }
+      }
+    },
+    "Using your API key": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verwendet deinen API-Schlüssel"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usando tu clave API"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilise votre clé API"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usa la tua chiave API"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đang dùng API key của bạn"
+          }
+        }
+      }
+    },
+    "Using your connected account": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verwendet dein verbundenes Konto"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usando tu cuenta conectada"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilise votre compte connecté"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usa il tuo account connesso"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đang dùng tài khoản đã kết nối của bạn"
           }
         }
       }
@@ -45690,6 +51520,74 @@
           "stringUnit": {
             "state": "translated",
             "value": "Số lượt bình chọn"
+          }
+        }
+      }
+    },
+    "Waiting for approval": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Warten auf Bestätigung"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esperando aprobación"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En attente d’approbation"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In attesa di approvazione"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đang chờ phê duyệt"
+          }
+        }
+      }
+    },
+    "Watch updates from this profile stop and this Apple TV's MDBList authorization is revoked. Your MDBList history and lists are untouched.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wiedergabe-Updates dieses Profils werden gestoppt und die MDBList-Autorisierung dieses Apple TV wird widerrufen. Dein MDBList-Verlauf und deine Listen bleiben unverändert."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las actualizaciones de visionado de este perfil se detienen y se revoca la autorización de MDBList de este Apple TV. Tu historial y tus listas de MDBList no se tocan."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les mises à jour de visionnage de ce profil s’arrêtent et l’autorisation MDBList de cette Apple TV est révoquée. Votre historique et vos listes MDBList restent intacts."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gli aggiornamenti di visione di questo profilo si interrompono e l’autorizzazione MDBList di questo Apple TV viene revocata. La tua cronologia e le tue liste MDBList rimangono intatte."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Các cập nhật xem từ hồ sơ này sẽ dừng và quyền MDBList của Apple TV này bị thu hồi. Lịch sử và danh sách MDBList của bạn không bị ảnh hưởng."
           }
         }
       }
@@ -46122,6 +52020,40 @@
         }
       }
     },
+    "When Nuvio opens after you left during playback, offer to pick up where you stopped": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wenn Nuvio nach einem Verlassen während der Wiedergabe geöffnet wird, wird angeboten, dort weiterzumachen, wo du aufgehört hast"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cuando Nuvio se abre tras salir durante la reproducción, ofrece continuar donde lo dejaste"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quand Nuvio s’ouvre après que vous avez quitté pendant la lecture, propose de reprendre là où vous vous étiez arrêté"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quando Nuvio si apre dopo che sei uscito durante la riproduzione, propone di riprendere da dove ti eri fermato"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Khi mở Nuvio sau lúc bạn thoát giữa chừng, đề nghị tiếp tục từ chỗ bạn đã dừng"
+          }
+        }
+      }
+    },
     "When playback starts, auto-select the audio and subtitle tracks in your preferred language (when a matching track exists).": {
       "localizations": {
         "de": {
@@ -46322,6 +52254,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Ai đang xem?"
+          }
+        }
+      }
+    },
+    "Wide": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Breit"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ancho"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Large"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Largo"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rộng"
           }
         }
       }
@@ -46672,6 +52638,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Chưa có nội dung đã lưu"
+          }
+        }
+      }
+    },
+    "Your MDBList connection has expired or been revoked. Connect again to resume syncing.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deine MDBList-Verbindung ist abgelaufen oder wurde widerrufen. Verbinde dich erneut, um die Synchronisierung fortzusetzen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tu conexión con MDBList ha caducado o se ha revocado. Vuelve a conectar para reanudar la sincronización."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Votre connexion MDBList a expiré ou a été révoquée. Reconnectez-vous pour reprendre la synchronisation."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La tua connessione a MDBList è scaduta o è stata revocata. Riconnetti per riprendere la sincronizzazione."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kết nối MDBList của bạn đã hết hạn hoặc bị thu hồi. Hãy kết nối lại để tiếp tục đồng bộ."
           }
         }
       }
