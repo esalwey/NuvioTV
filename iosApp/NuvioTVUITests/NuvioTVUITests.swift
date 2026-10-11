@@ -7409,4 +7409,54 @@ final class NuvioTVUITests: XCTestCase {
         let after = probeField(liveHeroProbe(), "fitem") ?? ""
         XCTAssertEqual(after, folderItem, "focus after popping the folder page landed on \(after), expected the folder tile \(folderItem)")
     }
+
+    // MARK: - MDBList account card (Account & Services)
+
+    /// Settings > Account & Services: the tracker cards (Trakt, Simkl, MDBList) start collapsed, and
+    /// the MDBList card opens to the connect flow, or to the "not configured in this build" note
+    /// when the build has no MDBLIST_CLIENT_ID. Never presses Connect: that would start a real
+    /// device authorization.
+    func test70MdbListTrackerCardCollapsedByDefault() throws {
+        let app = launchToHome(forceFreshLaunch: true)
+        openTab(app, named: "Settings")
+        let account = app.buttons["Account & Services"]
+        if !(account.exists && account.hasFocus) { _ = moveToSidebarRow(app, .up, named: "Account & Services", max: 8) }
+        remote.press(.select)
+        pause(1.2)
+        press(.right, times: 1)
+        pause(1)
+        let sidebarX = account.frame.maxX
+
+        func rowExists(_ prefix: String) -> Bool {
+            app.descendants(matching: .any)
+                .matching(NSPredicate(format: "label BEGINSWITH %@", prefix))
+                .firstMatch.exists
+        }
+
+        try walkToRowByTreeIndex(app, targetLabelPrefix: "MDBList", sidebarMaxX: sidebarX, category: "Account & Services")
+        XCTAssertFalse(rowExists("Connect MDBList"), "the MDBList card must start collapsed")
+        XCTAssertFalse(rowExists("Connect Trakt"), "the Trakt card must start collapsed")
+        XCTAssertFalse(rowExists("Connect Simkl"), "the Simkl card must start collapsed")
+        shot(app, "70a_mdblist_collapsed")
+
+        remote.press(.select)
+        pause(1)
+        let connectRow = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "label BEGINSWITH %@", "Connect MDBList"))
+            .firstMatch
+        let notConfigured = app.staticTexts
+            .matching(NSPredicate(format: "label CONTAINS %@", "isn't configured in this build"))
+            .firstMatch
+        XCTAssertTrue(
+            connectRow.waitForExistence(timeout: 4) || notConfigured.waitForExistence(timeout: 2),
+            "the expanded MDBList card shows neither the connect row nor the not-configured note"
+        )
+        shot(app, "70b_mdblist_expanded")
+
+        // Select on the header again collapses the card (focus stays on the header row).
+        remote.press(.select)
+        pause(1)
+        XCTAssertFalse(rowExists("Connect MDBList"), "the MDBList card did not collapse again")
+        XCTAssertTrue(app.state == .runningForeground)
+    }
 }

@@ -51,32 +51,7 @@ struct ContentSourcesSettingsPane: View {
             }
 
             SettingsSection(String(localized: "Ratings (MDBList)")) {
-                Text("Add a free MDBList API key to show IMDb, Rotten Tomatoes, Metacritic, Trakt and Letterboxd scores in a title's Details. Create one at mdblist.com \u{2192} Preferences \u{2192} API Access. Titles you open after enabling will show the ratings.")
-                    .font(Theme.Font.caption)
-                    .foregroundStyle(Theme.Palette.textSecondary)
-                    .frame(maxWidth: 1100, alignment: .leading)
-
-                if model.mdbListHasKey {
-                    SettingsToggleRow(
-                        title: String(localized: "MDBList Ratings"),
-                        subtitle: String(localized: "API key saved"),
-                        isOn: Binding(
-                            get: { model.mdbListEnabled },
-                            set: { model.setMdbListEnabled($0) }
-                        )
-                    )
-                    SettingsDestructiveRow(
-                        title: String(localized: "Remove API Key"),
-                        subtitle: String(localized: "Clears the saved MDBList key and turns ratings off."),
-                        systemImage: "trash"
-                    ) {
-                        model.clearMdbListKey()
-                    }
-                } else {
-                    DebridKeyEntryRow(providerName: "MDBList", placeholder: String(localized: "MDBList API key")) {
-                        model.saveMdbListKey($0)
-                    }
-                }
+                ratingsSection
             }
 
             SettingsSection(String(localized: "Library & Watch Progress")) {
@@ -96,17 +71,86 @@ struct ContentSourcesSettingsPane: View {
         }
     }
 
+    /// MDBList ratings. A connected MDBList account supplies them with no key; a typed API key
+    /// overrides the account, and removing it falls back to the account. Without an account the
+    /// key is the only way in, exactly as before.
+    @ViewBuilder
+    private var ratingsSection: some View {
+        if model.mdbListUsesAccount {
+            Text("Ratings use your connected MDBList account to show IMDb, Rotten Tomatoes, Metacritic, Trakt and Letterboxd scores in a title's Details. An API key overrides the account; remove it to use the account again.")
+                .font(Theme.Font.caption)
+                .foregroundStyle(Theme.Palette.textSecondary)
+                .frame(maxWidth: 1100, alignment: .leading)
+            SettingsToggleRow(
+                title: String(localized: "MDBList Ratings"),
+                subtitle: model.mdbListHasKey
+                    ? String(localized: "Using your API key")
+                    : String(localized: "Using your connected account"),
+                isOn: Binding(
+                    get: { model.mdbListEnabled },
+                    set: { model.setMdbListEnabled($0) }
+                )
+            )
+            if model.mdbListHasKey {
+                SettingsDestructiveRow(
+                    title: String(localized: "Remove API Key"),
+                    subtitle: String(localized: "Ratings use your connected MDBList account again."),
+                    systemImage: "trash"
+                ) {
+                    model.clearMdbListKey()
+                }
+            } else {
+                DebridKeyEntryRow(providerName: "MDBList", placeholder: String(localized: "Override ratings key (optional)")) {
+                    model.saveMdbListKey($0)
+                }
+            }
+        } else {
+            Text("Add a free MDBList API key to show IMDb, Rotten Tomatoes, Metacritic, Trakt and Letterboxd scores in a title's Details. Create one at mdblist.com \u{2192} Preferences \u{2192} API Access. Titles you open after enabling will show the ratings.")
+                .font(Theme.Font.caption)
+                .foregroundStyle(Theme.Palette.textSecondary)
+                .frame(maxWidth: 1100, alignment: .leading)
+            Text("Or connect your MDBList account in Account & Services and skip the key.")
+                .font(Theme.Font.caption)
+                .foregroundStyle(Theme.Palette.textSecondary)
+                .frame(maxWidth: 1100, alignment: .leading)
+
+            if model.mdbListHasKey {
+                SettingsToggleRow(
+                    title: String(localized: "MDBList Ratings"),
+                    subtitle: String(localized: "API key saved"),
+                    isOn: Binding(
+                        get: { model.mdbListEnabled },
+                        set: { model.setMdbListEnabled($0) }
+                    )
+                )
+                SettingsDestructiveRow(
+                    title: String(localized: "Remove API Key"),
+                    subtitle: String(localized: "Clears the saved MDBList key and turns ratings off."),
+                    systemImage: "trash"
+                ) {
+                    model.clearMdbListKey()
+                }
+            } else {
+                DebridKeyEntryRow(providerName: "MDBList", placeholder: String(localized: "MDBList API key")) {
+                    model.saveMdbListKey($0)
+                }
+            }
+        }
+    }
+
     /// Display names for the Library Source / Watch Progress Source pickers below, keyed by the
     /// shared repo's provider-neutral mode strings.
     private static let librarySourceLabels: [(name: String, code: String)] = [
         (String(localized: "Nuvio Library"), "local"),
         (String(localized: "Trakt"), "trakt"),
         (String(localized: "Simkl"), "simkl"),
+        (String(localized: "MDBList"), "mdblist"),
     ]
     private static let watchProgressSourceLabels: [(name: String, code: String)] = [
         (String(localized: "Nuvio Sync"), "nuvio_sync"),
         (String(localized: "Trakt"), "trakt"),
         (String(localized: "Simkl"), "simkl"),
+        (String(localized: "MDBList"), "mdblist"),
     ]
 
     /// Library Source (which backend the Library tab reads from) and Watch Progress Source (which
