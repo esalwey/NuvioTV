@@ -75,6 +75,19 @@ final class SettingsViewModel: ObservableObject {
     @Published private(set) var librarySourceMode = "trakt"
     /// Which backend owns Continue Watching / watched history: "trakt", "simkl", or "nuvio_sync".
     @Published private(set) var watchProgressSource = "trakt"
+    /// Settings → Detail Page (shared `MetaScreenSettingsRepository`, synced per profile). The
+    /// sections are listed in the order the Apple TV shows them (`MetaScreenSectionLayout`).
+    @Published private(set) var detailSections: [MetaScreenSectionItem] = []
+    /// `MetaScreenBackgroundMode.name` / `MetaEpisodeCardStyle.name` ("Normal", "DominantColor" /
+    /// "Horizontal", "List"); `DetailBackgroundMode(kotlinName:)` and friends read them.
+    @Published private(set) var detailBackgroundModeName = "Normal"
+    @Published private(set) var detailEpisodeCardStyleName = "Horizontal"
+    @Published private(set) var detailBlurUnwatchedEpisodes = false
+    /// This Apple TV's season selector ("posters" or "text", `SeasonViewModeStorage`; not synced).
+    @Published private(set) var seasonViewMode: String =
+        SeasonViewModeStorage.shared.load() == SeasonViewMode.text ? "text" : "posters"
+    /// Where the More Like This row comes from: "trakt", "tmdb" or "simkl".
+    @Published private(set) var moreLikeThisSource = "trakt"
 
     /// FEAT-10: flip one search source on/off (persists locally + updates the published mirror).
     ///
@@ -184,6 +197,7 @@ final class SettingsViewModel: ObservableObject {
             guard let self, let state = emitted as? TraktSettingsUiState else { return }
             self.librarySourceMode = Self.librarySourceModeKey(state.librarySourceMode)
             self.watchProgressSource = Self.watchProgressSourceKey(state.watchProgressSource)
+            self.moreLikeThisSource = Self.moreLikeThisSourceKey(state.moreLikeThisSource)
         }
 
         // The catalog list is derived from the installed add-ons; sync it whenever they change so
@@ -232,6 +246,10 @@ final class SettingsViewModel: ObservableObject {
             guard let self, let state = emitted as? MetaScreenSettingsUiState else { return }
             self.showOverallRatings = state.showOverallRatings
             self.episodeRatingsVisibility = state.episodeRatingsVisibility.name
+            self.detailSections = MetaScreenSectionLayout.shared.effectiveItems(items: state.items)
+            self.detailBackgroundModeName = state.backgroundMode.name
+            self.detailEpisodeCardStyleName = state.episodeCardStyle.name
+            self.detailBlurUnwatchedEpisodes = state.blurUnwatchedEpisodes
         }
 
         // "Home Rows blank" bug: Settings must not depend on Home/Search having mounted first to
@@ -623,6 +641,66 @@ final class SettingsViewModel: ObservableObject {
 
     func resetCardDepth() {
         CardDepthStyleRepository.shared.resetToDefaults()
+    }
+
+    // MARK: - Detail Page (Settings → Detail Page)
+
+    /// Keys are the persisted ones the shared repository parses: "normal", "cinematic",
+    /// "dominant_color" (`DetailBackgroundMode.key`).
+    func setDetailBackgroundMode(_ key: String) {
+        MetaScreenSettingsRepository.shared.setBackgroundModeByKey(key: key)
+    }
+
+    /// "horizontal" or "list" (`DetailEpisodeCardStyle.key`).
+    func setDetailEpisodeCardStyle(_ key: String) {
+        MetaScreenSettingsRepository.shared.setEpisodeCardStyleByKey(key: key)
+    }
+
+    func setDetailBlurUnwatchedEpisodes(_ enabled: Bool) {
+        MetaScreenSettingsRepository.shared.setBlurUnwatchedEpisodes(enabled: enabled)
+    }
+
+    func setDetailSectionEnabled(_ item: MetaScreenSectionItem, _ enabled: Bool) {
+        MetaScreenSettingsRepository.shared.setEnabled(key: item.key, enabled: enabled)
+    }
+
+    /// One step up or down among the sections that can move. The new order is computed from the
+    /// order the list shows (which is the Apple TV's own default until the first change) and
+    /// written in one go, so the stored order and the page agree afterwards.
+    func moveDetailSection(_ item: MetaScreenSectionItem, up: Bool) {
+        guard let state = MetaScreenSettingsRepository.shared.uiState.value_ as? MetaScreenSettingsUiState else { return }
+        let order = MetaScreenSectionLayout.shared.orderAfterMoving(items: state.items, key: item.key, up: up)
+        MetaScreenSettingsRepository.shared.setOrder(order: order)
+    }
+
+    /// Sections, background and episode options back to their defaults; the rating toggles in
+    /// Appearance are left alone.
+    func resetDetailLayout() {
+        MetaScreenSettingsRepository.shared.resetLayoutToDefaults()
+    }
+
+    /// "posters" or "text".
+    func setSeasonViewMode(_ key: String) {
+        SeasonViewModeStorage.shared.save(mode: key == "text" ? SeasonViewMode.text : SeasonViewMode.posters)
+        seasonViewMode = key == "text" ? "text" : "posters"
+    }
+
+    /// "trakt", "tmdb" or "simkl". The shared details repository keys its cache on the choice, so
+    /// the next title opened uses it.
+    func setMoreLikeThisSource(_ key: String) {
+        let source: MoreLikeThisSourcePreference
+        switch key {
+        case "tmdb": source = .tmdb
+        case "simkl": source = .simkl
+        default: source = .trakt
+        }
+        TrackingSettingsRepository.shared.setMoreLikeThisSource(source: source)
+    }
+
+    private static func moreLikeThisSourceKey(_ source: MoreLikeThisSourcePreference) -> String {
+        if source == .tmdb { return "tmdb" }
+        if source == .simkl { return "simkl" }
+        return "trakt"
     }
 
     // MARK: - Library Source / Watch Progress Source

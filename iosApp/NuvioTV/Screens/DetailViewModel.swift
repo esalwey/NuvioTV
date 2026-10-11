@@ -50,6 +50,15 @@ final class DetailViewModel: ObservableObject {
     /// `EpisodeRatingsVisibility.name` ("SHOW_ALL" / "HIDE_EPISODES" / "HIDE_UNWATCHED_EPISODES").
     @Published private(set) var showOverallRatings = true
     @Published private(set) var episodeRatingsVisibility = "SHOW_ALL"
+    /// Settings → Detail Page (synced per profile): which sections show and in what order, the
+    /// backdrop treatment and the episode card options.
+    @Published private(set) var layout = DetailLayout()
+    /// Settings → Trakt → Comments (`TraktCommentsSettings`, synced per profile): off hides the
+    /// Comments section and the per-episode Comments action, and no request is made.
+    @Published private(set) var commentsEnabled = true
+    /// Trakt comments on the title in total (0 until the first page lands); the inline section
+    /// shows a few and offers the full list when there are more.
+    @Published private(set) var commentsTotalCount = 0
     /// Resolved full-screen trailer (from the Trailers row); drives a player cover with sound.
     @Published var trailerPlayback: TrailerPlaybackItem?
     /// Trailer currently resolving (spinner on its row card).
@@ -76,6 +85,7 @@ final class DetailViewModel: ObservableObject {
     private var progressWatcher: FlowWatcher?
     private var cwPrefsWatcher: FlowWatcher?
     private var ratingsSettingsWatcher: FlowWatcher?
+    private var commentsEnabledWatcher: FlowWatcher?
     // Latest shared-state emissions (the exported StateFlow interface has no `value` accessor,
     // so the watchers below capture what the series primary action needs).
     private var latestProgressEntries: [WatchProgressEntry] = []
@@ -144,6 +154,11 @@ final class DetailViewModel: ObservableObject {
         if let state = MetaScreenSettingsRepository.shared.uiState.value_ as? MetaScreenSettingsUiState {
             showOverallRatings = state.showOverallRatings
             episodeRatingsVisibility = state.episodeRatingsVisibility.name
+            layout = DetailLayout(state: state)
+        }
+        TraktCommentsSettings.shared.ensureLoaded()
+        if let enabled = TraktCommentsSettings.shared.enabled.value_ as? KotlinBoolean {
+            commentsEnabled = enabled.boolValue
         }
 
         detailWatcher = FlowWatcherKt.watch(MetaDetailsRepository.shared.uiState) { [weak self] emitted in
@@ -220,8 +235,15 @@ final class DetailViewModel: ObservableObject {
             guard let self, let state = emitted as? MetaScreenSettingsUiState else { return }
             self.showOverallRatings = state.showOverallRatings
             self.episodeRatingsVisibility = state.episodeRatingsVisibility.name
+            let newLayout = DetailLayout(state: state)
+            if newLayout != self.layout { self.layout = newLayout }
             // Episode ratings shown again after the title loaded with them hidden: fetch them now.
             if let m = self.meta { self.fetchEpisodeRatingsIfNeeded(m) }
+        }
+
+        commentsEnabledWatcher = FlowWatcherKt.watch(TraktCommentsSettings.shared.enabled) { [weak self] emitted in
+            guard let self, let enabled = emitted as? KotlinBoolean else { return }
+            self.applyCommentsEnabled(enabled.boolValue)
         }
 
         MetaDetailsRepository.shared.load(type: type, id: id)
@@ -237,6 +259,7 @@ final class DetailViewModel: ObservableObject {
         progressWatcher?.cancel(); progressWatcher = nil
         cwPrefsWatcher?.cancel(); cwPrefsWatcher = nil
         ratingsSettingsWatcher?.cancel(); ratingsSettingsWatcher = nil
+        commentsEnabledWatcher?.cancel(); commentsEnabledWatcher = nil
         episodeProgressRequestedFor = nil
         lastReconcileSignature = nil
         trailerVideoURL = nil
@@ -411,13 +434,30 @@ final class DetailViewModel: ObservableObject {
     /// when the synced Trakt token is rejected), and an undeclared Kotlin exception crossing a
     /// suspend completion terminates the app. The bridge collapses failures to nil.
     private func fetchCommentsIfNeeded(_ meta: MetaDetails) {
-        guard !didRequestComments else { return }
+        // Comments switched off: no request, and nothing is remembered as requested so that
+        // switching them back on fetches (see `applyCommentsEnabled`).
+        guard commentsEnabled, !didRequestComments else { return }
         didRequestComments = true
         TraktCommentsSwiftBridge.shared.pageOrNull(meta: meta, page: 1, forceRefresh: false) { [weak self] page, _ in
             DispatchQueue.main.async {
-                guard let self, let page else { return }
+                guard let self, let page, self.commentsEnabled else { return }
                 self.comments = page.items
+                self.commentsTotalCount = Int(page.itemCount)
             }
+        }
+    }
+
+    /// The Trakt comments setting changed (here or through profile sync): clear the section when it
+    /// goes off, fetch the first page when it comes back on.
+    private func applyCommentsEnabled(_ enabled: Bool) {
+        guard enabled != commentsEnabled else { return }
+        commentsEnabled = enabled
+        if enabled {
+            if let meta { fetchCommentsIfNeeded(meta) }
+        } else {
+            comments = []
+            commentsTotalCount = 0
+            didRequestComments = false
         }
     }
 

@@ -24,6 +24,11 @@ struct EpisodesSection: View {
     var episodeRatingsVisibility: String = "SHOW_ALL"
     /// SET-2: Settings → Appearance → Ratings → Overall Ratings (the player's Info-tab rating chip).
     var showOverallRatings: Bool = true
+    /// Settings → Detail Page → Episode Cards: a shelf of stills, or one row per episode.
+    var cardStyle: DetailEpisodeCardStyle = .horizontal
+    /// Settings → Detail Page → Blur Unwatched Episodes: stills of episodes not watched yet are
+    /// blurred, so browsing a season spoils nothing.
+    var blurUnwatchedEpisodes: Bool = false
     /// EP-2: mark / unmark one episode (long press → context menu). nil = no menu.
     var onToggleWatched: ((MetaVideo) -> Void)? = nil
     /// Episode options beyond the single mark (Android TV / mobile episode menu): what the long-press
@@ -31,8 +36,15 @@ struct EpisodesSection: View {
     var episodeOptions: ((MetaVideo) -> DetailViewModel.EpisodeOptions?)? = nil
     var onToggleSeasonWatched: ((MetaVideo) -> Void)? = nil
     var onMarkPreviousWatched: ((MetaVideo) -> Void)? = nil
+    /// Opens the episode's Trakt comments (the menu's "Episode Comments"). nil = Trakt comments are
+    /// switched off, no menu item.
+    var onOpenComments: ((MetaVideo) -> Void)? = nil
 
     @State private var selectedSeason: Int?
+    /// Settings → Detail Page → Season Selector (`SeasonViewModeStorage`, this Apple TV): text
+    /// chips even when the seasons have posters. Read when the section is created; the setting
+    /// lives in Settings, which cannot be open under a detail page.
+    @State private var seasonsAsText = SeasonViewModeStorage.shared.load() == SeasonViewMode.text
     /// EP-1: an episode card has had focus. Until then the shelf follows the Resume / Up Next action
     /// as it resolves (local progress first, a Trakt hydration seconds later); from then on the
     /// season on screen is pinned into `selectedSeason` and the shelf never scrolls by itself, so an
@@ -70,10 +82,10 @@ struct EpisodesSection: View {
                 // `MetaVideo.seasonPoster` is filled by the TMDB season fetch (`useSeasonPosters`,
                 // default ON) — tvOS just never drew it. Mobile's rule (DetailSeriesContent.kt):
                 // posters when any season has one, text chips otherwise; the poster's fallback is
-                // the show poster. No new setting this cycle (mobile's Posters/Text toggle stays
-                // out until someone asks), so no new strings either.
+                // the show poster. Mobile's Posters/Text toggle is Settings → Detail Page →
+                // Season Selector (`seasonsAsText`).
                 let posterBySeason = Self.seasonPosters(grouped, meta: meta)
-                if posterBySeason.values.contains(where: { $0 != nil }) {
+                if !seasonsAsText, posterBySeason.values.contains(where: { $0 != nil }) {
                     ScrollView(.horizontal, showsIndicators: false) {
                         LazyHStack(alignment: .top, spacing: Theme.Spacing.rowGap) {
                             ForEach(seasons, id: \.self) { season in
@@ -131,76 +143,82 @@ struct EpisodesSection: View {
             // French locale showed "Episodes", not "Épisodes").
             Text(String(localized: "Episodes")).font(Theme.Font.screenTitle)
 
-            ScrollViewReader { proxy in
-                ScrollView(.horizontal, showsIndicators: false) {
-                    LazyHStack(alignment: .top, spacing: Theme.Spacing.rowGap) {
-                        ForEach(episodes, id: \.id) { episode in
-                            Button {
-                                episodeForStreams = EpisodeRoute(meta: meta, episode: episode)
-                            } label: {
-                                EpisodeThumbCard(
-                                    episode: episode,
-                                    fallbackImage: meta.background ?? meta.poster,
-                                    rating: rating(for: episode),
+            if cardStyle == .list {
+                episodeList(episodes: episodes, restingEpisodeId: restingEpisodeId)
+            } else {
+                ScrollViewReader { proxy in
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        LazyHStack(alignment: .top, spacing: Theme.Spacing.rowGap) {
+                            ForEach(episodes, id: \.id) { episode in
+                                Button {
+                                    episodeForStreams = EpisodeRoute(meta: meta, episode: episode)
+                                } label: {
+                                    EpisodeThumbCard(
+                                        episode: episode,
+                                        fallbackImage: meta.background ?? meta.poster,
+                                        rating: rating(for: episode),
+                                        isWatched: isWatched(episode),
+                                        progress: progress(for: episode),
+                                        blursStill: blursStill(of: episode)
+                                    )
+                                }
+                                // BUG-93: EpisodeThumbCard uses tileFocusLift, not CardFocusTreatment - keep the native lift in ring mode.
+                                .cardFocusButtonStyle(lift: .plain)
+                                .posterButtonShape() // BUG-32: honor the Corners setting
+                                .focused($focusedEpisodeId, equals: episode.id)
+                                .modifier(EpisodeOptionsMenu(
                                     isWatched: isWatched(episode),
-                                    progress: progress(for: episode)
-                                )
+                                    onToggle: toggleWatchedAction(for: episode),
+                                    options: { episodeOptions?(episode) },
+                                    onStartOver: { episodeForStreams = EpisodeRoute(meta: meta, episode: episode, startOver: true) },
+                                    onToggleSeason: onToggleSeasonWatched.map { handler in { handler(episode) } },
+                                    onMarkPrevious: onMarkPreviousWatched.map { handler in { handler(episode) } },
+                                    onOpenComments: onOpenComments.map { handler in { handler(episode) } }
+                                ))
+                                .id(episode.id)
                             }
-                            // BUG-93: EpisodeThumbCard uses tileFocusLift, not CardFocusTreatment - keep the native lift in ring mode.
-                            .cardFocusButtonStyle(lift: .plain)
-                            .posterButtonShape() // BUG-32: honor the Corners setting
-                            .focused($focusedEpisodeId, equals: episode.id)
-                            .modifier(EpisodeOptionsMenu(
-                                isWatched: isWatched(episode),
-                                onToggle: toggleWatchedAction(for: episode),
-                                options: { episodeOptions?(episode) },
-                                onStartOver: { episodeForStreams = EpisodeRoute(meta: meta, episode: episode, startOver: true) },
-                                onToggleSeason: onToggleSeasonWatched.map { handler in { handler(episode) } },
-                                onMarkPrevious: onMarkPreviousWatched.map { handler in { handler(episode) } }
-                            ))
-                            .id(episode.id)
+                        }
+                        .padding(.vertical, Theme.Spacing.md)
+                    }
+                    .scrollClipDisabled()
+                    .onAppear {
+                        // EP-1: open on the Resume / Up Next episode (the layout pass has to land first).
+                        // Not on a return to this page once the viewer has been through the shelf.
+                        guard !shelfEngaged, let restingEpisodeId, restingEpisodeId != episodes.first?.id else { return }
+                        DispatchQueue.main.async {
+                            var tx = Transaction()
+                            tx.disablesAnimations = true
+                            withTransaction(tx) { proxy.scrollTo(restingEpisodeId, anchor: .leading) }
                         }
                     }
-                    .padding(.vertical, Theme.Spacing.md)
-                }
-                .scrollClipDisabled()
-                .onAppear {
-                    // EP-1: open on the Resume / Up Next episode (the layout pass has to land first).
-                    // Not on a return to this page once the viewer has been through the shelf.
-                    guard !shelfEngaged, let restingEpisodeId, restingEpisodeId != episodes.first?.id else { return }
-                    DispatchQueue.main.async {
+                    .onChange(of: current) { _, _ in
+                        // A new season can be shorter than the old scroll offset; snap to its first
+                        // episode — or, EP-1, to the Resume / Up Next episode — without animating
+                        // through the intermediate layout.
+                        guard let restingEpisodeId else { return }
                         var tx = Transaction()
                         tx.disablesAnimations = true
                         withTransaction(tx) { proxy.scrollTo(restingEpisodeId, anchor: .leading) }
                     }
+                    .onChange(of: restingEpisodeId) { _, target in
+                        // EP-1: the action resolved late within the season on screen (a Trakt
+                        // hydration) — follow it, but only until the viewer has reached the shelf.
+                        guard let target, !shelfEngaged, focusedEpisodeId == nil else { return }
+                        var tx = Transaction()
+                        tx.disablesAnimations = true
+                        withTransaction(tx) { proxy.scrollTo(target, anchor: .leading) }
+                    }
                 }
-                .onChange(of: current) { _, _ in
-                    // A new season can be shorter than the old scroll offset; snap to its first
-                    // episode — or, EP-1, to the Resume / Up Next episode — without animating
-                    // through the intermediate layout.
-                    guard let restingEpisodeId else { return }
-                    var tx = Transaction()
-                    tx.disablesAnimations = true
-                    withTransaction(tx) { proxy.scrollTo(restingEpisodeId, anchor: .leading) }
+                .focusSection()
+                .onChange(of: focusedEpisodeId) { _, focused in
+                    // EP-1: the viewer reached the shelf — pin the season on screen (see `shelfEngaged`).
+                    guard focused != nil, !shelfEngaged else { return }
+                    shelfEngaged = true
+                    if selectedSeason == nil { selectedSeason = current }
                 }
-                .onChange(of: restingEpisodeId) { _, target in
-                    // EP-1: the action resolved late within the season on screen (a Trakt
-                    // hydration) — follow it, but only until the viewer has reached the shelf.
-                    guard let target, !shelfEngaged, focusedEpisodeId == nil else { return }
-                    var tx = Transaction()
-                    tx.disablesAnimations = true
-                    withTransaction(tx) { proxy.scrollTo(target, anchor: .leading) }
-                }
-            }
-            .focusSection()
-            .onChange(of: focusedEpisodeId) { _, focused in
-                // EP-1: the viewer reached the shelf — pin the season on screen (see `shelfEngaged`).
-                guard focused != nil, !shelfEngaged else { return }
-                shelfEngaged = true
-                if selectedSeason == nil { selectedSeason = current }
-            }
 
-            focusedOverviewPanel(episodes: episodes, restingEpisodeId: restingEpisodeId)
+                focusedOverviewPanel(episodes: episodes, restingEpisodeId: restingEpisodeId)
+            }
         }
         // Gap 21: selection follows focus after `seasonSelectionDwell`. Select still selects at
         // once (the buttons' own action), and leaving the row cancels a pending dwell.
@@ -230,6 +248,65 @@ struct EpisodesSection: View {
         var meta = PlaybackMeta(details: details)
         if !showOverallRatings { meta.imdbRating = nil }
         return meta
+    }
+
+    /// Settings → Detail Page → Episode Cards → List: one row per episode, in the system `.card`
+    /// style (spec 5.3). Each row carries its own synopsis, so there is no overview panel. Focus
+    /// moving down from the season selector lands on the Resume / Up Next episode (spec 6.3).
+    @ViewBuilder
+    private func episodeList(episodes: [MetaVideo], restingEpisodeId: String?) -> some View {
+        LazyVStack(alignment: .leading, spacing: Theme.Spacing.md) {
+            ForEach(episodes, id: \.id) { episode in
+                Button {
+                    episodeForStreams = EpisodeRoute(meta: meta, episode: episode)
+                } label: {
+                    EpisodeListRow(
+                        episode: episode,
+                        fallbackImage: meta.background ?? meta.poster,
+                        rating: rating(for: episode),
+                        isWatched: isWatched(episode),
+                        progress: progress(for: episode),
+                        blursStill: blursStill(of: episode)
+                    )
+                }
+                .buttonStyle(.card)
+                .focused($focusedEpisodeId, equals: episode.id)
+                .modifier(EpisodeOptionsMenu(
+                    isWatched: isWatched(episode),
+                    onToggle: toggleWatchedAction(for: episode),
+                    options: { episodeOptions?(episode) },
+                    onStartOver: { episodeForStreams = EpisodeRoute(meta: meta, episode: episode, startOver: true) },
+                    onToggleSeason: onToggleSeasonWatched.map { handler in { handler(episode) } },
+                    onMarkPrevious: onMarkPreviousWatched.map { handler in { handler(episode) } },
+                    onOpenComments: onOpenComments.map { handler in { handler(episode) } }
+                ))
+                .id(episode.id)
+            }
+        }
+        .focusSection()
+        .defaultFocus($focusedEpisodeId, restingEpisodeId, priority: .userInitiated)
+        .onChange(of: focusedEpisodeId) { _, focused in
+            // EP-1: the viewer reached the list — pin the season on screen (see `shelfEngaged`).
+            guard focused != nil, !shelfEngaged else { return }
+            shelfEngaged = true
+            if selectedSeason == nil { selectedSeason = currentSeasonForPinning }
+        }
+    }
+
+    /// The season on screen, for pinning it once the viewer reaches the list.
+    private var currentSeasonForPinning: Int? {
+        let grouped = Self.groupedEpisodes(meta.videos)
+        let seasons = grouped.keys.sorted { Self.seasonSortKey($0) < Self.seasonSortKey($1) }
+        let preferred = Self.preferredSeasonKey(preferredSeason, in: grouped)
+        return selectedSeason ?? preferred ?? seasons.first
+    }
+
+    /// Blur Unwatched Episodes: the episode's own still (a fallback backdrop gives nothing away) of
+    /// an episode that is not watched yet.
+    private func blursStill(of episode: MetaVideo) -> Bool {
+        guard blurUnwatchedEpisodes, !isWatched(episode) else { return false }
+        let thumb: String? = episode.thumbnail
+        return !(thumb ?? "").isEmpty
     }
 
     /// Fixed-height synopsis for the focused episode (falls back to the episode the shelf rests on
@@ -406,6 +483,7 @@ private struct EpisodeOptionsMenu: ViewModifier {
     let onStartOver: () -> Void
     let onToggleSeason: (() -> Void)?
     let onMarkPrevious: (() -> Void)?
+    let onOpenComments: (() -> Void)?
 
     func body(content: Content) -> some View {
         if let onToggle {
@@ -443,6 +521,13 @@ private struct EpisodeOptionsMenu: ViewModifier {
                         onMarkPrevious()
                     } label: {
                         Label("Mark Previous Episodes Watched", systemImage: "arrow.uturn.backward.circle")
+                    }
+                }
+                if let onOpenComments {
+                    Button {
+                        onOpenComments()
+                    } label: {
+                        Label("Episode Comments", systemImage: "text.bubble")
                     }
                 }
             }
@@ -525,6 +610,8 @@ private struct EpisodeThumbCard: View {
     var isWatched: Bool = false
     /// AES-4/EP-2: 0…1 partial progress, drawn along the bottom of the still; nil hides the bar.
     var progress: Double? = nil
+    /// Blur Unwatched Episodes: the still of an episode not watched yet is blurred.
+    var blursStill: Bool = false
 
     @Environment(\.isFocused) private var isFocused
     // BUG-32: shared corner token, not the hardcoded Theme.Radius.card.
@@ -535,6 +622,7 @@ private struct EpisodeThumbCard: View {
         VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
             ZStack(alignment: .bottom) {
                 CachedAsyncImage(string: thumbnailURL)
+                    .blur(radius: blursStill ? EpisodeStillBlur.radius : 0, opaque: true)
                     .frame(width: Theme.Size.episodeWidth, height: Theme.Size.episodeHeight)
                     // BUG-31: episode stills are not all 16:9 (and the poster fallback never is), so
                     // the `.fill` image overflows this fixed frame and the hover lift copies the
@@ -710,5 +798,133 @@ private struct SeasonPosterCard: View {
         }
         .accessibilityLabel(label)
         .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+}
+
+/// The blur Blur Unwatched Episodes puts over a still (mobile blurs by 18 dp; this is the same
+/// softness at television scale: the picture stays recognisably a scene, the detail is gone).
+enum EpisodeStillBlur {
+    static let radius: CGFloat = 22
+}
+
+/// One episode as a row of the list layout (Settings → Detail Page → Episode Cards → List): the
+/// 16:9 still with its watched / rating / progress marks beside the title, the air date line and
+/// the synopsis. Text uses semantic colours so the `.card` button style owns every focus state.
+/// At accessibility text sizes the still moves above the text and takes the full width.
+private struct EpisodeListRow: View {
+    let episode: MetaVideo
+    let fallbackImage: String?
+    var rating: Double? = nil
+    var isWatched: Bool = false
+    var progress: Double? = nil
+    var blursStill: Bool = false
+
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.posterStyle) private var posterStyle
+
+    private static let stillWidth: CGFloat = 360
+    private static let stillHeight: CGFloat = 203   // 16:9
+
+    var body: some View {
+        let layout = dynamicTypeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: Theme.Spacing.md))
+            : AnyLayout(HStackLayout(alignment: .top, spacing: Theme.Spacing.lg))
+        layout {
+            still
+            VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
+                Text(heading)
+                    .font(Theme.Font.body)
+                    .foregroundStyle(.primary)
+                    .lineLimit(2)
+                if let caption {
+                    Text(caption)
+                        .font(Theme.Font.caption)
+                        .foregroundStyle(.secondary)
+                }
+                let overview: String? = episode.overview
+                if let overview, !overview.isEmpty {
+                    Text(overview)
+                        .font(Theme.Font.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(3)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(Theme.Spacing.md)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .combine)
+    }
+
+    private var still: some View {
+        let radius = posterStyle.cornerRadius
+        return ZStack(alignment: .bottom) {
+            CachedAsyncImage(string: thumbnailURL)
+                .blur(radius: blursStill ? EpisodeStillBlur.radius : 0, opaque: true)
+                .frame(width: Self.stillWidth, height: Self.stillHeight)
+                .clipped()
+            if let progress {
+                GeometryReader { geo in
+                    ZStack(alignment: .leading) {
+                        Rectangle().fill(Color.white.opacity(0.25))
+                        Rectangle()
+                            .fill(Theme.Palette.progress)
+                            .frame(width: geo.size.width * min(max(progress, 0), 1))
+                    }
+                }
+                .frame(height: 6)
+                .allowsHitTesting(false)
+            }
+        }
+        .frame(width: Self.stillWidth, height: Self.stillHeight)
+        .clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
+        .overlay(alignment: .topTrailing) {
+            if isWatched { WatchedCheckBadge().padding(10) }
+        }
+        .overlay(alignment: .bottomTrailing) {
+            if let rating {
+                HStack(spacing: 4) {
+                    Image(systemName: "star.fill")
+                        .accessibilityHidden(true)
+                    Text(String(format: "%.1f", rating))
+                }
+                .font(Theme.Font.meta)
+                .foregroundStyle(.white)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 4)
+                .background(.black.opacity(0.6), in: Capsule())
+                .padding(10)
+            }
+        }
+        .accessibilityHidden(true)
+    }
+
+    private var thumbnailURL: String {
+        let thumb: String? = episode.thumbnail
+        if let thumb, !thumb.isEmpty { return thumb }
+        return fallbackImage ?? ""
+    }
+
+    private var heading: String {
+        if let e = episode.episode?.value {
+            return String(localized: "\(e). \(episode.title)")
+        }
+        return episode.title
+    }
+
+    /// "S1E4 \u{00B7} 2024-04-12 \u{00B7} 52 min"; nil when nothing is known.
+    private var caption: String? {
+        var parts: [String] = []
+        if let s = episode.season?.value, let e = episode.episode?.value {
+            parts.append("S\(s)E\(e)")
+        }
+        let released: String? = episode.released
+        if let released, released.count >= 10 {
+            parts.append(String(released.prefix(10)))
+        }
+        if let runtime = episode.runtime?.value, runtime > 0 {
+            parts.append("\(runtime) min")
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: " \u{00B7} ")
     }
 }
