@@ -43,7 +43,7 @@ final class NativePlayerHostController: UIViewController, UIGestureRecognizerDel
     /// beat later, after that action had its turn â€” the engine then acts only if none ran.
     var onSelectPress: (() -> Int?)?
     var onSelectSettled: ((Int) -> Void)?
-    /// The system transport bar is about to appear (true) or go away (false) — the clock pill
+    /// The system transport bar is about to appear (true) or go away (false); the clock pill
     /// follows it.
     var onTransportBarVisibility: ((Bool) -> Void)?
     private var swallowMenuRelease = false

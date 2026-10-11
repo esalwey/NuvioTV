@@ -7,7 +7,7 @@ import XCTest
 @MainActor
 final class SubtitleTextTests: XCTestCase {
 
-    // MARK: - Samples (bytes generated with the code pages named)
+    // MARK: - Samples (bytes encoded in the code pages named)
 
     private let russianText = "Привет, как дела? Я давно тебя не видел."
     private let russian1251 = Data([0xCF, 0xF0, 0xE8, 0xE2, 0xE5, 0xF2, 0x2C, 0x20, 0xEA, 0xE0, 0xEA, 0x20, 0xE4, 0xE5, 0xEB,
