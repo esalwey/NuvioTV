@@ -144,8 +144,8 @@ struct NativePlayerScreen: View {
                             Self.perform(action, on: upNext)
                         },
                         onSetRate: { rate in setPlaybackRate(rate) },
-                        onTransportBarVisibility: { [weak clock] visible in clock?.transportBarVisible = visible },
                         onSetAspect: { mode in setAspectMode(mode) },
+                        onTransportBarVisibility: { [weak clock] visible in clock?.transportBarVisible = visible },
                         onSetSubtitleDelay: { [weak coordinator] ms in coordinator?.setSubtitleDelay(ms: ms) },
                         onStartOver: { [weak coordinator] in coordinator?.startOver() },
                         onChooseSource: { [weak upNext] in
