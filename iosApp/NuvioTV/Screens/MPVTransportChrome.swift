@@ -123,7 +123,7 @@ struct MPVTransportFocusView: View {
             Color.clear.ignoresSafeArea()
             PlayerChromeScrim(deep: tabsEngaged)
             VStack(alignment: .leading, spacing: Theme.Spacing.lg) {
-                PlayerTransportBar(state: state, summary: summary, ticks: chromeModel.tickTimes) {
+                PlayerTransportBar(state: state, summary: summary) {
                     buttonRow
                 } scrubberOverlay: {
                     scrubberProxy
@@ -133,7 +133,7 @@ struct MPVTransportFocusView: View {
                 if tabsEngaged {
                     tabContent
                         .frame(height: contentHeight(selectedTab), alignment: .top)
-                        .padding(.horizontal, Theme.Spacing.xl)
+                        .padding(.horizontal, PlayerChromeLayout.contentInset)
                         .focusSection()
                         .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
                 }
@@ -194,11 +194,13 @@ struct MPVTransportFocusView: View {
     }
 
     private var buttonRow: some View {
-        HStack(spacing: Theme.Spacing.md) {
-            ForEach(items) { item in
-                button(for: item)
-                    .focused($focus, equals: .item(item))
-                    .accessibilityLabel(Text(verbatim: item.title))
+        GlassEffectContainer(spacing: Theme.Spacing.md) {
+            HStack(spacing: Theme.Spacing.md) {
+                ForEach(items) { item in
+                    button(for: item)
+                        .focused($focus, equals: .item(item))
+                        .accessibilityLabel(Text(verbatim: item.title))
+                }
             }
         }
         .focusSection()

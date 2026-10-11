@@ -8,19 +8,14 @@ import UIKit
 import Libmpv
 import SharedCore
 
-/// Live chrome data the libmpv screen collects for its transport bar and Chapters tab: chapter
-/// ticks from the file's own chapters, else from the intro/recap/credits segments.
+/// Live chrome data the libmpv screen collects for its Chapters tab: the file's own chapters, else the
+/// intro/recap/credits segments. The scrubber itself stays a plain track, as on the system player.
 @MainActor
 final class MPVChromeModel: ObservableObject {
     /// File chapters (mpv `chapter-list`), in seconds, the first one (0) excluded.
     @Published var chapterTimes: [Double] = []
-    /// Skip-segment boundaries (intro/recap/credits starts and ends), in seconds.
-    @Published var segmentBounds: [Double] = []
     /// The skip segments themselves — the Chapters tab names them like the native screen does.
     @Published var segments: [SkipSegment] = []
-
-    /// What the scrubber marks: the file's chapters when it has any, else the known segments.
-    var tickTimes: [Double] { chapterTimes.isEmpty ? segmentBounds : chapterTimes }
 
     /// The Chapters tab: the segments' chapters (the native screen's `navigationMarkerGroups`),
     /// else the file's own chapters.
@@ -43,10 +38,11 @@ enum PlayerChromeFormat {
 
 /// The tvOS 26 system player's transport bar, reproduced for the libmpv engine so it looks and reads
 /// exactly like the native screen's `AVPlayerViewController` (user report: one interface for every
-/// format). One Liquid Glass platter at the bottom holding, top to bottom: the title view (episode
-/// line over the title, from the same metadata the native item carries) with the transport buttons
-/// at its trailing end, the scrubber with chapter ticks and the scrub head, elapsed and remaining
-/// time, and the content-tab row ("swipe down").
+/// format). No platter: like the system player, the content floats straight over the picture on a
+/// soft shade at the bottom edge (`PlayerChromeScrim`), top to bottom: the title view (episode line
+/// over the title, from the same metadata the native item carries) with the round glass transport
+/// buttons at its trailing end, the plain scrubber and its scrub head, elapsed and remaining time,
+/// and the content-tab row ("swipe down").
 ///
 /// The buttons, the scrubber overlay and the tab row are slots: the passive overlay
 /// (`PlayerControlsOverlay`, nothing focusable — libmpv owns the remote) draws them as glyphs, and
@@ -55,24 +51,19 @@ enum PlayerChromeFormat {
 struct PlayerTransportBar<Buttons: View, ScrubberOverlay: View, Tabs: View>: View {
     @ObservedObject var state: MPVPlaybackState
     let summary: PlayerInfoSummary
-    /// Chapter marks in seconds (file chapters, or the skip segments).
-    let ticks: [Double]
     let buttons: Buttons
     let scrubberOverlay: ScrubberOverlay
     let tabs: Tabs
 
-    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @Environment(\.colorSchemeContrast) private var contrast
 
     init(state: MPVPlaybackState,
          summary: PlayerInfoSummary,
-         ticks: [Double],
          @ViewBuilder buttons: () -> Buttons,
          @ViewBuilder scrubberOverlay: () -> ScrubberOverlay,
          @ViewBuilder tabs: () -> Tabs) {
         _state = ObservedObject(wrappedValue: state)
         self.summary = summary
-        self.ticks = ticks
         self.buttons = buttons()
         self.scrubberOverlay = scrubberOverlay()
         self.tabs = tabs()
@@ -88,8 +79,7 @@ struct PlayerTransportBar<Buttons: View, ScrubberOverlay: View, Tabs: View>: Vie
             .padding(.bottom, Theme.Spacing.lg)
             ProgressBar(fraction: state.fraction,
                         scrubFraction: state.scrubFraction,
-                        scrubLabel: state.scrubTargetSec.map { PlayerChromeFormat.time($0) },
-                        ticks: tickFractions)
+                        scrubLabel: state.scrubTargetSec.map { PlayerChromeFormat.time($0) })
                 .frame(height: ProgressBar.headSize.height)
                 .overlay { scrubberOverlay }
             timeRow
@@ -97,11 +87,10 @@ struct PlayerTransportBar<Buttons: View, ScrubberOverlay: View, Tabs: View>: Vie
             tabs
                 .padding(.top, Theme.Spacing.md)
         }
-        .padding(.horizontal, Theme.Spacing.xl)
+        .padding(.horizontal, PlayerChromeLayout.contentInset)
         .padding(.top, Theme.Spacing.lg)
         .padding(.bottom, Theme.Spacing.md)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .modifier(PlayerBarSurface(reduceTransparency: reduceTransparency, contrast: contrast))
         .foregroundStyle(.white)
         .environment(\.colorScheme, .dark)
     }
@@ -124,6 +113,7 @@ struct PlayerTransportBar<Buttons: View, ScrubberOverlay: View, Tabs: View>: Vie
                 .fontWeight(.bold)
                 .lineLimit(1)
         }
+        .playerChromeTextShadow()
         .accessibilityElement(children: .combine)
     }
 
@@ -152,13 +142,7 @@ struct PlayerTransportBar<Buttons: View, ScrubberOverlay: View, Tabs: View>: Vie
         .monospacedDigit()
         .foregroundStyle(secondaryStyle)
         .lineLimit(1)
-    }
-
-    private var tickFractions: [Double] {
-        guard state.durationSec > 0 else { return [] }
-        return ticks
-            .map { $0 / state.durationSec }
-            .filter { $0 > 0.005 && $0 < 0.995 }
+        .playerChromeTextShadow()
     }
 
     private var secondaryStyle: Color {
@@ -166,49 +150,54 @@ struct PlayerTransportBar<Buttons: View, ScrubberOverlay: View, Tabs: View>: Vie
     }
 }
 
-/// The bar's platter: Liquid Glass in the players' shared tint, or an opaque dark fill with Reduce
-/// Transparency.
-private struct PlayerBarSurface: ViewModifier {
-    let reduceTransparency: Bool
-    let contrast: ColorSchemeContrast
-
-    @ViewBuilder
-    func body(content: Content) -> some View {
-        let shape = RoundedRectangle(cornerRadius: Theme.Radius.panel, style: .continuous)
-        if reduceTransparency {
-            content
-                .background(shape.fill(Color.black.opacity(0.85)))
-                .overlay(shape.strokeBorder(Color.white.opacity(contrast == .increased ? 0.5 : 0.15), lineWidth: 1))
-        } else {
-            content
-                .glassEffect(PlayerChipStyle.glass, in: shape)
-                .overlay {
-                    if contrast == .increased {
-                        shape.strokeBorder(Color.white.opacity(0.5), lineWidth: 1.5)
-                    }
-                }
-        }
+extension View {
+    /// A soft shadow under the chrome's text: with no platter behind it, the labels keep their
+    /// contrast over a bright scene (the system player does the same on top of its shade).
+    func playerChromeTextShadow() -> some View {
+        shadow(color: .black.opacity(0.45), radius: 6, y: 1)
     }
 }
 
 // MARK: - Transport buttons and tab pills
 
-/// One round transport-bar button: the item's SF Symbol in a circle, white when focused.
+/// One round transport-bar button: the item's SF Symbol in a Liquid Glass circle (the only glass in
+/// the bar, as on the system player), a solid white disc with a black symbol when focused. With
+/// Reduce Transparency the glass is a dark disc with a hairline.
 struct PlayerTransportGlyph: View {
     let item: PlayerTransportItem
     var focused = false
 
     static let diameter: CGFloat = 66
 
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+
     var body: some View {
         Image(systemName: item.symbol)
             .font(.system(size: 26, weight: .semibold))
             .foregroundStyle(focused ? Color.black : Color.white)
             .frame(width: Self.diameter, height: Self.diameter)
-            .background(Circle().fill(focused ? Color.white : Color.white.opacity(0.14)))
+            .modifier(PlayerTransportGlyphSurface(focused: focused, reduceTransparency: reduceTransparency))
             .scaleEffect(focused ? 1.12 : 1)
             .shadow(color: .black.opacity(focused ? 0.35 : 0), radius: 10, y: 4)
             .animation(.easeOut(duration: 0.18), value: focused)
+    }
+}
+
+private struct PlayerTransportGlyphSurface: ViewModifier {
+    let focused: Bool
+    let reduceTransparency: Bool
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if focused {
+            content.background(Circle().fill(Color.white))
+        } else if reduceTransparency {
+            content
+                .background(Circle().fill(Color.black.opacity(0.7)))
+                .overlay(Circle().strokeBorder(Color.white.opacity(0.2), lineWidth: 1))
+        } else {
+            content.glassEffect(PlayerChipStyle.glass, in: .circle)
+        }
     }
 }
 
@@ -217,8 +206,10 @@ struct PlayerTransportGlyphRow: View {
     let items: [PlayerTransportItem]
 
     var body: some View {
-        HStack(spacing: Theme.Spacing.md) {
-            ForEach(items) { PlayerTransportGlyph(item: $0) }
+        GlassEffectContainer(spacing: Theme.Spacing.md) {
+            HStack(spacing: Theme.Spacing.md) {
+                ForEach(items) { PlayerTransportGlyph(item: $0) }
+            }
         }
         .accessibilityHidden(true)
     }
@@ -313,7 +304,6 @@ struct PlayerTabPillRow: View {
 struct PlayerControlsOverlay: View {
     @ObservedObject var state: MPVPlaybackState
     let summary: PlayerInfoSummary
-    var chapterTicks: [Double] = []
     var items: [PlayerTransportItem] = []
     var tabs: [PlayerContentTab] = []
     /// Height of the chrome content (scrim excluded), for the prompts stacked above it.
@@ -322,7 +312,7 @@ struct PlayerControlsOverlay: View {
     var body: some View {
         ZStack(alignment: .bottom) {
             PlayerChromeScrim()
-            PlayerTransportBar(state: state, summary: summary, ticks: chapterTicks) {
+            PlayerTransportBar(state: state, summary: summary) {
                 PlayerTransportGlyphRow(items: items)
             } scrubberOverlay: {
                 EmptyView()
@@ -344,26 +334,31 @@ struct PlayerControlsOverlay: View {
 enum PlayerChromeLayout {
     static let barInset: CGFloat = Theme.Spacing.screen
     static let barBottomInset: CGFloat = Theme.Spacing.xl
+    /// Side inset of the bar's content inside the bar inset: the text starts about 84 pt from the
+    /// edge, where the system player's title view does.
+    static let contentInset: CGFloat = Theme.Spacing.lg
 }
 
-/// Bottom dim behind the bar. The tvOS 26 system player floats its glass controls over the picture
-/// with only a faint shade at the very bottom (it used to be 25 % / 50 % black, which visibly
-/// darkened the whole lower half of the video on every skip or click, where the native engine
-/// does not). Deeper only while a content tab (Info / Episodes / Chapters) is open, as on the
-/// native engine's content panel.
+/// The bottom gradient the chrome sits on. With no platter, this shade is what keeps the white title,
+/// time labels and tabs readable over a bright scene (spec 6.9.3: the bottom of the picture goes
+/// from clear to about 0.6 black), and it fades out well above the controls so the picture keeps its
+/// brightness. Deeper while a content tab (Info / Episodes / Chapters) is open, as on the system
+/// player. Reduce Transparency swaps the soft shade for a darker one, never for a box.
 struct PlayerChromeScrim: View {
     var deep = false
 
-    /// Opacity of the shade at the bottom edge, at rest: light enough that the picture keeps its
-    /// brightness, enough for the secondary labels to stay legible over a white frame.
-    static let restBottomOpacity: Double = 0.22
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+
+    /// Opacity of the shade at the bottom edge, and a third of the way up, at rest.
+    private var restBottomOpacity: Double { reduceTransparency ? 0.85 : 0.62 }
+    private var restMidOpacity: Double { reduceTransparency ? 0.5 : 0.28 }
 
     var body: some View {
         LinearGradient(
             stops: [
-                .init(color: .black.opacity(0), location: deep ? 0.2 : 0.7),
-                .init(color: .black.opacity(deep ? 0.55 : 0.08), location: deep ? 0.55 : 0.88),
-                .init(color: .black.opacity(deep ? 0.8 : Self.restBottomOpacity), location: 1),
+                .init(color: .black.opacity(0), location: deep ? 0.2 : 0.5),
+                .init(color: .black.opacity(deep ? 0.55 : restMidOpacity), location: deep ? 0.55 : 0.8),
+                .init(color: .black.opacity(deep ? 0.85 : restBottomOpacity), location: 1),
             ],
             startPoint: .top, endPoint: .bottom)
             .ignoresSafeArea()
@@ -372,8 +367,8 @@ struct PlayerChromeScrim: View {
     }
 }
 
-/// The system scrubber (spec §6.9.3): a 6 pt capsule track, the played part in white, chapter
-/// ticks cut into it, a 4 × 22 pt playhead mark, and — while scrubbing — a second head at the
+/// The system scrubber (spec §6.9.3): a plain 6 pt capsule track (no chapter marks, as on the system
+/// player), the played part in white, a 4 × 22 pt playhead mark, and — while scrubbing — a second head at the
 /// target with its time above (time-only preview, decision D9). The played part stays on the real
 /// playhead until Select / Play commits the scrub (PLY-A3).
 private struct ProgressBar: View {
@@ -382,12 +377,8 @@ private struct ProgressBar: View {
     var scrubFraction: Double? = nil
     /// Target time drawn above the scrub head.
     var scrubLabel: String? = nil
-    /// Chapter positions (0…1).
-    var ticks: [Double] = []
-
     static let headSize = CGSize(width: 4, height: 22)
     private static let trackHeight: CGFloat = 6
-    private static let tickWidth: CGFloat = 3
 
     var body: some View {
         GeometryReader { geo in
@@ -398,13 +389,6 @@ private struct ProgressBar: View {
                     .frame(height: Self.trackHeight)
                 Capsule().fill(.white)
                     .frame(width: max(0, width * clamped(fraction)), height: Self.trackHeight)
-                // Chapter ticks: short gaps in the track, like the system's chapter breaks.
-                ForEach(Array(ticks.enumerated()), id: \.offset) { _, tick in
-                    Rectangle()
-                        .fill(.black.opacity(0.55))
-                        .frame(width: Self.tickWidth, height: Self.trackHeight)
-                        .position(x: width * clamped(tick), y: midY)
-                }
                 // Playhead mark (dimmed while a scrub head is out, so the target reads first).
                 Capsule()
                     .fill(.white.opacity(scrubFraction == nil ? 1 : 0.5))
