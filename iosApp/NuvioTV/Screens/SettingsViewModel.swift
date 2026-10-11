@@ -32,8 +32,9 @@ final class SettingsViewModel: ObservableObject {
     /// Chip code for the metadata-language row: "device" while no language is stored (the shared
     /// repo derives it from the device language), else the stored code's primary subtag.
     @Published private(set) var tmdbLanguageSelection = "device"
-    /// MDBList external ratings (IMDb/RT/Metacritic/Trakt/Letterboxd on Detail). Gated on a user key;
-    /// the shared MetaDetailsRepository applies the enrichment itself on every load.
+    /// MDBList external ratings (IMDb/TMDB/RT/Audience/Metacritic/Trakt/Letterboxd/MAL on Detail).
+    /// Gated on a user key; the shared MetaDetailsRepository applies the enrichment itself on every
+    /// load. The per-provider switches and their order live on the pushed `MdbListRatingsPage`.
     @Published private(set) var mdbListEnabled = false
     @Published private(set) var mdbListHasKey = false
     /// Subtitle appearance (applied by the player on file load). Nil until settings load.
@@ -75,6 +76,16 @@ final class SettingsViewModel: ObservableObject {
     @Published private(set) var librarySourceMode = "trakt"
     /// Which backend owns Continue Watching / watched history: "trakt", "simkl", or "nuvio_sync".
     @Published private(set) var watchProgressSource = "trakt"
+    /// Where Detail's More Like This comes from: "tmdb", "trakt" or "simkl" (the shared
+    /// `MoreLikeThisSourcePreference`, as a string key like the two sources above).
+    @Published private(set) var moreLikeThisSource = "trakt"
+    /// How many days of Trakt history Continue Watching considers; 0 means all history.
+    @Published private(set) var continueWatchingDaysCap = 60
+    /// Whether Continue Watching / Detail may offer a next episode that has not aired yet
+    /// (shared `ContinueWatchingPreferences`, synced; the shared default is on).
+    @Published private(set) var showUnairedNextUp = true
+    /// Trakt reviews on Detail pages (shared `TraktCommentsSettings`, synced; default on).
+    @Published private(set) var traktCommentsEnabled = true
 
     /// FEAT-10: flip one search source on/off (persists locally + updates the published mirror).
     ///
@@ -111,6 +122,8 @@ final class SettingsViewModel: ObservableObject {
     private var posterStyleWatcher: FlowWatcher?
     private var cardDepthWatcher: FlowWatcher?
     private var trackingSettingsWatcher: FlowWatcher?
+    private var cwPrefsWatcher: FlowWatcher?
+    private var traktCommentsWatcher: FlowWatcher?
     private var searchStateWatcher: FlowWatcher?
     private var searchHistoryWatcher: FlowWatcher?
     private var metaScreenWatcher: FlowWatcher?
@@ -184,6 +197,21 @@ final class SettingsViewModel: ObservableObject {
             guard let self, let state = emitted as? TraktSettingsUiState else { return }
             self.librarySourceMode = Self.librarySourceModeKey(state.librarySourceMode)
             self.watchProgressSource = Self.watchProgressSourceKey(state.watchProgressSource)
+            self.moreLikeThisSource = Self.moreLikeThisSourceKey(state.moreLikeThisSource)
+            self.continueWatchingDaysCap = Int(state.continueWatchingDaysCap)
+        }
+
+        // Show Unaired Next Up (Continue Watching preferences, shared with Detail's primary action).
+        ContinueWatchingPreferencesRepository.shared.ensureLoaded()
+        cwPrefsWatcher = FlowWatcherKt.watch(ContinueWatchingPreferencesRepository.shared.uiState) { [weak self] emitted in
+            guard let self, let state = emitted as? ContinueWatchingPreferencesUiState else { return }
+            self.showUnairedNextUp = state.showUnairedNextUp
+        }
+
+        TraktCommentsSettings.shared.ensureLoaded()
+        traktCommentsWatcher = FlowWatcherKt.watch(TraktCommentsSettings.shared.enabled) { [weak self] emitted in
+            guard let self, let enabled = emitted as? KotlinBoolean else { return }
+            self.traktCommentsEnabled = enabled.boolValue
         }
 
         // The catalog list is derived from the installed add-ons; sync it whenever they change so
@@ -252,6 +280,8 @@ final class SettingsViewModel: ObservableObject {
         posterStyleWatcher?.cancel(); posterStyleWatcher = nil
         cardDepthWatcher?.cancel(); cardDepthWatcher = nil
         trackingSettingsWatcher?.cancel(); trackingSettingsWatcher = nil
+        cwPrefsWatcher?.cancel(); cwPrefsWatcher = nil
+        traktCommentsWatcher?.cancel(); traktCommentsWatcher = nil
         searchStateWatcher?.cancel(); searchStateWatcher = nil
         searchHistoryWatcher?.cancel(); searchHistoryWatcher = nil
         metaScreenWatcher?.cancel(); metaScreenWatcher = nil
@@ -675,6 +705,42 @@ final class SettingsViewModel: ObservableObject {
         ) { _ in }
     }
 
+    // MARK: - Trakt features / More Like This / Continue Watching
+
+    /// "tmdb", "trakt" or "simkl" → the shared `MoreLikeThisSourcePreference`. Compared with `==`
+    /// for the same reason as `librarySourceModeKey`.
+    private static func moreLikeThisSourceKey(_ source: MoreLikeThisSourcePreference) -> String {
+        if source == .tmdb { return "tmdb" }
+        if source == .simkl { return "simkl" }
+        return "trakt"
+    }
+
+    /// Where Detail's More Like This row comes from. The shared repo itself falls back to TMDB while
+    /// the chosen provider is not connected, so any stored value is safe to keep.
+    func setMoreLikeThisSource(_ key: String) {
+        let source: MoreLikeThisSourcePreference
+        switch key {
+        case "tmdb": source = .tmdb
+        case "simkl": source = .simkl
+        default: source = .trakt
+        }
+        TrackingSettingsRepository.shared.setMoreLikeThisSource(source: source)
+    }
+
+    /// Days of Trakt history Continue Watching considers (0 = all history). The shared setter
+    /// normalizes the value.
+    func setContinueWatchingDaysCap(_ days: Int) {
+        TrackingSettingsRepository.shared.setContinueWatchingDaysCap(days: Int32(days))
+    }
+
+    func setShowUnairedNextUp(_ enabled: Bool) {
+        ContinueWatchingPreferencesRepository.shared.setShowUnairedNextUp(enabled: enabled)
+    }
+
+    func setTraktCommentsEnabled(_ enabled: Bool) {
+        TraktCommentsSettings.shared.setEnabled(value: enabled)
+    }
+
     /// Show/hide the Home hero entirely. The shared repo republishes `HomeUiState` from already
     /// -fetched catalog data (`HomeRepository.applyCurrentSettings()`), so no `refreshHome()` call
     /// is needed here — unlike `toggleCatalog`/`moveUp`/`moveDown`, which can add/remove rows.
@@ -718,6 +784,8 @@ final class SettingsViewModel: ObservableObject {
         posterStyleWatcher?.cancel()
         cardDepthWatcher?.cancel()
         trackingSettingsWatcher?.cancel()
+        cwPrefsWatcher?.cancel()
+        traktCommentsWatcher?.cancel()
         searchStateWatcher?.cancel()
         searchHistoryWatcher?.cancel()
         metaScreenWatcher?.cancel()

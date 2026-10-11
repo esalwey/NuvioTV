@@ -1838,14 +1838,11 @@ struct DetailView: View {
         let awards: String? = meta.awards;      add(String(localized: "Awards"), awards ?? "")
         let ratings = meta.externalRatings
         if !ratings.isEmpty {
-            add(String(localized: "Ratings"), ratings.map { "\($0.source) \(formatRating($0.value))" }.joined(separator: "   "))
+            // Provider names and number formats follow the phone app; the order is the user's
+            // Settings → Content Sources → Ratings (MDBList) → Ratings Providers order.
+            add(String(localized: "Ratings"), ratings.map { "\(MdbListProviders.name($0.source)) \(MdbListProviders.formattedValue($0.source, $0.value))" }.joined(separator: "   "))
         }
         return rows
-    }
-
-    private func formatRating(_ v: Double) -> String {
-        let r = (v * 10).rounded() / 10
-        return r == r.rounded() ? String(Int(r)) : String(r)
     }
 
     // MARK: - Collection row ("Part of the X Collection")

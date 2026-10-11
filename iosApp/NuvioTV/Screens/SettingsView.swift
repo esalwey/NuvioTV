@@ -238,6 +238,7 @@ struct SettingsView: View {
         switch selectedCategory {
         case .accountServices:
             AccountServicesSettingsPane(
+                model: model,
                 trakt: trakt,
                 simkl: simkl,
                 debrid: debrid,

@@ -38,6 +38,16 @@ struct ContentSourcesSettingsPane: View {
                         options: LanguageOptions.tmdbMetadata.map(\.code),
                         label: { LanguageOptions.name(forCode: $0, in: LanguageOptions.tmdbMetadata) }
                     )
+                    // The eleven per-group switches live one level down, like a Settings.app
+                    // group of switches. Only meaningful while enrichment is on.
+                    if model.tmdbEnabled {
+                        SettingsLinkRow(
+                            title: String(localized: "Enrichment Groups"),
+                            subtitle: String(localized: "Choose which parts of a title TMDB fills in: artwork, cast, episodes, trailers and more.")
+                        ) {
+                            TmdbEnrichmentGroupsPage()
+                        }
+                    }
                     SettingsDestructiveRow(
                         title: String(localized: "Remove API Key"),
                         subtitle: String(localized: "Clears the saved TMDB key and turns enrichment off."),
@@ -51,7 +61,7 @@ struct ContentSourcesSettingsPane: View {
             }
 
             SettingsSection(String(localized: "Ratings (MDBList)")) {
-                Text("Add a free MDBList API key to show IMDb, Rotten Tomatoes, Metacritic, Trakt and Letterboxd scores in a title's Details. Create one at mdblist.com \u{2192} Preferences \u{2192} API Access. Titles you open after enabling will show the ratings.")
+                Text("Add a free MDBList API key to show IMDb, TMDB, Rotten Tomatoes, Audience Score, Metacritic, Trakt, Letterboxd and MyAnimeList scores in a title's Details. Create one at mdblist.com \u{2192} Preferences \u{2192} API Access. Titles you open after enabling will show the ratings.")
                     .font(Theme.Font.caption)
                     .foregroundStyle(Theme.Palette.textSecondary)
                     .frame(maxWidth: 1100, alignment: .leading)
@@ -65,6 +75,14 @@ struct ContentSourcesSettingsPane: View {
                             set: { model.setMdbListEnabled($0) }
                         )
                     )
+                    if model.mdbListEnabled {
+                        SettingsLinkRow(
+                            title: String(localized: "Ratings Providers"),
+                            subtitle: String(localized: "Choose which scores appear on a title and in what order.")
+                        ) {
+                            MdbListRatingsPage()
+                        }
+                    }
                     SettingsDestructiveRow(
                         title: String(localized: "Remove API Key"),
                         subtitle: String(localized: "Clears the saved MDBList key and turns ratings off."),

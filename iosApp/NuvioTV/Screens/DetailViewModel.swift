@@ -412,6 +412,9 @@ final class DetailViewModel: ObservableObject {
     /// suspend completion terminates the app. The bridge collapses failures to nil.
     private func fetchCommentsIfNeeded(_ meta: MetaDetails) {
         guard !didRequestComments else { return }
+        // Settings → Account & Services → Trakt → Comments (shared, synced per profile). Off means no
+        // request at all and no section; `isEnabled` loads the stored value on first read.
+        guard TraktCommentsSettings.shared.isEnabled else { return }
         didRequestComments = true
         TraktCommentsSwiftBridge.shared.pageOrNull(meta: meta, page: 1, forceRefresh: false) { [weak self] page, _ in
             DispatchQueue.main.async {
@@ -693,7 +696,11 @@ final class DetailViewModel: ObservableObject {
             watchedItems: latestWatchedItems,
             todayIsoDate: CurrentDateProvider.shared.todayIsoDate(),
             preferFurthestEpisode: latestCwPrefs?.upNextFromFurthestEpisode ?? true,
-            showUnairedNextUp: latestCwPrefs?.showUnairedNextUp ?? false,
+            // The live shared preference (default on), not a hard-coded false: the Continue Watching
+            // setting decides whether an unaired next episode may be offered here.
+            showUnairedNextUp: (latestCwPrefs
+                ?? (ContinueWatchingPreferencesRepository.shared.uiState.value_ as? ContinueWatchingPreferencesUiState))?
+                .showUnairedNextUp ?? true,
             allowRewatch: true
         )
     }
