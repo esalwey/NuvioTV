@@ -188,6 +188,7 @@ extension MPVTVPlayerViewController {
             if self.state.audioTracks != audio { self.state.audioTracks = audio }
             if self.state.subtitleTracks != newSubs { self.state.subtitleTracks = newSubs }
             self.lastSubtitleInfos = subInfos
+            self.lastAudioInfos = audioInfos
             // VERIFIED-LANGUAGES: remember the file's own tracks for the stream it was picked from.
             PlayedTrackRecorder.record(
                 url: self.context.url,
@@ -507,6 +508,30 @@ extension MPVTVPlayerViewController {
         }
     }
 
+    /// Engine switch (the "Player Engine" menu, the error card's "Try Native Player"): write the
+    /// live audio and subtitle selection to the title's track memory, the one both engines restore
+    /// from when they open a file, so the native engine opens on the tracks playing now — whether
+    /// the viewer picked them or the language plan did.
+    func rememberTracksForEngineSwitch() {
+        guard mpv != nil, fileLoaded else { return }
+        if let selected = lastSubtitleInfos.first(where: { $0.selected }) {
+            persistSubtitleChoice(trackId: selected.id)
+        } else if subtitleSelectionResolved, !lastSubtitleInfos.isEmpty {
+            persistSubtitleChoice(trackId: -1)
+        }
+        if lastAudioInfos.count > 1, let audio = lastAudioInfos.first(where: { $0.selected }) {
+            persistedTrackPreference = PlayerSubtitleMemory.saveAudio(
+                parentMetaId: context.parentMetaId,
+                language: audio.lang.isEmpty
+                    ? PlayerLanguagePreferencesKt.languageFromTrackText(text: audio.title)
+                    : audio.lang,
+                name: audio.title.isEmpty ? (audio.lang.isEmpty ? nil : audio.lang) : audio.title,
+                trackId: String(audio.id),
+                keeping: persistedTrackPreference
+            )
+        }
+    }
+
     /// LANG-04: the walk's structured fields for one track (see `MPVTrackFields`).
     nonisolated static func trackFields(_ info: TrackInfo, isAudio: Bool, addon: AddonSubtitle?) -> MPVTrackFields {
         MPVTrackFields(
@@ -782,15 +807,30 @@ extension MPVTVPlayerViewController {
                 self.eventQueue.async { [weak self] in
                     // The track walk maps the local copy back to the addon URL (subtitle memory).
                     self?.externalSubtitleSources[local.path] = url
-                    self?.command("sub-add", args: [local.path, "auto", title, lang])
+                    self?.addSubtitleFile(local.path, title: title, lang: lang)
                 }
             }.resume()
             return
         }
         // sub-add downloads/probes the file synchronously inside the core — never on main.
         eventQueue.async { [weak self] in
-            self?.command("sub-add", args: [url, "auto", title, lang])
+            self?.addSubtitleFile(url, title: title, lang: lang)
         }
+    }
+
+    /// `eventQueue` only: `sub-add`, reading the file in the legacy code page its language is
+    /// written in when it is not UTF-8 (`SubtitleCharset.mpvCodepage`: a Russian SRT is Windows-1251,
+    /// a Chinese one GBK…). `sub-add` opens and decodes the file before it returns, so the option
+    /// only needs to hold for the call; mpv's own detection comes back after it. A language with no
+    /// legacy code page of its own keeps that detection.
+    private func addSubtitleFile(_ path: String, title: String, lang: String) {
+        guard let codepage = SubtitleCharset.mpvCodepage(forLanguage: lang) else {
+            command("sub-add", args: [path, "auto", title, lang])
+            return
+        }
+        setMpvString("sub-codepage", codepage)
+        command("sub-add", args: [path, "auto", title, lang])
+        setMpvString("sub-codepage", "auto")
     }
 
     func selectSubtitle(_ id: Int) {

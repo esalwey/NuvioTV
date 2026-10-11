@@ -468,6 +468,19 @@ extension NativePlaybackCoordinator {
         }
     }
 
+    /// Engine switch (the "Player Engine" menu): write the live audio and subtitle selection to the
+    /// title's track memory, the one both engines restore from when they open a file, so mpv opens
+    /// on the tracks playing now — whether the viewer picked them or the language plan did.
+    func rememberTracksForEngineSwitch() {
+        guard let item = playerItem else { return }
+        if let group = legibleGroup, !isRefetchingSubtitles {
+            persistSubtitleChoice(option: item.currentMediaSelection.selectedMediaOption(in: group))
+        }
+        if audioTracks.count > 1, let option = currentAudioOption {
+            rememberAudioChoice(option: option, stream: selectedAudioBox.value)
+        }
+    }
+
     /// "" = Off (rendition names are never empty).
     private static func subtitleChoiceName(_ option: AVMediaSelectionOption?) -> String {
         option.map { canonicalSubtitleName(renditionName(of: $0)) } ?? ""

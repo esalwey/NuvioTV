@@ -544,6 +544,22 @@ final class SettingsViewModel: ObservableObject {
         }
     }
 
+    /// Outline colour, a `SubtitleColor` argb long (mpv draws it; the native player's caption edge
+    /// has no colour of its own).
+    func setSubtitleOutlineColor(_ argb: Int64) {
+        updateSubtitleStyle {
+            SubtitleStyleState(textColor: $0.textColor, backgroundColor: $0.backgroundColor, outlineColor: argb, outlineEnabled: $0.outlineEnabled, outlineWidth: $0.outlineWidth, bold: $0.bold, fontSizeSp: $0.fontSizeSp, bottomOffset: $0.bottomOffset, stripSdh: $0.stripSdh, useForcedSubtitles: $0.useForcedSubtitles, showOnlyPreferredLanguages: $0.showOnlyPreferredLanguages)
+        }
+    }
+
+    /// Outline width, 1 to 5 (the range the phone's slider offers).
+    func setSubtitleOutlineWidth(_ width: Int32) {
+        let clamped = min(max(width, 1), 5)
+        updateSubtitleStyle {
+            SubtitleStyleState(textColor: $0.textColor, backgroundColor: $0.backgroundColor, outlineColor: $0.outlineColor, outlineEnabled: $0.outlineEnabled, outlineWidth: clamped, bold: $0.bold, fontSizeSp: $0.fontSizeSp, bottomOffset: $0.bottomOffset, stripSdh: $0.stripSdh, useForcedSubtitles: $0.useForcedSubtitles, showOnlyPreferredLanguages: $0.showOnlyPreferredLanguages)
+        }
+    }
+
     func setSubtitleStripSdh(_ enabled: Bool) {
         updateSubtitleStyle {
             SubtitleStyleState(textColor: $0.textColor, backgroundColor: $0.backgroundColor, outlineColor: $0.outlineColor, outlineEnabled: $0.outlineEnabled, outlineWidth: $0.outlineWidth, bold: $0.bold, fontSizeSp: $0.fontSizeSp, bottomOffset: $0.bottomOffset, stripSdh: enabled, useForcedSubtitles: $0.useForcedSubtitles, showOnlyPreferredLanguages: $0.showOnlyPreferredLanguages)

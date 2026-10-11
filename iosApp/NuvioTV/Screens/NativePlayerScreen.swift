@@ -47,6 +47,9 @@ struct NativePlayerScreen: View {
     /// The transport bar's "Sources" item: close the player onto this episode's stream list.
     /// nil → no Sources item.
     var onChooseAnotherSource: (() -> Void)?
+    /// The "Player Engine" item of the transport bar: hands the stream to mpv on request. nil = no
+    /// item (the dispatcher offers none).
+    var engineSwitch: PlayerEngineSwitch?
 
     @StateObject private var coordinator: NativePlaybackCoordinator
     @StateObject private var panelModel: PlayerTopPanelModel
@@ -77,8 +80,10 @@ struct NativePlayerScreen: View {
          onExitToDetails: (() -> Void)? = nil,
          onPickNextSource: ((MetaVideo) -> Void)? = nil,
          canSwitchStreams: Bool = false,
-         onChooseAnotherSource: (() -> Void)? = nil) {
+         onChooseAnotherSource: (() -> Void)? = nil,
+         engineSwitch: PlayerEngineSwitch? = nil) {
         self.context = context
+        self.engineSwitch = engineSwitch
         _upNext = ObservedObject(wrappedValue: upNext)
         self.onFallback = onFallback
         self.routingNote = routingNote
@@ -120,7 +125,8 @@ struct NativePlayerScreen: View {
                             rate: playbackRate,
                             aspect: aspectMode,
                             supportsSubtitleDelay: panelModel.supportsSubtitleDelay,
-                            subtitleDelayMs: coordinator.subtitleDelayMs),
+                            subtitleDelayMs: coordinator.subtitleDelayMs,
+                            canSwitchEngine: engineSwitch?.canSwitch ?? false),
                         chapters: skipSegments,
                         makeInfoViewControllers: makeInfoViewControllers,
                         onSkip: { [weak coordinator, weak upNext] prompt in
@@ -146,6 +152,7 @@ struct NativePlayerScreen: View {
                             upNext?.cancelForSourceSwitch()
                             onChooseAnotherSource?()
                         },
+                        onSwitchEngine: { engine in switchEngine(to: engine) },
                         onDownPress: { [weak upNext] in upNext?.handleDown() ?? false },
                         downPressClaimed: { [weak upNext] in (upNext?.phase ?? .hidden) != .hidden },
                         onMenuPress: { [weak upNext] in upNext?.handleMenu() ?? false },
@@ -267,6 +274,16 @@ struct NativePlayerScreen: View {
         guard let player = coordinator.player else { return }
         player.defaultRate = rate
         if player.rate != 0 { player.rate = rate }
+    }
+
+    /// Player Engine menu: hand the stream to mpv at the current position. The selection of audio
+    /// and subtitle tracks is written to the title's memory first, so mpv opens on the same ones.
+    private func switchEngine(to engine: PlaybackEngine) {
+        guard engine != .native, let engineSwitch, engineSwitch.current == .native else { return }
+        coordinator.rememberTracksForEngineSwitch()
+        let live = coordinator.player.map { CMTimeGetSeconds($0.currentTime()) }
+        let position = live.flatMap { $0.isFinite && $0 > 0 ? $0 : nil } ?? coordinator.lastPositionSec
+        engineSwitch.perform(engine, position)
     }
 
     /// Aspect Ratio menu: the picture's gravity follows (`AVPlayerContainer`); Fit / Fill are
@@ -489,6 +506,8 @@ private struct TransportMenuState: Equatable {
     var aspect: PlayerAspectMode
     var supportsSubtitleDelay: Bool
     var subtitleDelayMs: Int
+    /// The "Player Engine" item is offered (native is the engine playing here).
+    var canSwitchEngine: Bool
 
     // Choices, titles and symbols come from `PlayerTransportMenus` / `PlayerTransportItem`, the
     // description the mpv chrome draws from too.
@@ -522,6 +541,8 @@ private struct AVPlayerContainer: UIViewControllerRepresentable {
     /// Start Over (PLY-A13): back to 0:00.
     let onStartOver: () -> Void
     let onChooseSource: () -> Void
+    /// Player Engine menu: the engine picked (the one playing is a no-op for the screen).
+    let onSwitchEngine: (PlaybackEngine) -> Void
     /// Down press while the Up Next card is up → play now (returns true).
     let onDownPress: () -> Bool
     /// True while the Up Next card is up and would take a Down press; otherwise Down and the down
@@ -589,7 +610,8 @@ private struct AVPlayerContainer: UIViewControllerRepresentable {
     /// Audio, which are the system's own buttons here).
     private func transportMenuItems() -> [UIMenuElement] {
         PlayerTransportMenus.customItems(canChooseSource: menu.canChooseSource,
-                                         supportsSubtitleDelay: menu.supportsSubtitleDelay)
+                                         supportsSubtitleDelay: menu.supportsSubtitleDelay,
+                                         canSwitchEngine: menu.canSwitchEngine)
             .compactMap { menuElement(for: $0) }
     }
 
@@ -626,6 +648,15 @@ private struct AVPlayerContainer: UIViewControllerRepresentable {
                 }
             }
             return UIMenu(title: item.title, image: image, options: [.singleSelection], children: actions)
+        case .engine:
+            let switchEngine = onSwitchEngine
+            let choices = [PlaybackEngine.native, .mpv].map { engine in
+                // The engine playing here is Native; picking it again changes nothing.
+                UIAction(title: engine.menuTitle, state: engine == .native ? .on : .off) { _ in
+                    if engine != .native { switchEngine(engine) }
+                }
+            }
+            return UIMenu(title: item.title, image: image, options: [.singleSelection], children: choices)
         case .subtitles, .audio:
             // The system player's own buttons.
             return nil

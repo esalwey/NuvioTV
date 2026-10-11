@@ -73,6 +73,8 @@ final class MPVTVPlayerViewController: UIViewController {
     var sideLoadedAddonSubtitles: [String: AddonSubtitle] = [:]
     var latestAddonSubtitles: [AddonSubtitle] = []
     var lastSubtitleInfos: [TrackInfo] = []
+    /// The last track walk's audio rows (the engine switch writes the playing one to the memory).
+    var lastAudioInfos: [TrackInfo] = []
     /// This file's subtitle selection is settled: restored, planned, or picked by the viewer.
     var subtitleSelectionResolved = false
     /// A saved addon choice waits this long, at most, for this episode's addon subtitles.
@@ -205,6 +207,9 @@ final class MPVTVPlayerViewController: UIViewController {
     /// The error card's "Choose Another Source": back to a stream list for this episode. nil = no
     /// picker behind the player — the button reads "Back" and leaves the player.
     var onChooseAnotherSource: (() -> Void)?
+    /// The error card's "Try Native Player": hand the stream to the native engine at the given
+    /// position (`PlayerScreen` swaps the engines). nil = not offered.
+    var onSwitchToNative: ((Double) -> Void)?
     /// The error on screen (the card is `errorHost`); nil while playback is healthy.
     private var playbackError: PlayerPlaybackError?
     private var errorHost: PlayerErrorHostController?
@@ -257,6 +262,7 @@ final class MPVTVPlayerViewController: UIViewController {
         state.setAudioGain = { [weak self] db in self?.setAudioGain(db) }
         state.setDialogueBoost = { [weak self] db in self?.setDialogueBoost(db) }
         state.replay = { [weak self] in self?.replay() }
+        state.rememberTracks = { [weak self] in self?.rememberTracksForEngineSwitch() }
         state.reclaimFocus = { [weak self] in self?.becomeFirstResponder() }
         state.seekTo = { [weak self] seconds in
             guard let self else { return }
@@ -1287,7 +1293,8 @@ final class MPVTVPlayerViewController: UIViewController {
             canChooseSource: onChooseAnotherSource != nil,
             onChooseSource: { [weak self] in self?.chooseAnotherSource() },
             onRetry: { [weak self] in self?.retryLoad() },
-            onKeepWaiting: { [weak self] in self?.keepWaiting() }
+            onKeepWaiting: { [weak self] in self?.keepWaiting() },
+            onSwitchEngine: onSwitchToNative == nil ? nil : { [weak self] in self?.switchToNativeFromErrorCard() }
         )
     }
 
@@ -1421,6 +1428,23 @@ final class MPVTVPlayerViewController: UIViewController {
     private func chooseAnotherSource() {
         let leave = onChooseAnotherSource ?? onExit
         leaveFromErrorCard { leave?() }
+    }
+
+    /// Card → "Try Native Player": the card goes first, then the dispatcher plays the same source on
+    /// the native engine from where this one stopped (the resume point, if it never loaded), with
+    /// the audio and subtitle selection carried across.
+    private func switchToNativeFromErrorCard() {
+        guard let handOver = onSwitchToNative else { return }
+        let position: Double
+        if !fileLoaded {
+            position = pendingResumeSec ?? 0
+        } else if playbackError?.kind == .placeholder {
+            position = loadStartPositionSec
+        } else {
+            position = max(state.positionSec, loadStartPositionSec)
+        }
+        rememberTracksForEngineSwitch()
+        leaveFromErrorCard { handOver(position) }
     }
 
     // MARK: - Teardown

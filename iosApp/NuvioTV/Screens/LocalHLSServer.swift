@@ -512,7 +512,7 @@ nonisolated final class LocalHLSServer: @unchecked Sendable {
         URLSession.shared.dataTask(with: request) { [weak self] data, response, _ in
             guard let self else { connection.cancel(); return }
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-            let vtt = (200..<300).contains(status) ? data.flatMap { SubtitleVTT.webVTT(from: $0, stripSdh: self.stripSdh) } : nil
+            let vtt = (200..<300).contains(status) ? data.flatMap { SubtitleVTT.webVTT(from: $0, stripSdh: self.stripSdh, languageHint: rendition.language) } : nil
             if let vtt {
                 // Re-read the delay AFTER the (up to 10 s) download: the user may have adjusted
                 // it while the fetch was in flight, and the captured offsetMs would serve the

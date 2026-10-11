@@ -523,8 +523,14 @@ final class NativePlaybackCoordinator: ObservableObject {
         let embeddedRenditions = SubtitleVTT.embeddedRenditions(tracks: remux.subtitleTracks,
                                                                 availableSinks: remux.subtitleSinkIndices, after: [],
                                                                 labels: labels)
-        let rankedAddon = rankedAddonSubtitles(keptAddonSubtitles,
-                                               audioLanguage: remux.audioTracks.first(where: \.selected)?.language)
+        // Settings > Playback > Subtitle List: the system popover has no headers to give, so the
+        // grouping shows as the order of the renditions (the same grouping the mpv menu draws).
+        let rankedAddon = SubtitleOrganizer.arranged(
+            rankedAddonSubtitles(keptAddonSubtitles,
+                                 audioLanguage: remux.audioTracks.first(where: \.selected)?.language),
+            organization: SubtitleOrganization.current,
+            language: { $0.language },
+            addon: { $0.addonName })
         let addonFiles = rankedAddon.map { SubtitleFile(url: $0.url, language: $0.language, name: $0.display) }
         let addonRenditions = SubtitleVTT.renditions(from: context.externalSubtitles + addonFiles, labels: labels)
             .map { r in SubtitleRendition(index: r.index + embeddedRenditions.count, name: r.name,

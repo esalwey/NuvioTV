@@ -128,6 +128,8 @@ struct StreamPickerView: View {
     @State private var resolvingKey: String?
     /// Transient failure message (debrid resolve errors), auto-dismissed after a few seconds.
     @State private var toast: String?
+    /// The external player's add-on subtitles are being fetched (one hand-off at a time).
+    @State private var preparingExternalLaunch = false
     @FocusState private var focusedRow: String?
     /// The key focus was last moved to by the picker itself (initial focus). While focus still
     /// sits there, the Best Match row may take it when it appears (spec §6.8 default focus).
@@ -241,6 +243,11 @@ struct StreamPickerView: View {
     private func context(url: URL, stream: StreamItem?) -> PlaybackContext {
         // VERIFIED-LANGUAGES: the tracks the player finds in this link are remembered for this stream.
         if let stream { VerifiedTrackStore.shared.registerPlayback(url: url.absoluteString, stream: stream) }
+        // The series' source group, kept for Up Next (Settings > Playback > Remember the Source Group).
+        if let stream {
+            let group: String? = stream.behaviorHints.bingeGroup
+            BingeGroupMemory.remember(parentMetaId: parentMetaId, bingeGroup: group)
+        }
         let built = PlaybackContext(
             url: url,
             title: title,
@@ -1534,6 +1541,10 @@ struct StreamPickerView: View {
     /// whose URL builders consume `sub`/`position` (VidHub `/play`, Infuse, VLC) resume and
     /// subtitle like the built-in player instead of starting cold.
     private func openExternally(urlString: String, stream: StreamItem, playerId: String, fallbackToInternal: Bool = false) {
+        // The add-on subtitles of the hand-off before this one are still being fetched.
+        guard !preparingExternalLaunch else { return }
+        let streamGroup: String? = stream.behaviorHints.bingeGroup
+        BingeGroupMemory.remember(parentMetaId: parentMetaId, bingeGroup: streamGroup)
         // PLY-7: request headers the addon requires for this stream (Referer / User-Agent / auth —
         // the built-in player sends them). None of the tvOS external players' URL schemes can carry
         // headers, so such a stream may fail over there. The default player's Select plays it here,
@@ -1608,16 +1619,56 @@ struct StreamPickerView: View {
             callbackSuccessUrl: callbacks?.success,
             callbackErrorUrl: callbacks?.error
         )
-        let result = ExternalPlayerPlatform.shared.open(request: request, playerId: playerId)
-        // SharedCore lowercases the whole Kotlin enum entry name (see KMP bridging notes).
-        guard result != ExternalPlayerOpenResult.opened else { return }
-        if let callbackLaunchId { ExternalPlaybackCallbacks.cancel(id: callbackLaunchId) }
-        if fallbackToInternal, let url = URL(string: urlString) {
-            showToast(String(localized: "Couldn\u{2019}t open the external player \u{2014} playing in NuvioTV."))
-            NextEpisodeEngine.consecutiveAutoPlays = 0
-            selected = context(url: url, stream: stream)
-        } else {
-            showToast(String(localized: "Couldn\u{2019}t open the external player."))
+        withForwardedSubtitles(request) { prepared in
+            let result = ExternalPlayerPlatform.shared.open(request: prepared, playerId: playerId)
+            // SharedCore lowercases the whole Kotlin enum entry name (see KMP bridging notes).
+            guard result != ExternalPlayerOpenResult.opened else { return }
+            if let callbackLaunchId { ExternalPlaybackCallbacks.cancel(id: callbackLaunchId) }
+            if fallbackToInternal, let url = URL(string: urlString) {
+                showToast(String(localized: "Couldn\u{2019}t open the external player \u{2014} playing in NuvioTV."))
+                NextEpisodeEngine.consecutiveAutoPlays = 0
+                selected = context(url: url, stream: stream)
+            } else {
+                showToast(String(localized: "Couldn\u{2019}t open the external player."))
+            }
+        }
+    }
+
+    /// Settings > Playback > "Send Subtitles to External Players": adds the add-on subtitles in the
+    /// viewer's preferred and secondary subtitle language to the hand-off (the shared
+    /// `prepareExternalPlayerLaunch`: fetch, filter by language, bounded at 10 s). The external
+    /// players take subtitle URLs as they are, so nothing is downloaded here. Whatever goes wrong,
+    /// the stream is still handed over, with the subtitles it came with. `launch` runs on the main
+    /// thread, at once when the setting is off.
+    private func withForwardedSubtitles(_ request: ExternalPlayerPlaybackRequest,
+                                        launch: @escaping (ExternalPlayerPlaybackRequest) -> Void) {
+        PlayerSettingsRepository.shared.ensureLoaded()
+        guard let settings = PlayerSettingsRepository.shared.uiState.value_ as? PlayerSettingsUiState,
+              settings.externalPlayerForwardSubtitles,
+              settings.preferredSubtitleLanguage.caseInsensitiveCompare(SubtitleLanguageOption.shared.NONE) != .orderedSame else {
+            launch(request)
+            return
+        }
+        preparingExternalLaunch = true
+        let notice = String(localized: "Loading subtitles\u{2026}")
+        showToast(notice)
+        ExternalPlayerLaunchCoordinatorKt.prepareExternalPlayerLaunch(
+            request: request,
+            type: type,
+            videoId: videoId,
+            contentId: parentMetaId,
+            forwardSubtitles: true,
+            sendSkipSegments: false,
+            preferredLanguage: settings.preferredSubtitleLanguage,
+            secondaryLanguage: settings.secondaryPreferredSubtitleLanguage,
+            onOverlayMessage: { _ in }
+        ) { prepared, _ in
+            // Kotlin suspend completions can land off-main; hop before touching view state.
+            DispatchQueue.main.async {
+                preparingExternalLaunch = false
+                if toast == notice { withAnimation { toast = nil } }
+                launch(prepared ?? request)
+            }
         }
     }
 

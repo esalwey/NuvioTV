@@ -92,6 +92,9 @@ final class MPVPlaybackState: ObservableObject {
     var seekTo: ((Double) -> Void)?
     /// Start Over (PLY-A13, the transport bar): back to 0:00, dropping any resume still pending.
     var startOver: (() -> Void)?
+    /// Engine switch: write the playing audio and subtitle tracks to the title's track memory, so the
+    /// other engine opens on them.
+    var rememberTracks: (() -> Void)?
 
     /// Wired by `MPVPlayerScreen` to the `NextEpisodeEngine`; each returns true when the Up Next
     /// card consumed the press (PLY-A4/F5). Select → play the next episode now ("Choose a Source"

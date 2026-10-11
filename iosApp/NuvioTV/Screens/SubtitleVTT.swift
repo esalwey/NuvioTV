@@ -166,7 +166,7 @@ nonisolated enum SubtitleVTT {
             guard let kept = SubtitleSdhFilter.shared.filter(text: cleaned) else { return "" }
             cleaned = kept
         }
-        return escapeVTT(cleaned)
+        return escapeVTT(SubtitleTextNormalizer.normalizeCue(cleaned))
     }
 
     private static func escapeVTT(_ text: String) -> String {
@@ -203,7 +203,7 @@ nonisolated enum SubtitleVTT {
             guard let kept = SubtitleSdhFilter.shared.filter(text: cleaned) else { return "" }
             cleaned = kept
         }
-        return escapeVTT(cleaned)
+        return escapeVTT(SubtitleTextNormalizer.normalizeCue(cleaned))
     }
 
     /// A usable RFC 5646-ish tag ("en", "eng", "pt-BR") or nil when the value is a display word.
@@ -244,13 +244,22 @@ nonisolated enum SubtitleVTT {
     /// path sets `sub-filter-sdh` instead): cue PAYLOAD lines run through the shared filter before
     /// markup cleanup; header/timing lines are never touched. A payload line that filters to nothing
     /// is dropped (a cue whose lines all drop keeps its timing line and renders empty — harmless).
-    static func webVTT(from data: Data, stripSdh: Bool = false, offsetMs: Int = 0) -> String? {
-        guard let base = convert(data, stripSdh: stripSdh) else { return nil }
+    /// `languageHint` is the subtitle's language (the rendition's tag): it names the legacy code
+    /// page a file that is not UTF-8 is read in (`SubtitleCharset`). The text itself is repaired too
+    /// (`SubtitleTextNormalizer`: mojibake, right-to-left lines).
+    static func webVTT(from data: Data, stripSdh: Bool = false, offsetMs: Int = 0,
+                       languageHint: String? = nil) -> String? {
+        guard let base = convert(data, stripSdh: stripSdh, languageHint: languageHint) else { return nil }
         return offsetMs == 0 ? base : shift(base, offsetMs: offsetMs)
     }
 
-    private static func convert(_ data: Data, stripSdh: Bool) -> String? {
-        guard var text = decode(data) else { return nil }
+    private static func convert(_ data: Data, stripSdh: Bool, languageHint: String?) -> String? {
+        guard let converted = convertDocument(data, stripSdh: stripSdh, languageHint: languageHint) else { return nil }
+        return SubtitleTextNormalizer.normalizeVTT(converted)
+    }
+
+    private static func convertDocument(_ data: Data, stripSdh: Bool, languageHint: String?) -> String? {
+        guard var text = decode(data, languageHint: languageHint) else { return nil }
         text = text.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n")
         if text.hasPrefix("\u{FEFF}") { text.removeFirst() }
         if text.hasPrefix("WEBVTT") { return stripSdh ? stripSdhFromCuePayloads(text) : text }
@@ -453,19 +462,10 @@ nonisolated enum SubtitleVTT {
         return out
     }
 
-    /// Subtitle files are notoriously non-UTF-8: BOM-sniff UTF-16, then UTF-8, then Windows-1252,
-    /// then Latin-1 — in that order, best effort.
-    private static func decode(_ data: Data) -> String? {
-        guard !data.isEmpty else { return nil }
-        if data.count >= 2 {
-            let b0 = data[data.startIndex], b1 = data[data.index(after: data.startIndex)]
-            if (b0 == 0xFF && b1 == 0xFE) || (b0 == 0xFE && b1 == 0xFF) {
-                return String(data: data, encoding: b0 == 0xFF ? .utf16LittleEndian : .utf16BigEndian)
-                    .map { $0.hasPrefix("\u{FEFF}") ? String($0.dropFirst()) : $0 }
-            }
-        }
-        return String(data: data, encoding: .utf8)
-            ?? String(data: data, encoding: .windowsCP1252)
-            ?? String(data: data, encoding: .isoLatin1)
+    /// Subtitle files are notoriously non-UTF-8: UTF-16 and UTF-8 first, then the legacy code page of
+    /// the subtitle's language (Windows-1251, GBK, Shift-JIS…), then Windows-1252 and Latin-1 —
+    /// best effort. See `SubtitleCharset`.
+    private static func decode(_ data: Data, languageHint: String? = nil) -> String? {
+        SubtitleCharset.decode(data, languageHint: languageHint)
     }
 }

@@ -230,6 +230,7 @@ final class MPVPlayerPanelAdapter {
                                                group: fields.isAddon ? .addon : .embedded,
                                                isSelected: track.isSelected)
                 option.language = fields.languageTag
+                option.addonName = fields.addonName
                 if fields.isAddon {
                     addonRows.append((option, fields))
                 } else {
@@ -240,6 +241,8 @@ final class MPVPlayerPanelAdapter {
             subtitles = Self.disambiguated(subtitles)
         }
         if model.subtitles != subtitles { model.subtitles = subtitles }
+        let priority = languageTargets()
+        if model.subtitleLanguagePriority != priority { model.subtitleLanguagePriority = priority }
         if model.subtitlesSearching != state.subtitleSearchInFlight { model.subtitlesSearching = state.subtitleSearchInFlight }
 
         let audio = state.audioTracks.map { track -> PlayerPanelOption in
@@ -272,11 +275,9 @@ final class MPVPlayerPanelAdapter {
         }
     }
 
-    /// LANG-05 ranking: the preferred subtitle languages in their order, then the language of the
-    /// audio being heard, then the rest, each in arrival order; at most `addonPerLanguageCap` per
-    /// language and `addonTotalCap` in all, the selected row always kept.
-    private func rankedAddonRows(_ rows: [(option: PlayerPanelOption, fields: MPVTrackFields)]) -> [PlayerPanelOption] {
-        guard !rows.isEmpty else { return [] }
+    /// The subtitle languages the viewer wants, most wanted first: the preferred ones in their order,
+    /// then the language of the audio being heard.
+    private func languageTargets() -> [String] {
         var targets: [String] = []
         if let settings = PlayerSettingsRepository.shared.uiState.value_ as? PlayerSettingsUiState {
             targets = PlayerTrackSelectionKt.preferredSubtitleTargetsForSettings(settings: settings)
@@ -285,6 +286,15 @@ final class MPVPlayerPanelAdapter {
             .flatMap({ catalog.audio[$0.id] })?.languageTag {
             targets.append(audioLanguage)
         }
+        return targets
+    }
+
+    /// LANG-05 ranking: the preferred subtitle languages in their order, then the language of the
+    /// audio being heard, then the rest, each in arrival order; at most `addonPerLanguageCap` per
+    /// language and `addonTotalCap` in all, the selected row always kept.
+    private func rankedAddonRows(_ rows: [(option: PlayerPanelOption, fields: MPVTrackFields)]) -> [PlayerPanelOption] {
+        guard !rows.isEmpty else { return [] }
+        let targets = languageTargets()
         func rank(_ fields: MPVTrackFields) -> Int {
             let language = fields.languageTag ?? fields.language
             return targets.firstIndex { target in

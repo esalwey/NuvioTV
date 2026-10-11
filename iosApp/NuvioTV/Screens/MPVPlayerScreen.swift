@@ -23,6 +23,9 @@ private struct MPVPlayerRepresentable: UIViewControllerRepresentable {
     let onChooseAnotherSource: (() -> Void)?
     /// DV Profile 5 forced onto mpv: the session renders through `gpu-next` (contract C1, PLY-A9).
     let forceDVReshape: Bool
+    /// Error card's "Try Native Player" (hands the stream to the native engine at a position);
+    /// nil = not offered.
+    let onSwitchToNative: ((Double) -> Void)?
     /// Chapter ticks for the transport bar (read from the file once it is loaded).
     let chromeModel: MPVChromeModel
 
@@ -33,6 +36,7 @@ private struct MPVPlayerRepresentable: UIViewControllerRepresentable {
         controller.forceDVReshape = forceDVReshape
         controller.onExit = onExit
         controller.onChooseAnotherSource = onChooseAnotherSource
+        controller.onSwitchToNative = onSwitchToNative
         let state = state, makeChromeView = makeChromeView
         controller.onOpenChrome = { [weak controller] entry in
             guard let controller, controller.presentedViewController == nil else { return }
@@ -96,6 +100,9 @@ struct MPVPlayerScreen: View {
     var onChooseAnotherSource: (() -> Void)? = nil
     /// DV Profile 5 forced onto mpv (contract C1): passed through to the libmpv controller.
     var forceDVReshape: Bool = false
+    /// The "Player Engine" item of the transport bar and the error card's "Try Native Player".
+    /// nil = no engine switch offered.
+    var engineSwitch: PlayerEngineSwitch? = nil
 
     @StateObject private var state: MPVPlaybackState
     @Environment(\.dismiss) private var dismiss
@@ -122,8 +129,10 @@ struct MPVPlayerScreen: View {
          onExitToDetails: (() -> Void)? = nil,
          onPickNextSource: ((MetaVideo) -> Void)? = nil,
          onChooseAnotherSource: (() -> Void)? = nil,
-         forceDVReshape: Bool = false) {
+         forceDVReshape: Bool = false,
+         engineSwitch: PlayerEngineSwitch? = nil) {
         self.context = context
+        self.engineSwitch = engineSwitch
         summary = PlayerInfoSummary(context: context)
         _upNext = ObservedObject(wrappedValue: upNext)
         self.canSwitchStreams = canSwitchStreams
@@ -147,6 +156,7 @@ struct MPVPlayerScreen: View {
                 onExit: { dismiss() },
                 onChooseAnotherSource: onChooseAnotherSource,
                 forceDVReshape: forceDVReshape,
+                onSwitchToNative: switchToNative,
                 chromeModel: chromeModel
             )
             .ignoresSafeArea()
@@ -169,7 +179,8 @@ struct MPVPlayerScreen: View {
                 summary: summary,
                 chapterTicks: chromeModel.tickTimes,
                 items: MPVChromeContent.items(panelModel: panelModel,
-                                              canChooseSource: onChooseAnotherSource != nil),
+                                              canChooseSource: onChooseAnotherSource != nil,
+                                              canSwitchEngine: engineSwitch?.canSwitch ?? false),
                 tabs: MPVChromeContent.tabs(
                     hasEpisodes: context.season != nil && !upNext.episodes.isEmpty,
                     hasChapters: !chromeModel.chapters(durationSec: state.durationSec).isEmpty),
@@ -310,6 +321,13 @@ struct MPVPlayerScreen: View {
         return max(PlayerChipStyle.edgePadding, transportHeight + Theme.Spacing.lg)
     }
 
+    /// Hands the stream to the native engine at a position, when the native engine can take it over.
+    private var switchToNative: ((Double) -> Void)? {
+        guard let engineSwitch, engineSwitch.current == .mpv, engineSwitch.nativeAvailable else { return nil }
+        let perform = engineSwitch.perform
+        return { position in perform(.native, position) }
+    }
+
     /// Builds the chrome's focus layer. Built from values, not from this view: the controller keeps
     /// the closure for the session.
     private var chromeViewBuilder: (PlayerChromeEntry, PlayerChromeCloser) -> AnyView {
@@ -319,6 +337,7 @@ struct MPVPlayerScreen: View {
         let canSwitchStreams = self.canSwitchStreams
         let chooseSource = self.onChooseAnotherSource
         let pickSource = self.pickSourceAction
+        let switchToNative = self.switchToNative
         return { entry, closer in
             let actions = MPVChromeActions(
                 close: { closer.close() },
@@ -346,6 +365,16 @@ struct MPVPlayerScreen: View {
                 startOver: {
                     closer.close()
                     state.startOver?()
+                },
+                switchEngine: switchToNative.map { handOver -> (PlaybackEngine) -> Void in
+                    { [weak state] engine in
+                        // The layer goes first, then the dispatcher plays the stream on the other
+                        // engine from here, with the audio and subtitle selection carried across.
+                        guard engine == .native, let state else { return }
+                        let position = state.positionSec
+                        state.rememberTracks?()
+                        closer.close { handOver(position) }
+                    }
                 })
             return AnyView(MPVTransportFocusView(
                 state: state, panelModel: panelModel, chromeModel: chromeModel, upNext: upNext,

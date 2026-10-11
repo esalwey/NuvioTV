@@ -41,10 +41,12 @@ final class PlayerChromeCloser {
 enum MPVChromeContent {
     /// The transport buttons. Subtitle Timing only with a subtitle showing (mpv can re-time any
     /// track; the native engine offers it for addon subtitles, the only ones it can re-time).
-    static func items(panelModel: PlayerTopPanelModel, canChooseSource: Bool) -> [PlayerTransportItem] {
+    static func items(panelModel: PlayerTopPanelModel, canChooseSource: Bool,
+                      canSwitchEngine: Bool = false) -> [PlayerTransportItem] {
         let canRetime = panelModel.supportsSubtitleDelay
             && panelModel.subtitles.contains { $0.isSelected && $0.group != .off }
-        return PlayerTransportMenus.items(canChooseSource: canChooseSource, supportsSubtitleDelay: canRetime)
+        return PlayerTransportMenus.items(canChooseSource: canChooseSource, supportsSubtitleDelay: canRetime,
+                                          canSwitchEngine: canSwitchEngine)
     }
 
     /// The content tabs, in the native screen's order.
@@ -68,6 +70,9 @@ struct MPVChromeActions {
     let seek: (Double) -> Void
     /// Start Over (PLY-A13): back to 0:00.
     let startOver: () -> Void
+    /// "Player Engine": hand the stream to the other engine (the native one, from here). nil = no
+    /// Player Engine item.
+    var switchEngine: ((PlaybackEngine) -> Void)? = nil
 }
 
 struct MPVTransportFocusView: View {
@@ -182,7 +187,8 @@ struct MPVTransportFocusView: View {
     // MARK: - Transport buttons
 
     private var items: [PlayerTransportItem] {
-        MPVChromeContent.items(panelModel: panelModel, canChooseSource: actions.chooseSource != nil)
+        MPVChromeContent.items(panelModel: panelModel, canChooseSource: actions.chooseSource != nil,
+                               canSwitchEngine: actions.switchEngine != nil)
     }
 
     private var buttonRow: some View {
@@ -258,16 +264,24 @@ struct MPVTransportFocusView: View {
             }
             .menuStyle(.button)
             .buttonStyle(PlayerTransportButtonStyle(item: item))
-        case .subtitles:
+        case .engine:
             Menu {
-                Picker(selection: subtitleBinding) {
-                    ForEach(panelModel.subtitles) { option in
-                        Text(verbatim: Self.menuTitle(option)).tag(option.id)
+                Picker(selection: engineBinding) {
+                    ForEach([PlaybackEngine.native, .mpv], id: \.self) { engine in
+                        Text(verbatim: engine.menuTitle).tag(engine)
                     }
                 } label: {
                     Text(verbatim: item.title)
                 }
                 .pickerStyle(.inline)
+            } label: {
+                Text(verbatim: item.title)
+            }
+            .menuStyle(.button)
+            .buttonStyle(PlayerTransportButtonStyle(item: item))
+        case .subtitles:
+            Menu {
+                subtitleRows(title: item.title)
                 if panelModel.subtitlesSearching {
                     Text(verbatim: String(localized: "Searching addon subtitles…"))
                 }
@@ -337,6 +351,46 @@ struct MPVTransportFocusView: View {
         }
     }
 
+    /// The Subtitles menu's rows: one list, or — Settings > Playback > Subtitle List — blocks under a
+    /// header per language or per add-on. The checkmark follows the same selection in every block.
+    @ViewBuilder
+    private func subtitleRows(title: String) -> some View {
+        let sections = panelModel.subtitleSections(SubtitleOrganization.current)
+        if sections.count <= 1 {
+            Picker(selection: subtitleBinding) {
+                ForEach(panelModel.subtitles) { option in
+                    Text(verbatim: Self.menuTitle(option)).tag(option.id)
+                }
+            } label: {
+                Text(verbatim: title)
+            }
+            .pickerStyle(.inline)
+        } else {
+            ForEach(sections) { section in
+                if let header = section.title {
+                    Section {
+                        subtitlePicker(section.options, title: title)
+                    } header: {
+                        Text(verbatim: header)
+                    }
+                } else {
+                    subtitlePicker(section.options, title: title)
+                }
+            }
+        }
+    }
+
+    private func subtitlePicker(_ options: [PlayerPanelOption], title: String) -> some View {
+        Picker(selection: subtitleBinding) {
+            ForEach(options) { option in
+                Text(verbatim: Self.menuTitle(option)).tag(option.id)
+            }
+        } label: {
+            Text(verbatim: title)
+        }
+        .pickerStyle(.inline)
+    }
+
     /// One menu row: the track's name, then its descriptor ("Français · Dolby Digital+ 5.1").
     private static func menuTitle(_ option: PlayerPanelOption) -> String {
         guard let detail = option.detail, !detail.isEmpty else { return option.title }
@@ -353,6 +407,15 @@ struct MPVTransportFocusView: View {
         Binding(
             get: { state.aspectMode },
             set: { mode in state.setAspectMode?(mode) })
+    }
+
+    /// The engine playing here is mpv; picking Native hands the stream over.
+    private var engineBinding: Binding<PlaybackEngine> {
+        Binding(
+            get: { .mpv },
+            set: { engine in
+                if engine != .mpv { actions.switchEngine?(engine) }
+            })
     }
 
     private var subtitleDelayBinding: Binding<Int> {
