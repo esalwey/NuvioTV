@@ -304,6 +304,8 @@ struct DetailView: View {
     /// PLY-A13: the movie stream picker was opened by "Start from Beginning", not by Play.
     @State private var showStreamsFromBeginning = false
     @State private var seriesPlay: SeriesPlayRoute?
+    /// The episode Shuffle picked; opens the same stream picker the episode shelf does.
+    @State private var shuffledEpisode: EpisodeRoute?
     /// Trakt comment ids the user has expanded (reveals spoilers / full text).
     @State private var expandedComments: Set<Int64> = []
 
@@ -546,7 +548,10 @@ struct DetailView: View {
                             preferredEpisode: model.seriesAction?.episodeNumber?.value,
                             episodeRatingsVisibility: model.episodeRatingsVisibility,
                             showOverallRatings: model.showOverallRatings,
-                            onToggleWatched: { model.toggleEpisodeWatched($0) }
+                            onToggleWatched: { model.toggleEpisodeWatched($0) },
+                            episodeOptions: { model.episodeOptions(for: $0) },
+                            onToggleSeasonWatched: { model.toggleSeasonWatched(of: $0) },
+                            onMarkPreviousWatched: { model.markPreviousEpisodesWatched(before: $0) }
                         )
                         // A discrete focus region: vertical D-pad moves must land here instead of
                         // geometrically skipping from the info/network chips down to the cast row.
@@ -920,6 +925,12 @@ struct DetailView: View {
                 withdrawTrailerBridgeIfLeaving()
             }
         }
+        .onChange(of: shuffledEpisode?.id) { _, routeId in
+            if routeId != nil {
+                cancelAutoPlayTrailer()
+                withdrawTrailerBridgeIfLeaving()
+            }
+        }
         .onChange(of: userInteracted) { _, interacted in
             if interacted { cancelAutoPlayTrailer() }
         }
@@ -978,6 +989,9 @@ struct DetailView: View {
                 logo: route.meta.logo,
                 startFromBeginning: route.startOver
             )
+        }
+        .fullScreenCover(item: $shuffledEpisode) { route in
+            EpisodeStreamPickerCover(route: route, playbackMeta: playbackMeta)
         }
         // FEAT-32: presented from `presentedTrailer`, which `beginTrailerBridge` sets after the
         // leaving choreography. Dismissal (Back) writes nil back to the request so every
@@ -1205,6 +1219,20 @@ struct DetailView: View {
             seriesPlay = SeriesPlayRoute(meta: meta, action: action, startOver: true)
         case .loading, .unavailable:
             break
+        }
+    }
+
+    /// Shuffle: a random released episode, unwatched first, into the same stream picker the episode
+    /// shelf opens. Like Play, an unplayable series explains itself instead of opening a dead list.
+    private func performShuffle() {
+        switch primaryPlayState {
+        case .unavailable:
+            showingPlaybackUnavailable = true
+        case .loading, .movie:
+            break
+        case .series(let meta, _):
+            guard let episode = model.pickShuffleEpisode() else { return }
+            shuffledEpisode = EpisodeRoute(meta: meta, episode: episode)
         }
     }
 
@@ -1595,6 +1623,19 @@ struct DetailView: View {
                 }
                 .buttonStyle(.bordered)
                 .focused($focusedAction, equals: .startOver)
+            }
+
+            // Shuffle: a series with more than one released episode plays a random one, unwatched
+            // first (mobile / Android TV episode shuffle).
+            if isSeries, model.canShuffle {
+                Button {
+                    performShuffle()
+                } label: {
+                    actionLabel("Shuffle", systemImage: "shuffle")
+                        .font(Theme.Font.body)
+                }
+                .buttonStyle(.bordered)
+                .focused($focusedAction, equals: .shuffle)
             }
 
             if model.trailerVideoURL != nil {
@@ -2224,7 +2265,7 @@ struct DetailView: View {
 
 /// F1: the Detail action-row buttons `DetailView.focusedAction` tracks.
 private enum DetailActionFocus: Hashable {
-    case play, startOver, trailer, watched, library
+    case play, startOver, shuffle, trailer, watched, library
 }
 
 /// One label/value pair in the Detail info block. `id` is the label (unique within the block).

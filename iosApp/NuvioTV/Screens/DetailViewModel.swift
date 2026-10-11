@@ -639,6 +639,104 @@ final class DetailViewModel: ObservableObject {
         )
     }
 
+    // MARK: - Episode options (long-press menu) and Shuffle
+
+    /// What the episode long-press menu offers for one episode (mobile / Android TV episode options).
+    struct EpisodeOptions {
+        /// Released episodes of the episode's season (the targets of "Mark Season Watched").
+        let seasonEpisodes: [MetaVideo]
+        /// Every released episode of the season is watched: the season item then clears them.
+        let isSeasonWatched: Bool
+        /// Released episodes before this one that are not watched yet; empty hides "Mark Previous Episodes Watched".
+        let unwatchedPreviousEpisodes: [MetaVideo]
+        /// The episode has partial progress to start over from.
+        let hasProgress: Bool
+    }
+
+    /// Released episodes in play order (specials last), derived once per meta and day: the menu of
+    /// every card reads it on each render.
+    private var releasedEpisodesCache: (signature: String, episodes: [MetaVideo])?
+
+    private func releasedEpisodes(of meta: MetaDetails) -> [MetaVideo] {
+        let today = CurrentDateProvider.shared.todayIsoDate()
+        let signature = "\(meta.id)|\(meta.videos.count)|\(today)"
+        if let cache = releasedEpisodesCache, cache.signature == signature { return cache.episodes }
+        let episodes = meta.releasedPlayableEpisodes(todayIsoDate: today)
+        releasedEpisodesCache = (signature, episodes)
+        return episodes
+    }
+
+    func episodeOptions(for episode: MetaVideo) -> EpisodeOptions? {
+        guard let meta, let s = episode.season?.value, let e = episode.episode?.value else { return nil }
+        let season = EpisodesSection.normalizeSeasonNumber(episode.season)
+        let released = releasedEpisodes(of: meta)
+        let inSeason = released.filter {
+            $0.season != nil && $0.episode != nil && EpisodesSection.normalizeSeasonNumber($0.season) == season
+        }
+        let isSeasonWatched = !inSeason.isEmpty && inSeason.allSatisfy { isWatchedEpisode($0) }
+        // Specials never offer "previous episodes": that would sweep the whole series.
+        var previous: [MetaVideo] = []
+        if season > 0 {
+            previous = released.filter { candidate in
+                guard let cs = candidate.season?.value, let ce = candidate.episode?.value,
+                      !isWatchedEpisode(candidate) else { return false }
+                let candidateKey = EpisodesSection.seasonSortKey(max(cs, 0))
+                return candidateKey < season || (candidateKey == season && ce < e)
+            }
+        }
+        return EpisodeOptions(
+            seasonEpisodes: inSeason,
+            isSeasonWatched: isSeasonWatched,
+            unwatchedPreviousEpisodes: previous,
+            hasProgress: episodeProgress["\(s):\(e)"] != nil
+        )
+    }
+
+    private func isWatchedEpisode(_ episode: MetaVideo) -> Bool {
+        guard let s = episode.season?.value, let e = episode.episode?.value else { return false }
+        return watchedEpisodeKeys.contains("\(s):\(e)")
+    }
+
+    /// Mark the episode's whole season watched, or clear it when it already is (shared
+    /// `WatchingActions.toggleSeasonWatched`, which also clears progress and re-derives the series state).
+    func toggleSeasonWatched(of episode: MetaVideo) {
+        guard let meta, let options = episodeOptions(for: episode), !options.seasonEpisodes.isEmpty else { return }
+        WatchingActions.shared.toggleSeasonWatched(
+            meta: meta,
+            episodes: options.seasonEpisodes,
+            areCurrentlyWatched: options.isSeasonWatched
+        )
+    }
+
+    /// Mark every unwatched released episode before this one as watched.
+    func markPreviousEpisodesWatched(before episode: MetaVideo) {
+        guard let meta, let options = episodeOptions(for: episode),
+              !options.unwatchedPreviousEpisodes.isEmpty else { return }
+        WatchingActions.shared.togglePreviousEpisodesWatched(
+            meta: meta,
+            episodes: options.unwatchedPreviousEpisodes,
+            areCurrentlyWatched: false
+        )
+    }
+
+    private var shuffleCountCache: (signature: String, count: Int)?
+
+    /// The Shuffle button shows when there is something to choose between.
+    var canShuffle: Bool {
+        guard let meta, EpisodesSection.isSeriesLike(meta) else { return false }
+        let signature = "\(meta.id)|\(meta.videos.count)|\(CurrentDateProvider.shared.todayIsoDate())"
+        if let cache = shuffleCountCache, cache.signature == signature { return cache.count >= 2 }
+        let count = Int(EpisodeShuffle.shared.count(videos: meta.videos))
+        shuffleCountCache = (signature, count)
+        return count >= 2
+    }
+
+    /// A random released episode, unwatched ones first (the whole series once it is all watched).
+    func pickShuffleEpisode() -> MetaVideo? {
+        guard let meta else { return nil }
+        return EpisodeShuffle.shared.pick(contentId: meta.id, videos: meta.videos, watchedKeys: watchedEpisodeKeys)
+    }
+
     /// The latest progress record per episode of this series (under the meta's id, DET-1), kept
     /// when it is still in progress.
     private func computeEpisodeProgress(excluding watched: Set<String>) -> [String: Double] {

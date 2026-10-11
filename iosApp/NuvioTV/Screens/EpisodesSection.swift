@@ -26,6 +26,11 @@ struct EpisodesSection: View {
     var showOverallRatings: Bool = true
     /// EP-2: mark / unmark one episode (long press → context menu). nil = no menu.
     var onToggleWatched: ((MetaVideo) -> Void)? = nil
+    /// Episode options beyond the single mark (Android TV / mobile episode menu): what the long-press
+    /// menu offers for an episode, and the season / previous-episodes marks. nil = the single mark only.
+    var episodeOptions: ((MetaVideo) -> DetailViewModel.EpisodeOptions?)? = nil
+    var onToggleSeasonWatched: ((MetaVideo) -> Void)? = nil
+    var onMarkPreviousWatched: ((MetaVideo) -> Void)? = nil
 
     @State private var selectedSeason: Int?
     /// EP-1: an episode card has had focus. Until then the shelf follows the Resume / Up Next action
@@ -145,9 +150,13 @@ struct EpisodesSection: View {
                             .cardFocusButtonStyle(lift: .plain)
                             .posterButtonShape() // BUG-32: honor the Corners setting
                             .focused($focusedEpisodeId, equals: episode.id)
-                            .modifier(EpisodeWatchedMenu(
+                            .modifier(EpisodeOptionsMenu(
                                 isWatched: isWatched(episode),
-                                onToggle: toggleWatchedAction(for: episode)
+                                onToggle: toggleWatchedAction(for: episode),
+                                options: { episodeOptions?(episode) },
+                                onStartOver: { episodeForStreams = EpisodeRoute(meta: meta, episode: episode, startOver: true) },
+                                onToggleSeason: onToggleSeasonWatched.map { handler in { handler(episode) } },
+                                onMarkPrevious: onMarkPreviousWatched.map { handler in { handler(episode) } }
                             ))
                             .id(episode.id)
                         }
@@ -212,27 +221,7 @@ struct EpisodesSection: View {
             seasonDwellTask = nil
         }
         .fullScreenCover(item: $episodeForStreams) { route in
-            StreamPickerView(
-                type: route.meta.type,
-                // STAB-02: progress is keyed `parent:season:episode`; the addons are asked with the
-                // episode's own id (kitsu and other anime catalogs don't follow that shape).
-                videoId: NextEpisodeEngine.episodeVideoId(metaId: route.meta.id, episode: route.episode),
-                streamVideoId: NextEpisodeEngine.streamQueryVideoId(metaId: route.meta.id, episode: route.episode),
-                title: Self.episodeTitle(route.episode),
-                parentMetaId: route.meta.id,
-                season: route.episode.season?.value,
-                episode: route.episode.episode?.value,
-                episodes: route.meta.videos,
-                poster: route.meta.poster,
-                episodeStill: route.episodeStill,
-                synopsis: route.synopsis,
-                meta: playbackMeta(for: route.meta),
-                // CW-1: progress is filed under the series, with the episode's own name beside it.
-                seriesTitle: route.meta.name,
-                episodeTitle: route.episode.title,
-                background: route.meta.background,
-                logo: route.meta.logo
-            )
+            EpisodeStreamPickerCover(route: route, playbackMeta: playbackMeta(for: route.meta))
         }
     }
 
@@ -352,7 +341,7 @@ struct EpisodesSection: View {
         return result
     }
 
-    private static func episodeTitle(_ episode: MetaVideo) -> String {
+    static func episodeTitle(_ episode: MetaVideo) -> String {
         if let s = episode.season?.value, let e = episode.episode?.value {
             return String(localized: "S\(s)E\(e) \u{00B7} \(episode.title)")
         }
@@ -405,16 +394,30 @@ struct EpisodesSection: View {
     }
 }
 
-/// EP-2: long press → mark / unmark this episode (mobile's episode long-press menu). A conditional
-/// modifier, like `ExternalPlayMenu`, so a shelf without a handler adds nothing — an empty context
-/// menu would still swallow the long press.
-private struct EpisodeWatchedMenu: ViewModifier {
+/// Long press → the episode options (mobile / Android TV episode menu): start over, mark this
+/// episode, its season, or everything before it. A conditional modifier, like `ExternalPlayMenu`,
+/// so a shelf without a handler adds nothing — an empty context menu would still swallow the long
+/// press. Play is the card's own Select, so it is not repeated here; the stream picker is already
+/// the manual choice.
+private struct EpisodeOptionsMenu: ViewModifier {
     let isWatched: Bool
     let onToggle: (() -> Void)?
+    let options: () -> DetailViewModel.EpisodeOptions?
+    let onStartOver: () -> Void
+    let onToggleSeason: (() -> Void)?
+    let onMarkPrevious: (() -> Void)?
 
     func body(content: Content) -> some View {
         if let onToggle {
             content.contextMenu {
+                let available = options()
+                if available?.hasProgress == true {
+                    Button {
+                        onStartOver()
+                    } label: {
+                        Label("Start from Beginning", systemImage: "backward.end")
+                    }
+                }
                 Button {
                     onToggle()
                 } label: {
@@ -422,6 +425,24 @@ private struct EpisodeWatchedMenu: ViewModifier {
                         Label("Mark Unwatched", systemImage: "eye.slash")
                     } else {
                         Label("Mark Watched", systemImage: "checkmark.circle")
+                    }
+                }
+                if let onToggleSeason, let available, !available.seasonEpisodes.isEmpty {
+                    Button {
+                        onToggleSeason()
+                    } label: {
+                        if available.isSeasonWatched {
+                            Label("Mark Season Unwatched", systemImage: "eye.slash")
+                        } else {
+                            Label("Mark Season Watched", systemImage: "checklist")
+                        }
+                    }
+                }
+                if let onMarkPrevious, let available, !available.unwatchedPreviousEpisodes.isEmpty {
+                    Button {
+                        onMarkPrevious()
+                    } label: {
+                        Label("Mark Previous Episodes Watched", systemImage: "arrow.uturn.backward.circle")
                     }
                 }
             }
@@ -438,10 +459,12 @@ extension KotlinInt {
 }
 
 /// Identifiable wrapper so an episode can drive `.fullScreenCover(item:)`.
-private struct EpisodeRoute: Identifiable {
+struct EpisodeRoute: Identifiable {
     let meta: MetaDetails
     let episode: MetaVideo
-    var id: String { episode.id }
+    /// Opened by "Start from Beginning": the episode plays from 0:00 instead of its saved position.
+    var startOver = false
+    var id: String { startOver ? "\(episode.id)|startOver" : episode.id }
 
     /// Episode still for the player's Info header — blank addon values count as missing.
     var episodeStill: String? {
@@ -454,6 +477,39 @@ private struct EpisodeRoute: Identifiable {
         if let o, !o.isEmpty { return o }
         let d: String? = meta.description_
         return d
+    }
+}
+
+/// The stream picker for one episode of a series: the episode shelf's Select, its "Start from
+/// Beginning" menu item, and Detail's Shuffle all open it, so the ids sent to the addons and the
+/// progress record stay identical whichever way in.
+struct EpisodeStreamPickerCover: View {
+    let route: EpisodeRoute
+    let playbackMeta: PlaybackMeta
+
+    var body: some View {
+        StreamPickerView(
+            type: route.meta.type,
+            // STAB-02: progress is keyed `parent:season:episode`; the addons are asked with the
+            // episode's own id (kitsu and other anime catalogs don't follow that shape).
+            videoId: NextEpisodeEngine.episodeVideoId(metaId: route.meta.id, episode: route.episode),
+            streamVideoId: NextEpisodeEngine.streamQueryVideoId(metaId: route.meta.id, episode: route.episode),
+            title: EpisodesSection.episodeTitle(route.episode),
+            parentMetaId: route.meta.id,
+            season: route.episode.season?.value,
+            episode: route.episode.episode?.value,
+            episodes: route.meta.videos,
+            poster: route.meta.poster,
+            episodeStill: route.episodeStill,
+            synopsis: route.synopsis,
+            meta: playbackMeta,
+            // CW-1: progress is filed under the series, with the episode's own name beside it.
+            seriesTitle: route.meta.name,
+            episodeTitle: route.episode.title,
+            background: route.meta.background,
+            logo: route.meta.logo,
+            startFromBeginning: route.startOver
+        )
     }
 }
 
