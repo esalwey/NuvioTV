@@ -1835,14 +1835,17 @@ struct DetailView: View {
             .focused($focusedAction, equals: .play)
 
             // PLY-A13: with a saved position, Play resumes; this secondary button plays from 0:00.
+            // A round icon like the library and watched toggles: up to seven actions share this
+            // row, and only Play and Trailer need a word.
             if canStartOver {
                 Button {
                     performStartOver()
                 } label: {
-                    actionLabel(verbatim: Self.startOverTitle, systemImage: "backward.end")
-                        .font(Theme.Font.body)
+                    roundActionIcon("backward.end")
                 }
                 .buttonStyle(.bordered)
+                .buttonBorderShape(.circle)
+                .accessibilityLabel(Text(verbatim: Self.startOverTitle))
                 .focused($focusedAction, equals: .startOver)
             }
 
@@ -1852,10 +1855,11 @@ struct DetailView: View {
                 Button {
                     performShuffle()
                 } label: {
-                    actionLabel("Shuffle", systemImage: "shuffle")
-                        .font(Theme.Font.body)
+                    roundActionIcon("shuffle")
                 }
                 .buttonStyle(.bordered)
+                .buttonBorderShape(.circle)
+                .accessibilityLabel(Text("Shuffle"))
                 .focused($focusedAction, equals: .shuffle)
             }
 

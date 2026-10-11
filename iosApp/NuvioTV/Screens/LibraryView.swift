@@ -481,6 +481,8 @@ struct LibraryView: View {
             Button("Turn On Cloud Library") {
                 cloud.enable()
             }
+            .buttonStyle(.bordered)
+            .buttonBorderShape(.capsule)
         }
         .frame(maxWidth: .infinity)
         .padding(.top, Theme.Spacing.sectionGap)
