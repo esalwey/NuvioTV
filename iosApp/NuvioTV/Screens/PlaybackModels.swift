@@ -295,11 +295,15 @@ struct StreamInfoSnapshot: Equatable {
     var videoBitrate = ""
     var audio = ""
     var cache = ""
+    /// The main-thread stall watchdog's readout (`MainThreadStallMonitor`): empty unless the watchdog
+    /// is on (DEBUG, or the Developer pane unlocked). A diagnostic, deliberately not localized.
+    var uiStall = ""
 
     var rows: [(String, String)] {
         [(String(localized: "Engine"), engine), (String(localized: "Video"), videoCodec),
          (String(localized: "Resolution"), resolution), (String(localized: "Frame rate"), fps),
          (String(localized: "Hardware decode"), hwdec), (String(localized: "Video bitrate"), videoBitrate),
-         (String(localized: "Audio"), audio), (String(localized: "Cache"), cache)].filter { !$0.1.isEmpty }
+         (String(localized: "Audio"), audio), (String(localized: "Cache"), cache),
+         ("UI stall", uiStall)].filter { !$0.1.isEmpty }
     }
 }

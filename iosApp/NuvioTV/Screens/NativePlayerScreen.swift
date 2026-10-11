@@ -171,8 +171,10 @@ struct NativePlayerScreen: View {
                     .ignoresSafeArea()
                 }
             case .failed:
-                // Hand back to the dispatcher, which re-presents the mpv player for this context.
-                Color.clear.onAppear {
+                // Hand back to the dispatcher, which re-presents the mpv player for this context. The
+                // loading view stays up meanwhile (its delays count from the start of playback), so
+                // the hand-over is one continuous wait, not a bare black frame.
+                PlayerLoadingView().onAppear {
                     if let onFallback { onFallback(coordinator.lastPositionSec) } else { dismiss() }
                 }
             }
@@ -481,7 +483,7 @@ struct NativePlayerScreen: View {
         // Credits that run to the end of the file = the next episode now (Up Next), not a seek onto
         // the last frame; credits followed by a scene seek to the scene.
         let handedToUpNext = isCredits && !skip.action.skipsToPostCredits
-            && upNext.skipCreditsToNext(creditsEndSec: skip.action.targetSec)
+            && upNext.skipCreditsToNext(creditsEndSec: skip.action.targetSec, automatic: true)
         if !handedToUpNext {
             coordinator.player?.seek(to: CMTime(seconds: skip.action.targetSec, preferredTimescale: 600))
         }

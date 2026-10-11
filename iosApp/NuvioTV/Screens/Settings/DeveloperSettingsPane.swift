@@ -626,6 +626,16 @@ struct DeveloperSettingsPane: View {
                 )
             }
 
+            SettingsSection(
+                String(localized: "settings.developer.responsiveness.title", defaultValue: "Player Responsiveness",
+                       comment: "Developer settings section that reads out how long the player screen stopped answering"),
+                footer: String(localized: "settings.developer.responsiveness.footer",
+                               defaultValue: "Play a very large stream, then read this. A stall is the main thread not answering for 250 ms or more; the call shown is the player-core call that was running during the longest one. Calls on the main thread should stay at 0.",
+                               comment: "Footer under the player responsiveness readout")
+            ) {
+                PlayerResponsivenessRows()
+            }
+
             SettingsSection(nil, footer: String(localized: "settings.developer.hide.footer", defaultValue: "Turns every diagnostic above off and hides this pane. Press Version in About seven times to show it again.", comment: "Footer under the button that hides the developer pane")) {
                 SettingsDestructiveRow(
                     title: String(localized: "settings.developer.hide", defaultValue: "Hide Developer Settings", comment: "Button that hides the developer pane and turns its diagnostics off"),

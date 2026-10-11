@@ -64,8 +64,10 @@ struct SubtitleRenderStyle: Equatable {
 
     // MARK: - mpv
 
-    /// `sub-font-size`, in mpv's 720-line reference pixels (2 per sp: 18 sp = 36 = 5 % of the height).
-    var mpvFontSize: Int64 { Int64(max(20, min(90, fontSizeSp * 2))) }
+    /// `sub-font-size`, in mpv's 720-line reference pixels (2 per sp: 18 sp = 36 = 5 % of the height,
+    /// the spec 8.3 default, shared with the native engine's relative size). The ceiling is the one
+    /// mpv always had (122), so a large-text setting is not capped below what it used to reach.
+    var mpvFontSize: Int64 { Int64(max(20, min(122, fontSizeSp * 2))) }
 
     var mpvBorderStyle: String { drawsBox ? "opaque-box" : "outline-and-shadow" }
 
@@ -83,6 +85,14 @@ struct SubtitleRenderStyle: Equatable {
 
     /// `sub-pos`: 100 is the bottom edge.
     var mpvSubPos: Int64 { Int64(100 - bottomMarginPercent) }
+
+    /// Height of the transport chrome (title, scrubber, times, buttons, tabs) in percent of the picture
+    /// height. While it is on screen the captions ride above it, as the system player lifts them
+    /// (spec 8.3: "raised to clear the chrome while the chrome is visible").
+    static let chromeClearancePercent = 27
+
+    /// `sub-pos` while the chrome is up: never lower than the resting position's own margin.
+    var mpvSubPosWithChrome: Int64 { min(mpvSubPos, Int64(100 - Self.chromeClearancePercent)) }
 
     /// "#AARRGGBB" for `sub-color` and friends.
     static func mpvColor(_ argb: Int64) -> String {

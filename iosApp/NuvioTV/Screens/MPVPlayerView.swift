@@ -31,6 +31,19 @@ final class MPVTVPlayerViewController: UIViewController {
     private var metalLayer = TVMetalLayer()
     var mpv: OpaquePointer?
     private var lastDrawableSize: CGSize = .zero
+    // Three queues, so that nothing that waits on the core can hold up anything else (the main thread
+    // never touches libmpv synchronously; see `PropSnapshot`):
+    //  - `readerQueue` only drains libmpv's event queue (`mpv_wait_event(…, 0)`, which never waits) and
+    //    folds the events into the snapshot. It makes no call that takes the core lock.
+    //  - `commandQueue` carries what the viewer asks for (pause, seek, speed, track picks) through the
+    //    asynchronous libmpv calls (`mpv_command_async`), which return at once whatever the core is
+    //    doing; the answer comes back as an event.
+    //  - `eventQueue` is the core queue: the few synchronous reads and writes that remain (the
+    //    pre-load setup, stream-info rows, display criteria, `sub-add`). Any of them can sit on the
+    //    core lock for as long as the core is busy with a very large stream; that only ever delays
+    //    other work on this queue.
+    let readerQueue = DispatchQueue(label: "mpv-reader", qos: .userInteractive)
+    let commandQueue = DispatchQueue(label: "mpv-commands", qos: .userInteractive)
     let eventQueue = DispatchQueue(label: "mpv-events", qos: .userInitiated)
     let context: PlaybackContext
     let state: MPVPlaybackState
@@ -84,7 +97,7 @@ final class MPVTVPlayerViewController: UIViewController {
     /// The audio pass's inputs for the subtitle language plan (it may run after a restore gave up).
     var subtitlePlanAudio: AudioTrack?
     var subtitlePlanAudioTargets: [String] = []
-    /// `eventQueue`-confined: an addon subtitle to select once its side-load lands, and the addon URL
+    /// Main-thread only: an addon subtitle to select once its side-load lands, and the addon URL
     /// behind each credential-scoped local copy.
     var pendingSubtitleSelectURL: String?
     var externalSubtitleSources: [String: String] = [:]
@@ -118,6 +131,16 @@ final class MPVTVPlayerViewController: UIViewController {
     private var lastPausedFlag = false
     private var backgroundObserver: NSObjectProtocol?
     var streamHeadersCarryCredentials = false
+    /// Add-on subtitles come down through `URLSession`, a few at a time, before mpv sees them as
+    /// local files (see `MPVSubtitleFetcher`). `subtitleGeneration` drops the answers of a file that
+    /// was replaced by a retry.
+    let subtitleFetcher = MPVSubtitleFetcher()
+    var subtitleGeneration = 0
+    /// The captions ride above the transport chrome while it is up; `sub-pos` as last posted, and the
+    /// counter that cancels a glide a newer one replaces.
+    var subtitlesLifted = false
+    var subtitlePosShown = 95
+    var subtitleLiftGeneration = 0
 
     /// Contract C1 (PLY-A9): the probe found Dolby Vision Profile 5 and this file plays on mpv. Its
     /// IPTPQc2 colours only come out right through libplacebo's reshaping, so the session renders
@@ -125,7 +148,7 @@ final class MPVTVPlayerViewController: UIViewController {
     var forceDVReshape = false
     /// `forceDVReshape` actually switched this session to `gpu-next` (never on the simulator).
     private var dvReshapeActive = false
-    /// PLY-A1, `eventQueue`-confined: this file's display criteria still wait for mpv to report a
+    /// PLY-A1, `readerQueue`-confined: this file's display criteria still wait for mpv to report a
     /// video size. FILE_LOADED often arrives before the first decoded frame, when `video-params` is
     /// still empty and the criteria can't be built. Reset on every `loadfile`.
     private var displayCriteriaAwaitsVideoSize = true
@@ -154,37 +177,79 @@ final class MPVTVPlayerViewController: UIViewController {
 
     // MARK: Event-driven property cache
     //
-    // The main thread must NEVER call mpv_get_property: synchronous reads contend on the core
-    // lock, which is busiest during the first minute of playback (demuxer cache fill, decoder
-    // spin-up) — that contention was the beta-reported "player laggy at first" / "swipe-up menu
-    // slow to appear" (tracker BUG-2/BUG-3). Values arrive as MPV_EVENT_PROPERTY_CHANGE payloads
-    // on `eventQueue` and land in this lock-guarded snapshot; the UI timer only reads the cache.
+    // The main thread must NEVER call into libmpv synchronously. Every get, set and command takes
+    // the core lock, and the core is busy for as long as it takes to open, probe, index and fill the
+    // cache of a very large network file (a 4K remux of tens of GB): a synchronous call parks the
+    // caller for all that time, and on the main thread that is the whole screen (spinner stuck, 0:00,
+    // the Play/Pause button and the remote dead while the film plays). So:
+    //  - State comes IN as `mpv_observe_property` events, drained by `readerQueue` (which makes no
+    //    call that waits) into this lock-guarded snapshot. The UI timer only reads the snapshot.
+    //  - Commands go OUT through the asynchronous libmpv calls on `commandQueue` (`postCommand`),
+    //    and the UI is optimistic: the pause glyph flips and the scrubber moves at once.
+    // `MainThreadStallMonitor` (DEBUG, and the Developer pane) records any libmpv call that still
+    // lands on the main thread, and the longest stall with the call that was in flight.
     struct PropSnapshot {
         var position: Double = 0
         var duration: Double = 0
         var paused = false
-        var coreIdle = false
+        /// The core starts idle: until it reports otherwise, nothing is playing yet.
+        var coreIdle = true
         var cacheWait = false
+        var seeking = false
         var eof = false
         var videoW: Int64 = 0
         var videoH: Int64 = 0
         /// Uptime of the last time-pos event (0 = none yet): a playhead that is silent while playing
         /// triggers a direct re-read of the core (`resyncIfStale`).
         var timePosAt: TimeInterval = 0
+        /// A pause/play the viewer asked for that the core has not answered yet (`ReplyID.pause`).
+        /// Until its reply lands, a `pause` event that contradicts it predates the request and would
+        /// flip the glyph back, so it is ignored.
+        var pauseRequest: Bool?
+        var pauseReplies = 0
+        /// Seeks sent and not answered yet: `time-pos` events still show the old position until the
+        /// seek lands, so while one is out (for two seconds at most) they are ignored.
+        var seekReplies = 0
+        var seekHoldUntil: TimeInterval = 0
     }
     private let propLock = NSLock()
     private var propSnapshot = PropSnapshot()
-    /// Coalesces track-list refresh requests (many property events can arrive in a burst).
+    /// A burst of track-list events settles into one publish (main thread only).
     var trackRefreshPending = false
+    /// The file's audio and subtitle tracks as the last `track-list` event carried them, and the
+    /// chapters of the last `chapter-list` event (main thread only).
+    var latestTrackEntries: [MPVTrackListEntry] = []
+    var fileChapterList: [PlayerFileChapter] = []
+    /// The chapter chrome follows this (set by the screen's coordinator).
+    var onFileChapters: (([PlayerFileChapter]) -> Void)? {
+        didSet { if !fileChapterList.isEmpty { onFileChapters?(fileChapterList) } }
+    }
+    /// An audio switch can make mpv re-pick the subtitles: the track (or "no") that was showing, put
+    /// back by the next track publish. Main thread only.
+    var subtitleToKeep: (sid: String, expires: TimeInterval)?
+    /// The Stream Info rebuild is running on `eventQueue` (one at a time; main thread only).
+    private var streamInfoInFlight = false
+    /// `MainThreadStallMonitor` was told this player is on screen (main thread only).
+    private var stallSessionOpen = false
     /// Uptime when FILE_LOADED fired — drives the first-90s `[MPVStats]` diagnostics.
     private var fileLoadedUptime: TimeInterval = 0
     /// Times playback entered paused-for-cache (buffering underruns), for diagnostics.
     private var cacheWaitCount = 0
+    /// `readerQueue`-confined: the scheduling flag of the event drain, and the log line limiter.
+    private var readerScheduled = false
+    private var logWindowStart: TimeInterval = 0
+    private var logLinesInWindow = 0
 
     /// Observation ids for mpv_observe_property (arrive back as `reply_userdata`).
     private enum ObservedProp: UInt64 {
-        case timePos = 1, duration, pause, coreIdle, pausedForCache, eofReached, trackCount
-        case videoW, videoH, aid
+        case timePos = 1, duration, pause, coreIdle, pausedForCache, eofReached, seeking
+        case videoW, videoH, aid, trackList, chapterList
+    }
+
+    /// Ids of the asynchronous requests whose answers matter (`MPV_EVENT_COMMAND_REPLY` /
+    /// `MPV_EVENT_SET_PROPERTY_REPLY` carry them back). Everything else uses `other` and is ignored.
+    enum ReplyID: UInt64 {
+        case pause = 1001, seek = 1002, other = 1999
     }
 
     func cachedProps() -> PropSnapshot {
@@ -234,7 +299,7 @@ final class MPVTVPlayerViewController: UIViewController {
     /// not the end of the episode.
     var loadStartPositionSec: Double = 0
     private static let earlyEndSec: Double = 10
-    /// `eventQueue`-confined: this load attempt reached FILE_LOADED, and the last HTTP error status
+    /// `readerQueue`-confined: this load attempt reached FILE_LOADED, and the last HTTP error status
     /// the core logged before it did (the likely reason for an END_FILE error).
     private var coreOpenedFile = false
     private var lastHttpErrorStatus: Int?
@@ -337,14 +402,25 @@ final class MPVTVPlayerViewController: UIViewController {
             // A player that appears while the app is not in the foreground (a hand-off or a native
             // fallback landing as the Apple TV goes to sleep) opens its file paused: nothing plays
             // behind a sleeping box, and the viewer's Play starts it on return (build 138 feedback).
-            if UIApplication.shared.applicationState != .active {
+            let openPaused = UIApplication.shared.applicationState != .active
+            if openPaused {
                 print("[MPV] opening paused: the app is not in the foreground")
-                setFlag("pause", true)
                 updateProps { $0.paused = true }
                 systemPauseReason = .resignedActive
             }
-            command("loadfile", args: [context.url.absoluteString, "replace"])
+            // The load itself runs on `eventQueue`, after the header and language writes queued
+            // above it and after `mpv_initialize` (queued by `setupMpv`): never on the main thread.
+            let url = context.url.absoluteString
+            eventQueue.async { [weak self] in
+                guard let self, self.mpv != nil else { return }
+                if openPaused { self.setFlag("pause", true) }
+                self.command("loadfile", args: [url, "replace"])
+            }
             armLoadWatchdog()
+            if !stallSessionOpen {
+                stallSessionOpen = true
+                MainThreadStallMonitor.shared.beginSession()
+            }
             startPolling()
             flashControls()
 
@@ -407,8 +483,7 @@ final class MPVTVPlayerViewController: UIViewController {
         // deallocated. Under the end screen's cover the file has ended — already paused there — and
         // "Play Again" resumes it (`replay()`).
         if mpv != nil, !cachedProps().paused {
-            updateProps { $0.paused = true }
-            eventQueue.async { [weak self] in self?.setFlag("pause", true) }
+            requestPause(true)
         }
         saveProgress(flush: true)
         stopTraktScrobble()
@@ -449,6 +524,10 @@ final class MPVTVPlayerViewController: UIViewController {
         if drawable != lastDrawableSize {
             metalLayer.drawableSize = drawable
             lastDrawableSize = drawable
+            // A new drawable size can recreate the swapchain, and MoltenVK sets the flag again.
+            if metalLayer.framebufferOnly != PlayerTuning.framebufferOnly {
+                metalLayer.framebufferOnly = PlayerTuning.framebufferOnly
+            }
         }
         CATransaction.commit()
     }
@@ -461,7 +540,8 @@ final class MPVTVPlayerViewController: UIViewController {
         // audiounit init silently plays video with no sound (the simulator doesn't enforce
         // this, which is why audio worked there). The app-startup activation is async on a
         // background queue, so re-activate synchronously here (idempotent, cheap) and LOG
-        // failures instead of swallowing them.
+        // failures instead of swallowing them. (The audio options below read the session's
+        // output channels, so this stays ahead of them; it is not a libmpv call.)
         let session = AVAudioSession.sharedInstance()
         do {
             try session.setCategory(.playback, mode: .moviePlayback)
@@ -562,37 +642,57 @@ final class MPVTVPlayerViewController: UIViewController {
         }
         alangTrace("targets=\(preferredAudioLanguages) applied=\(didApplyAlang)")
 
-        // User-tunable streaming buffer (Settings > Playback > Streaming Buffer). 0 = mpv defaults.
+        // Large network files (a 4K remux of tens of GB over HTTP from an add-on or a debrid CDN).
+        //  - The demuxer cache is always on and always bounded, so a huge file can neither run the
+        //    open and probe phase out of buffer nor grow past what a 4 GB Apple TV leaves an app:
+        //    150 MiB ahead by default (Settings > Playback > Streaming Buffer raises it), and a
+        //    back buffer capped at 64 MiB by default and 96 MiB at most (mpv's default keeps as
+        //    much behind the playhead as ahead, which doubles the memory for little use).
+        //  - A stalled read gives up after 20 s instead of mpv's 60 s, so the reconnect options above
+        //    kick in sooner and a dead link reaches the error card instead of hanging the open.
         let bufferMB = UserDefaults.standard.integer(forKey: PlayerTuning.bufferMBKey)
-        if bufferMB > 0 {
-            checkError(mpv_set_option_string(mpv, "demuxer-max-bytes", "\(bufferMB)MiB"))
-            checkError(mpv_set_option_string(mpv, "demuxer-max-back-bytes", "\(max(bufferMB / 2, 16))MiB"))
-        }
+        let aheadMB = bufferMB > 0 ? min(bufferMB, 512) : 150
+        let backMB = bufferMB > 0 ? min(max(bufferMB / 2, 16), 96) : 64
+        checkError(mpv_set_option_string(mpv, "cache", "yes"))
+        checkError(mpv_set_option_string(mpv, "demuxer-max-bytes", "\(aheadMB)MiB"))
+        checkError(mpv_set_option_string(mpv, "demuxer-max-back-bytes", "\(backMB)MiB"))
+        checkError(mpv_set_option_string(mpv, "network-timeout", "20"))
         let readaheadSec = UserDefaults.standard.integer(forKey: PlayerTuning.readaheadSecKey)
         if readaheadSec > 0 {
-            checkError(mpv_set_option_string(mpv, "cache", "yes"))
             checkError(mpv_set_option_string(mpv, "demuxer-readahead-secs", "\(readaheadSec)"))
             checkError(mpv_set_option_string(mpv, "cache-secs", "\(readaheadSec)"))
         }
 
-        checkError(mpv_initialize(mpv))
-        // Everything the UI needs is observed with a data payload so state flows to us on the
-        // event queue — the main thread never issues a synchronous property read (see PropSnapshot).
-        mpv_observe_property(mpv, ObservedProp.timePos.rawValue, "time-pos", MPV_FORMAT_DOUBLE)
-        mpv_observe_property(mpv, ObservedProp.duration.rawValue, "duration", MPV_FORMAT_DOUBLE)
-        mpv_observe_property(mpv, ObservedProp.pause.rawValue, "pause", MPV_FORMAT_FLAG)
-        mpv_observe_property(mpv, ObservedProp.coreIdle.rawValue, "core-idle", MPV_FORMAT_FLAG)
-        mpv_observe_property(mpv, ObservedProp.pausedForCache.rawValue, "paused-for-cache", MPV_FORMAT_FLAG)
-        mpv_observe_property(mpv, ObservedProp.eofReached.rawValue, "eof-reached", MPV_FORMAT_FLAG)
-        mpv_observe_property(mpv, ObservedProp.trackCount.rawValue, "track-list/count", MPV_FORMAT_INT64)
-        mpv_observe_property(mpv, ObservedProp.videoW.rawValue, "video-params/w", MPV_FORMAT_INT64)
-        mpv_observe_property(mpv, ObservedProp.videoH.rawValue, "video-params/h", MPV_FORMAT_INT64)
-        mpv_observe_property(mpv, ObservedProp.aid.rawValue, "aid", MPV_FORMAT_INT64)
+        // `mpv_initialize` starts the core and the observations hook the UI to it. Queued on
+        // `eventQueue` ahead of every other libmpv call (the pre-load writes and the load itself
+        // follow on the same serial queue), so the main thread returns from here at once.
+        let handle = mpv
+        eventQueue.async { [weak self] in
+            guard let self, self.mpv != nil else { return }
+            self.checkError(mpv_initialize(handle))
+            // Everything the UI needs is observed with a data payload so state flows to us on the
+            // reader queue — the main thread never issues a synchronous property read (see
+            // PropSnapshot). The track and chapter lists arrive whole, as nodes.
+            mpv_observe_property(handle, ObservedProp.timePos.rawValue, "time-pos", MPV_FORMAT_DOUBLE)
+            mpv_observe_property(handle, ObservedProp.duration.rawValue, "duration", MPV_FORMAT_DOUBLE)
+            mpv_observe_property(handle, ObservedProp.pause.rawValue, "pause", MPV_FORMAT_FLAG)
+            mpv_observe_property(handle, ObservedProp.coreIdle.rawValue, "core-idle", MPV_FORMAT_FLAG)
+            mpv_observe_property(handle, ObservedProp.pausedForCache.rawValue, "paused-for-cache", MPV_FORMAT_FLAG)
+            mpv_observe_property(handle, ObservedProp.eofReached.rawValue, "eof-reached", MPV_FORMAT_FLAG)
+            mpv_observe_property(handle, ObservedProp.seeking.rawValue, "seeking", MPV_FORMAT_FLAG)
+            mpv_observe_property(handle, ObservedProp.videoW.rawValue, "video-params/w", MPV_FORMAT_INT64)
+            mpv_observe_property(handle, ObservedProp.videoH.rawValue, "video-params/h", MPV_FORMAT_INT64)
+            mpv_observe_property(handle, ObservedProp.aid.rawValue, "aid", MPV_FORMAT_INT64)
+            mpv_observe_property(handle, ObservedProp.trackList.rawValue, "track-list", MPV_FORMAT_NODE)
+            mpv_observe_property(handle, ObservedProp.chapterList.rawValue, "chapter-list", MPV_FORMAT_NODE)
 
-        mpv_set_wakeup_callback(mpv, { ctx in
-            let vc = unsafeBitCast(ctx, to: MPVTVPlayerViewController.self)
-            vc.readEvents()
-        }, UnsafeMutableRawPointer(Unmanaged.passUnretained(self).toOpaque()))
+            mpv_set_wakeup_callback(handle, { ctx in
+                let vc = unsafeBitCast(ctx, to: MPVTVPlayerViewController.self)
+                vc.scheduleReader()
+            }, UnsafeMutableRawPointer(Unmanaged.passUnretained(self).toOpaque()))
+            // Events that were queued before the callback existed (the observations' first values).
+            self.scheduleReader()
+        }
     }
 
 
@@ -688,6 +788,12 @@ final class MPVTVPlayerViewController: UIViewController {
             refreshRate: Float(fps),
             formatDescription: formatDescription
         )
+        // The mode switch (resolution, HDR) rebuilds the swapchain: assert the layer's flag again once
+        // it is up, so the Liquid Glass over the picture does not go dark after it.
+        ensureMetalLayerReadable(reason: "display criteria")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
+            self?.ensureMetalLayerReadable(reason: "after display switch")
+        }
         if holdDuringSwitch { holdPlaybackDuringDisplaySwitch() }
     }
 
@@ -820,12 +926,12 @@ final class MPVTVPlayerViewController: UIViewController {
     }
 
     /// Pause or play without a remote press (system pauses, the display-switch hold, Now Playing).
-    /// Same path as the Siri-remote toggle: the cache flips at once, the core on `eventQueue`.
+    /// Same path as the Siri-remote toggle: the cache flips at once, the core is asked through
+    /// `commandQueue` and its answer confirms it.
     func setPaused(_ paused: Bool) {
         guard mpv != nil, cachedProps().paused != paused else { return }
         if !paused { systemPauseReason = nil }
-        updateProps { $0.paused = paused }
-        eventQueue.async { [weak self] in self?.setFlag("pause", paused) }
+        requestPause(paused)
         refreshState()
     }
 
@@ -871,9 +977,7 @@ final class MPVTVPlayerViewController: UIViewController {
         NextEpisodeEngine.consecutiveAutoPlays = 0
         // Going back means the viewer is still watching — same rule as the remote's left arrow.
         if seconds < 0 { state.upNextCancel?() }
-        eventQueue.async { [weak self] in
-            self?.command("seek", args: [String(format: "%.3f", seconds), "relative+exact"])
-        }
+        postSeek(String(format: "%.3f", seconds), mode: "relative+exact")
         flashControls()
     }
 
@@ -882,9 +986,7 @@ final class MPVTVPlayerViewController: UIViewController {
         NextEpisodeEngine.consecutiveAutoPlays = 0
         if seconds < state.positionSec { state.upNextCancel?() }
         let target = state.durationSec > 0 ? min(max(seconds, 0), state.durationSec - 0.5) : max(seconds, 0)
-        eventQueue.async { [weak self] in
-            self?.command("seek", args: [String(format: "%.3f", target), "absolute+exact"])
-        }
+        postSeek(String(format: "%.3f", target), mode: "absolute+exact")
         flashControls()
     }
 
@@ -1031,6 +1133,7 @@ final class MPVTVPlayerViewController: UIViewController {
         let cacheSpeed = getDouble("cache-speed")
         if cacheSpeed > 0 { cacheParts.append(LocalizedNumberFormat.transferRate(bytesPerSecond: cacheSpeed)) }
         info.cache = cacheParts.joined(separator: " \u{00B7} ")
+        info.uiStall = MainThreadStallMonitor.shared.summaryLine()
         return info
     }
 
@@ -1141,7 +1244,8 @@ final class MPVTVPlayerViewController: UIViewController {
         state.isPaused = snap.paused
         // A failed load leaves the core idle and unpaused — which reads as buffering forever (PLY-1).
         // A moving playhead is never a stall: the spinner cannot outlive the first seconds of video.
-        state.isBuffering = playbackError == nil && !advancing && (snap.cacheWait || (snap.coreIdle && !snap.paused))
+        state.isBuffering = playbackError == nil && !advancing
+            && (snap.cacheWait || snap.seeking || (snap.coreIdle && !snap.paused))
         // The idle timer follows the player on screen. The screen's own toggles run on SwiftUI's
         // appear/disappear, whose order across an Up Next rebuild is not guaranteed: the outgoing
         // player's `onDisappear` could re-enable the screensaver under the incoming episode.
@@ -1210,7 +1314,8 @@ final class MPVTVPlayerViewController: UIViewController {
     /// the playhead moves while the cache says paused, or stays silent for seconds while playing, the
     /// core is asked directly (on `eventQueue`, never from main) and the cache is rewritten from it.
     private func resyncIfStale(_ snap: PropSnapshot, advancing: Bool, now: TimeInterval) {
-        guard fileLoaded, !resyncInFlight, playbackError == nil, !state.isEnded, now - lastResyncUptime > 2 else { return }
+        guard fileLoaded, !resyncInFlight, playbackError == nil, !state.isEnded, now - lastResyncUptime > 2,
+              snap.pauseReplies == 0 else { return }
         let silentFor = now - max(snap.timePosAt, fileLoadedUptime)
         let pausedButMoving = advancing && snap.paused && now - lastPauseFlipUptime > 1
         let playingButSilent = !snap.paused && fileLoadedUptime > 0 && silentFor > 3
@@ -1221,10 +1326,16 @@ final class MPVTVPlayerViewController: UIViewController {
             guard let self, self.mpv != nil else { return }
             func flag(_ name: String) -> Bool? {
                 var raw = Int32(0)
-                return mpv_get_property(self.mpv, name, MPV_FORMAT_FLAG, &raw) >= 0 ? raw != 0 : nil
+                let status = MainThreadStallMonitor.shared.run("resync \(name)") {
+                    mpv_get_property(self.mpv, name, MPV_FORMAT_FLAG, &raw)
+                }
+                return status >= 0 ? raw != 0 : nil
             }
             var position = Double(0)
-            let hasPosition = mpv_get_property(self.mpv, "time-pos", MPV_FORMAT_DOUBLE, &position) >= 0
+            let positionStatus = MainThreadStallMonitor.shared.run("resync time-pos") {
+                mpv_get_property(self.mpv, "time-pos", MPV_FORMAT_DOUBLE, &position)
+            }
+            let hasPosition = positionStatus >= 0
             let paused = flag("pause"), idle = flag("core-idle"), cache = flag("paused-for-cache")
             let at = ProcessInfo.processInfo.systemUptime
             self.updateProps {
@@ -1261,12 +1372,17 @@ final class MPVTVPlayerViewController: UIViewController {
 
     /// Rebuilds the Stream Info panel rows off-main (it reads a dozen mpv properties).
     private func refreshStreamInfoAsync() {
+        // One rebuild at a time: while the core is busy each read waits on it, and a rebuild queued
+        // every tick behind a stuck one would only pile up.
+        guard !streamInfoInFlight else { return }
+        streamInfoInFlight = true
         let engine = state.routingNote
         let subtitleDelaySec = state.subtitleDelaySec
         eventQueue.async { [weak self] in
             guard let self, self.mpv != nil else { return }
             let info = self.buildStreamInfo(engine: engine, subtitleDelaySec: subtitleDelaySec)
             DispatchQueue.main.async {
+                self.streamInfoInFlight = false
                 if info != self.state.streamInfo { self.state.streamInfo = info }
             }
         }
@@ -1469,6 +1585,7 @@ final class MPVTVPlayerViewController: UIViewController {
         fileLoaded = false
         addedSubtitleUrls.removeAll()
         sideLoadedAddonSubtitles.removeAll()
+        subtitleGeneration += 1
         didAutoSelectTracks = false
         // The subtitle choice is settled again for the new file (a pick made before the failure is
         // saved, so it comes back).
@@ -1483,16 +1600,16 @@ final class MPVTVPlayerViewController: UIViewController {
         UIApplication.shared.isIdleTimerDisabled = true
         armLoadWatchdog()
         let url = context.url.absoluteString
-        eventQueue.async { [weak self] in
+        pendingSubtitleSelectURL = nil
+        readerQueue.async { [weak self] in
             guard let self else { return }
             self.coreOpenedFile = false
             self.lastHttpErrorStatus = nil
-            self.pendingSubtitleSelectURL = nil
-            // An end of file left mpv paused (keep-open), and a new file would open paused too.
-            self.setFlag("pause", false)
             self.displayCriteriaAwaitsVideoSize = true      // PLY-A1: a new file, new criteria
-            self.command("loadfile", args: [url, "replace"])
         }
+        // An end of file left mpv paused (keep-open), and a new file would open paused too.
+        requestPause(false)
+        postCommand("loadfile", [url, "replace"])
     }
 
     /// Card → "Keep Waiting" (a slow source): the spinner again, and another watchdog round.
@@ -1528,16 +1645,29 @@ final class MPVTVPlayerViewController: UIViewController {
 
     // MARK: - Teardown
 
-    deinit {
+    /// The real teardown, on the main thread: timers, observers, watchers, the scrobble and the
+    /// subtitle repository. Called when SwiftUI dismantles the player (`dismantleUIViewController`)
+    /// and, as a fallback, by `deinit` when that runs on the main thread. Idempotent.
+    func tearDown() {
+        guard !tornDown else { return }
+        tornDown = true
         loadWatchdog?.cancel()
         subtitleRestoreDeadline?.cancel()
         if let backgroundObserver { NotificationCenter.default.removeObserver(backgroundObserver) }
         for observer in lifecycleObservers { NotificationCenter.default.removeObserver(observer) }
+        lifecycleObservers.removeAll()
         pollTimer?.invalidate()
+        pollTimer = nil
         seekTimer?.invalidate()
+        seekTimer = nil
+        if stallSessionOpen {
+            stallSessionOpen = false
+            MainThreadStallMonitor.shared.endSession()
+        }
         subtitleWatcher?.cancel()
         subtitleLoadingWatcher?.cancel()
         playerSettingsWatcher?.cancel()
+        subtitleFetcher.close()
         // Idempotent final scrobble stop — normally a no-op after viewDidDisappear, but covers
         // teardown paths where the disappearance callback never ran (ME-004).
         stopTraktScrobble()
@@ -1546,6 +1676,34 @@ final class MPVTVPlayerViewController: UIViewController {
         // started — a plain `clear()` wiped the next episode's list.
         let subtitleKey = SubtitleRepository.shared.requestKey(type: context.contentType, videoId: context.videoId)
         SubtitleRepository.shared.clearIfCurrent(key: subtitleKey)
+    }
+
+    private var tornDown = false
+
+    deinit {
+        if Thread.isMainThread {
+            tearDown()
+        } else if !tornDown {
+            // The last reference went away on a libmpv queue (a closure that was mid-call when the
+            // screen let go of the player). Timers and observers belong to the main run loop and the
+            // main thread, so they are handed over there, by value, without touching `self`.
+            let timers = [pollTimer, seekTimer].compactMap { $0 }
+            let observers = lifecycleObservers + [backgroundObserver].compactMap { $0 }
+            let watchdog = loadWatchdog
+            let restoreDeadline = subtitleRestoreDeadline
+            let watchers = [subtitleWatcher, subtitleLoadingWatcher, playerSettingsWatcher].compactMap { $0 }
+            let hadStallSession = stallSessionOpen
+            let fetcher = subtitleFetcher
+            DispatchQueue.main.async {
+                timers.forEach { $0.invalidate() }
+                observers.forEach { NotificationCenter.default.removeObserver($0) }
+                watchdog?.cancel()
+                restoreDeadline?.cancel()
+                watchers.forEach { $0.cancel() }
+                fetcher.close()
+                if hadStallSession { MainThreadStallMonitor.shared.endSession() }
+            }
+        }
         destroyPlayer()
     }
 
@@ -1568,60 +1726,102 @@ final class MPVTVPlayerViewController: UIViewController {
 
     // MARK: - Event loop
 
-    private func readEvents() {
-        eventQueue.async { [weak self] in
-            guard let self, let mpv = self.mpv else { return }
-            while true {
-                guard let ev = mpv_wait_event(mpv, 0) else { break }
-                let id = ev.pointee.event_id
-                if id == MPV_EVENT_NONE { break }
-                if id == MPV_EVENT_SHUTDOWN { return }
-                if id == MPV_EVENT_FILE_LOADED {
-                    self.coreOpenedFile = true
-                    self.fileLoadedUptime = ProcessInfo.processInfo.systemUptime
-                    self.alangTrace("file-loaded alang=\(self.getString("alang") ?? "-") aid=\(self.getString("aid") ?? "-")")
+    /// The wakeup callback (any libmpv thread): schedules ONE drain on `readerQueue`. A burst of
+    /// wakeups does not queue a drain each.
+    func scheduleReader() {
+        propLock.lock()
+        let already = readerScheduled
+        readerScheduled = true
+        propLock.unlock()
+        guard !already else { return }
+        readerQueue.async { [weak self] in self?.drainEvents() }
+    }
+
+    /// Runs on `readerQueue`, and ONLY here: drains libmpv's event queue until it is empty. Nothing
+    /// in this loop waits on the core (no get, no set, no command; `mpv_wait_event(…, 0)` never
+    /// waits), so property changes keep reaching the snapshot, and requests keep being answered,
+    /// however busy the core is with a very large stream. Work that does touch the core is queued
+    /// to `eventQueue`; work on UI state hops to main.
+    private func drainEvents() {
+        propLock.lock()
+        readerScheduled = false
+        propLock.unlock()
+        while true {
+            guard let mpv = self.mpv, let ev = mpv_wait_event(mpv, 0) else { break }
+            let id = ev.pointee.event_id
+            if id == MPV_EVENT_NONE { break }
+            if id == MPV_EVENT_SHUTDOWN { return }
+            if id == MPV_EVENT_FILE_LOADED {
+                coreOpenedFile = true
+                fileLoadedUptime = ProcessInfo.processInfo.systemUptime
+                alangTrace("file-loaded")
+                DispatchQueue.main.async {
+                    self.fileDidLoad()
+                    self.applyPendingResume()
+                    self.onFileLoaded()
+                }
+            }
+            if id == MPV_EVENT_PROPERTY_CHANGE, let data = ev.pointee.data {
+                let prop = UnsafePointer<mpv_event_property>(OpaquePointer(data)).pointee
+                handlePropertyChange(userdata: ev.pointee.reply_userdata, prop: prop)
+            }
+            if id == MPV_EVENT_COMMAND_REPLY || id == MPV_EVENT_SET_PROPERTY_REPLY {
+                handleReply(userdata: ev.pointee.reply_userdata, status: ev.pointee.error)
+            }
+            if id == MPV_EVENT_QUEUE_OVERFLOW {
+                print("[MPV] event queue overflowed — events were dropped")
+            }
+            if id == MPV_EVENT_END_FILE, let data = ev.pointee.data {
+                let endFile = UnsafePointer<mpv_event_end_file>(OpaquePointer(data)).pointee
+                if endFile.reason == MPV_END_FILE_REASON_ERROR {
+                    let message = String(cString: mpv_error_string(endFile.error))
+                    print("[MPV] End file error: \(message)")
+                    // PLY-1: this print used to be the only trace of a failed load — the spinner
+                    // stayed up for good. An HTTP status logged while opening names the reason.
+                    let status = coreOpenedFile ? nil : lastHttpErrorStatus
                     DispatchQueue.main.async {
-                        self.fileDidLoad()
-                        self.applyPendingResume()
-                        self.onFileLoaded()
-                    }
-                    self.refreshTracksAsync()
-                }
-                if id == MPV_EVENT_PROPERTY_CHANGE, let data = ev.pointee.data {
-                    let prop = UnsafePointer<mpv_event_property>(OpaquePointer(data)).pointee
-                    self.handlePropertyChange(userdata: ev.pointee.reply_userdata, prop: prop)
-                }
-                if id == MPV_EVENT_END_FILE, let data = ev.pointee.data {
-                    let endFile = UnsafePointer<mpv_event_end_file>(OpaquePointer(data)).pointee
-                    if endFile.reason == MPV_END_FILE_REASON_ERROR {
-                        let message = String(cString: mpv_error_string(endFile.error))
-                        print("[MPV] End file error: \(message)")
-                        // PLY-1: this print used to be the only trace of a failed load — the spinner
-                        // stayed up for good. An HTTP status logged while opening names the reason.
-                        let status = self.coreOpenedFile ? nil : self.lastHttpErrorStatus
-                        DispatchQueue.main.async {
-                            self.showPlaybackError(PlayerPlaybackError(
-                                kind: .failed,
-                                detail: PlayerPlaybackError.detail(httpStatus: status, mpvError: message)
-                            ))
-                        }
+                        self.showPlaybackError(PlayerPlaybackError(
+                            kind: .failed,
+                            detail: PlayerPlaybackError.detail(httpStatus: status, mpvError: message)
+                        ))
                     }
                 }
-                if id == MPV_EVENT_LOG_MESSAGE,
-                   let msg = UnsafeMutablePointer<mpv_event_log_message>(OpaquePointer(ev.pointee.data)) {
-                    let level = String(cString: msg.pointee.level!)
-                    let text = String(cString: msg.pointee.text!)
-                    if !self.coreOpenedFile, let status = PlayerPlaybackError.httpStatus(inLogLine: text) {
-                        self.lastHttpErrorStatus = status
-                    }
-                    print("[MPV] \(level): \(text)", terminator: "")
+            }
+            if id == MPV_EVENT_LOG_MESSAGE,
+               let msg = UnsafeMutablePointer<mpv_event_log_message>(OpaquePointer(ev.pointee.data)) {
+                let text = String(cString: msg.pointee.text!)
+                if !coreOpenedFile, let status = PlayerPlaybackError.httpStatus(inLogLine: text) {
+                    lastHttpErrorStatus = status
                 }
+                logCoreMessage(level: String(cString: msg.pointee.level!), text: text)
             }
         }
     }
 
-    /// Runs on `eventQueue`. Folds a property-change payload into the snapshot; only a
-    /// track-count change escalates to the (also off-main) track-list walk.
+    /// At most 20 core log lines a second reach the console: a stream that makes the demuxer warn on
+    /// every packet must not turn the log into the bottleneck.
+    private func logCoreMessage(level: String, text: String) {
+        let now = ProcessInfo.processInfo.systemUptime
+        if now - logWindowStart >= 1 {
+            logWindowStart = now
+            logLinesInWindow = 0
+        }
+        logLinesInWindow += 1
+        guard logLinesInWindow <= 20 else { return }
+        print("[MPV] \(level): \(text)", terminator: "")
+    }
+
+    /// Runs on `readerQueue`. The answer to an asynchronous request: the core has done it.
+    private func handleReply(userdata: UInt64, status: Int32) {
+        guard let reply = ReplyID(rawValue: userdata) else { return }
+        if status < 0 {
+            print("[MPV] request \(reply) failed: \(String(cString: mpv_error_string(status)))")
+        }
+        settleReply(reply)
+    }
+
+    /// Runs on `readerQueue`. Folds a property-change payload into the snapshot; the track and
+    /// chapter lists are copied out of their nodes here and published on main.
     private func handlePropertyChange(userdata: UInt64, prop: mpv_event_property) {
         guard let observed = ObservedProp(rawValue: userdata) else { return }
 
@@ -1642,7 +1842,12 @@ final class MPVTVPlayerViewController: UIViewController {
         case .timePos:
             if let v = asDouble() {
                 let at = ProcessInfo.processInfo.systemUptime
-                updateProps { $0.position = v; $0.timePosAt = at }
+                updateProps {
+                    // The event is alive either way; its value is older than a seek still in flight.
+                    $0.timePosAt = at
+                    if $0.seekReplies > 0, at < $0.seekHoldUntil { return }
+                    $0.position = v
+                }
             }
         case .duration:
             if let v = asDouble() {
@@ -1652,7 +1857,13 @@ final class MPVTVPlayerViewController: UIViewController {
                 }
             }
         case .pause:
-            if let v = asFlag() { updateProps { $0.paused = v } }
+            if let v = asFlag() {
+                updateProps {
+                    // An event that contradicts a request still unanswered is older than the request.
+                    if $0.pauseReplies > 0, let requested = $0.pauseRequest, requested != v { return }
+                    $0.paused = v
+                }
+            }
         case .coreIdle:
             if let v = asFlag() { updateProps { $0.coreIdle = v } }
         case .pausedForCache:
@@ -1661,10 +1872,16 @@ final class MPVTVPlayerViewController: UIViewController {
                 updateProps { rising = v && !$0.cacheWait; $0.cacheWait = v }
                 if rising { cacheWaitCount += 1 }
             }
+        case .seeking:
+            if let v = asFlag() { updateProps { $0.seeking = v } }
         case .eofReached:
             if let v = asFlag() { updateProps { $0.eof = v } }
-        case .trackCount:
-            refreshTracksAsync()
+        case .trackList:
+            let entries = MPVTrackListEntry.parse(MPVNodeValue(property: prop))
+            DispatchQueue.main.async { [weak self] in self?.tracksChanged(entries) }
+        case .chapterList:
+            let chapters = MPVChapterEntry.parse(MPVNodeValue(property: prop))
+            DispatchQueue.main.async { [weak self] in self?.chaptersChanged(chapters) }
         case .videoW:
             // Unavailable (between files) reads as 0, so a reload never sees the last file's size.
             let v = asInt() ?? 0
@@ -1679,13 +1896,21 @@ final class MPVTVPlayerViewController: UIViewController {
         }
     }
 
+    /// Main thread. The file's chapters arrived (or changed): the chapter chrome follows.
+    private func chaptersChanged(_ entries: [MPVChapterEntry]) {
+        let chapters = entries.map { PlayerFileChapter(start: $0.start, title: $0.title) }
+        guard chapters != fileChapterList else { return }
+        fileChapterList = chapters
+        onFileChapters?(chapters)
+    }
+
     private func applyPendingResume() {
         loadStartPositionSec = pendingResumeSec ?? 0
         if let seconds = pendingResumeSec {
             pendingResumeSec = nil
-            // PLY-5: through `eventQueue` like every other seek. This runs at FILE_LOADED, the core's
-            // busiest moment — a synchronous `mpv_command` here parked the main thread on the core
-            // lock (the BUG-2/BUG-3 rule above `PropSnapshot`).
+            // PLY-5: posted like every other seek. This runs at FILE_LOADED, the core's busiest
+            // moment — a synchronous `mpv_command` here parked the main thread on the core lock
+            // (the BUG-2/BUG-3 rule above `PropSnapshot`).
             resumeTargetSec = seconds
             seekAbsolute(seconds)
             return
@@ -1698,8 +1923,8 @@ final class MPVTVPlayerViewController: UIViewController {
     /// Main thread. Scales `pendingResumeFraction` by the file's duration once the file is loaded and
     /// mpv knows it (at file-loaded, or on the first `duration` change after it), behind the same
     /// 10 s floor as every other resume path. Dropped when playback already got past that floor.
-    /// Reads the event-fed property cache and seeks through `eventQueue` (PLY-5, BUG-2/BUG-3: never
-    /// a synchronous mpv call on the main thread).
+    /// Reads the event-fed property cache and posts the seek (PLY-5, BUG-2/BUG-3: never a
+    /// synchronous mpv call on the main thread).
     private func applyPendingResumeFraction(duration: Double) {
         guard resumeFractionAwaitsDuration, let fraction = pendingResumeFraction, duration > 0 else { return }
         resumeFractionAwaitsDuration = false
@@ -1712,6 +1937,86 @@ final class MPVTVPlayerViewController: UIViewController {
     }
 
     // MARK: - libmpv C-interop helpers
+    //
+    // Two families. The `post…` / `request…` ones are asynchronous: they return at once whatever the
+    // core is busy with and may be called from any thread, the main thread included (they hop to
+    // `commandQueue` themselves, so the caller never touches libmpv). Everything after them WAITS for
+    // the core and is for `eventQueue` only; each of those calls is tracked by
+    // `MainThreadStallMonitor`, which counts one made on the main thread as a violation.
+
+    /// `mpv_command_async` from `commandQueue`. `reply` names the request when its answer matters.
+    func postCommand(_ command: String, _ args: [String] = [], reply: ReplyID = .other) {
+        guard mpv != nil else { return }
+        commandQueue.async { [weak self] in
+            guard let self, let handle = self.mpv else { return }
+            var strArgs: [String?] = [command]
+            strArgs.append(contentsOf: args)
+            strArgs.append(nil)
+            var cargs = strArgs.map { $0.flatMap { UnsafePointer<CChar>(strdup($0)) } }
+            defer { for ptr in cargs where ptr != nil { free(UnsafeMutablePointer(mutating: ptr!)) } }
+            let status = MainThreadStallMonitor.shared.run("async \(command)") {
+                mpv_command_async(handle, reply.rawValue, &cargs)
+            }
+            if status < 0 {
+                self.checkError(status)
+                // Refused (the core is not up yet): no answer will ever come for it.
+                self.settleReply(reply)
+            }
+        }
+    }
+
+    /// The `set` command: any property, the value in mpv's own text form.
+    func postSet(_ name: String, _ value: String, reply: ReplyID = .other) {
+        postCommand("set", [name, value], reply: reply)
+    }
+
+    func postSet(_ name: String, double value: Double) {
+        postSet(name, String(format: "%.6f", value))
+    }
+
+    func postSet(_ name: String, flag value: Bool) {
+        postSet(name, value ? "yes" : "no")
+    }
+
+    /// Pause or play: the cache flips now (the glyph follows at once), the core is asked through
+    /// `commandQueue`, and its answer settles the request (`PropSnapshot.pauseRequest`).
+    func requestPause(_ paused: Bool) {
+        guard mpv != nil else { return }
+        updateProps {
+            $0.paused = paused
+            $0.pauseRequest = paused
+            $0.pauseReplies += 1
+        }
+        postSet("pause", paused ? "yes" : "no", reply: .pause)
+    }
+
+    /// A seek: `time-pos` events older than it are ignored until the core has taken it.
+    func postSeek(_ target: String, mode: String) {
+        guard mpv != nil else { return }
+        let hold = ProcessInfo.processInfo.systemUptime + 2
+        updateProps {
+            $0.seekReplies += 1
+            $0.seekHoldUntil = hold
+        }
+        postCommand("seek", [target, mode], reply: .seek)
+    }
+
+    /// An asynchronous request was answered (or refused): it no longer shapes the snapshot.
+    func settleReply(_ reply: ReplyID) {
+        switch reply {
+        case .pause:
+            updateProps {
+                $0.pauseReplies = max($0.pauseReplies - 1, 0)
+                if $0.pauseReplies == 0 { $0.pauseRequest = nil }
+            }
+        case .seek:
+            updateProps { $0.seekReplies = max($0.seekReplies - 1, 0) }
+        case .other:
+            break
+        }
+    }
+
+    // Blocking calls: `eventQueue` only (and `setupMpv` before the core exists).
 
     func command(_ command: String, args: [String?] = []) {
         guard mpv != nil else { return }
@@ -1720,42 +2025,37 @@ final class MPVTVPlayerViewController: UIViewController {
         strArgs.append(nil)
         var cargs = strArgs.map { $0.flatMap { UnsafePointer<CChar>(strdup($0)) } }
         defer { for ptr in cargs where ptr != nil { free(UnsafeMutablePointer(mutating: ptr!)) } }
-        checkError(mpv_command(mpv, &cargs))
+        checkError(MainThreadStallMonitor.shared.run("cmd \(command)") { mpv_command(mpv, &cargs) })
     }
 
     private func getDouble(_ name: String) -> Double {
         guard mpv != nil else { return 0 }
         var data = Double()
-        mpv_get_property(mpv, name, MPV_FORMAT_DOUBLE, &data)
+        _ = MainThreadStallMonitor.shared.run("get \(name)") { mpv_get_property(mpv, name, MPV_FORMAT_DOUBLE, &data) }
         return data
     }
 
     func getInt(_ name: String) -> Int {
         guard mpv != nil else { return 0 }
         var data = Int64()
-        mpv_get_property(mpv, name, MPV_FORMAT_INT64, &data)
+        _ = MainThreadStallMonitor.shared.run("get \(name)") { mpv_get_property(mpv, name, MPV_FORMAT_INT64, &data) }
         return Int(data)
     }
 
     func getString(_ name: String) -> String? {
         guard mpv != nil else { return nil }
-        guard let cstr = mpv_get_property_string(mpv, name) else { return nil }
+        guard let cstr = MainThreadStallMonitor.shared.run("get \(name)", { mpv_get_property_string(mpv, name) }) else {
+            return nil
+        }
         let str = String(cString: cstr)
         mpv_free(cstr)
         return str
     }
 
-    func getFlag(_ name: String) -> Bool {
-        guard mpv != nil else { return false }
-        var data = Int64()
-        mpv_get_property(mpv, name, MPV_FORMAT_FLAG, &data)
-        return data > 0
-    }
-
     func setFlag(_ name: String, _ flag: Bool) {
         guard mpv != nil else { return }
-        var data: Int = flag ? 1 : 0
-        mpv_set_property(mpv, name, MPV_FORMAT_FLAG, &data)
+        var data: Int32 = flag ? 1 : 0
+        _ = MainThreadStallMonitor.shared.run("set \(name)") { mpv_set_property(mpv, name, MPV_FORMAT_FLAG, &data) }
     }
 
     func checkError(_ status: CInt) {

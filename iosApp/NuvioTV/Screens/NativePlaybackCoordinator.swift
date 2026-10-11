@@ -234,6 +234,8 @@ final class NativePlaybackCoordinator: ObservableObject {
     /// The resume position planned against the segment map (published as `EXT-X-START`), consumed
     /// at the first readyToPlay.
     private var plannedResumeSec: Double?
+    /// `MainThreadStallMonitor` was told this player is on screen.
+    private var stallSessionOpen = false
     /// Startup clock for the time-to-first-frame log line.
     private var launchStartedAt: Date?
     private var loggedFirstFrame = false
@@ -289,6 +291,13 @@ final class NativePlaybackCoordinator: ObservableObject {
 
     func start() {
         guard remux == nil else { return }
+        // The main-thread stall watchdog covers this engine too (DEBUG / Developer pane): the probe,
+        // the remux and the local HLS server all run off the main thread, and this is how a device
+        // pass confirms it.
+        if !stallSessionOpen {
+            stallSessionOpen = true
+            MainThreadStallMonitor.shared.beginSession()
+        }
         launchStartedAt = Date()
         loggedFirstFrame = false
         observeSystemPauses()
@@ -354,6 +363,10 @@ final class NativePlaybackCoordinator: ObservableObject {
     }
 
     func stop() {
+        if stallSessionOpen {
+            stallSessionOpen = false
+            MainThreadStallMonitor.shared.endSession()
+        }
         for observer in systemObservers { NotificationCenter.default.removeObserver(observer) }
         systemObservers.removeAll()
         pollTask?.cancel(); pollTask = nil
@@ -1332,6 +1345,7 @@ final class NativePlaybackCoordinator: ObservableObject {
             }
             add(String(localized: "Transferred"), transfer)
         }
+        add("UI stall", MainThreadStallMonitor.shared.summaryLine())
         return rows
     }
 

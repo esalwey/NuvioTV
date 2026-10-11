@@ -80,13 +80,16 @@ extension MPVTVPlayerViewController: UIGestureRecognizerDelegate {
             position: position,
             durationSec: durationSec,
             now: ProcessInfo.processInfo.systemUptime,
-            isPlaying: !state.isPaused && !state.isScrubbing && !state.isEnded && !state.playbackErrorShown,
+            // Not under an open panel either: the skip may end in the next episode replacing the player.
+            isPlaying: !state.isPaused && !state.isScrubbing && !state.isEnded && !state.playbackErrorShown
+                && !state.panelOpen,
             segments: skipSegments,
             enabledKinds: AutoSkipSettings.enabledKinds()
         ) else { return false }
         seekForSkip(targetSec: skip.action.targetSec,
                     isCredits: UpNextTrigger.outroTypes.contains(SkipPlanner.normalized(skip.segment.type)),
-                    skipsToPostCredits: skip.action.skipsToPostCredits)
+                    skipsToPostCredits: skip.action.skipsToPostCredits,
+                    automatic: true)
         state.autoSkipToast = AutoSkipToast(text: SkipPlanner.autoSkipMessage(forKind: skip.kind))
         return true
     }
@@ -328,10 +331,10 @@ extension MPVTVPlayerViewController: UIGestureRecognizerDelegate {
     }
 
     /// The seek behind a manual and an automatic skip alike.
-    private func seekForSkip(targetSec: Double, isCredits: Bool, skipsToPostCredits: Bool) {
+    private func seekForSkip(targetSec: Double, isCredits: Bool, skipsToPostCredits: Bool, automatic: Bool = false) {
         // Skip Outro on credits that run to the end of the file = the next episode now (Up Next),
         // not a seek onto the last frame. Credits followed by a scene seek to the scene instead.
-        if isCredits, !skipsToPostCredits, state.upNextSkipCredits?(targetSec) == true { return }
+        if isCredits, !skipsToPostCredits, state.upNextSkipCredits?(targetSec, automatic) == true { return }
         // Clamp against duration: a skip-outro target past EOF wedges mpv.
         // durationSec is still 0 before the first duration event — seek unclamped then.
         let target = state.durationSec > 0 ? min(targetSec, state.durationSec - 0.5) : targetSec
@@ -448,11 +451,8 @@ extension MPVTVPlayerViewController: UIGestureRecognizerDelegate {
 
     private func applyPlaybackRate(_ rate: Double, muted: Bool) {
         guard mpv != nil else { return }
-        let speed = String(format: "%.2f", rate)
-        eventQueue.async { [weak self] in
-            self?.command("set", args: ["speed", speed])
-            self?.command("set", args: ["mute", muted ? "yes" : "no"])
-        }
+        postSet("speed", String(format: "%.2f", rate))
+        postSet("mute", flag: muted)
     }
 
     // MARK: Scrubbing (state in `MPVPlaybackState`)
@@ -522,9 +522,9 @@ extension MPVTVPlayerViewController: UIGestureRecognizerDelegate {
 
     private func setPlaybackPaused(_ paused: Bool) {
         guard mpv != nil else { return }
-        // Optimistic UI: reflect the new state immediately; the pause property event confirms it.
-        updateProps { $0.paused = paused }
-        eventQueue.async { [weak self] in self?.setFlag("pause", paused) }
+        // Optimistic UI: the glyph and the transport reflect the new state at once; the core is asked
+        // through `commandQueue` (never a call that can wait on it), and its answer confirms it.
+        requestPause(paused)
         refreshState()
     }
 
@@ -533,7 +533,10 @@ extension MPVTVPlayerViewController: UIGestureRecognizerDelegate {
         guard mpv != nil else { return }
         endSeek()
         seekAbsolute(0)
-        setFlag("pause", false)
+        // The seek first, then the unpause (both posted, in that order); the cache follows at once so
+        // the end-of-file state does not outlive the request.
+        requestPause(false)
+        updateProps { $0.eof = false }
         state.isEnded = false
         state.endedNaturally = true
         state.completedByHandOff = false
@@ -552,22 +555,14 @@ extension MPVTVPlayerViewController: UIGestureRecognizerDelegate {
         becomeFirstResponder()
     }
 
-    /// Relative seek through `eventQueue` (held-arrow and Now Playing callers must not park the main
-    /// thread on the core lock). `exact` decodes to the precise time instead of the nearest keyframe.
+    /// Relative seek, asynchronous (held-arrow and Now Playing callers must not park the main thread
+    /// on the core lock). `exact` decodes to the precise time instead of the nearest keyframe.
     func seekBy(_ seconds: Double, exact: Bool = false) {
-        guard mpv != nil else { return }
-        let mode = exact ? "relative+exact" : "relative"
-        eventQueue.async { [weak self] in
-            self?.command("seek", args: [String(format: "%.3f", seconds), mode])
-        }
+        postSeek(String(format: "%.3f", seconds), mode: exact ? "relative+exact" : "relative")
     }
 
     func seekAbsolute(_ seconds: Double, exact: Bool = false) {
-        guard mpv != nil else { return }
-        let mode = exact ? "absolute+exact" : "absolute"
-        eventQueue.async { [weak self] in
-            self?.command("seek", args: [String(format: "%.3f", seconds), mode])
-        }
+        postSeek(String(format: "%.3f", seconds), mode: exact ? "absolute+exact" : "absolute")
     }
 
     func flashControls() {
