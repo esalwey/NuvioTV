@@ -1,3 +1,4 @@
+import Combine
 import SwiftUI
 import SharedCore
 
@@ -309,6 +310,35 @@ enum MainTab {
     static let search = 1
     static let library = 2
     static let settings = 4
+    /// The Discover sidebar item, listed only while Discover is set to "In Sidebar" (Settings >
+    /// Content Sources > Discover). 3 and 5 stay retired.
+    static let discover = 6
+}
+
+/// Whether the Discover sidebar item is listed: Discover is set to "In Sidebar". Follows the synced
+/// home-catalog setting live, and only publishes when the answer changes, so the tab shell is not
+/// re-evaluated for the unrelated catalog edits that share the same state.
+@MainActor
+final class DiscoverTabModel: ObservableObject {
+    @Published private(set) var isInSidebar = false
+    private var watcher: FlowWatcher?
+
+    init() {
+        // Loading the snapshot hydrates the stored settings into `uiState`, so the first frame is right.
+        _ = HomeCatalogSettingsRepository.shared.snapshot()
+        if let state = HomeCatalogSettingsRepository.shared.uiState.value_ as? HomeCatalogSettingsUiState {
+            isInSidebar = state.discoverLocation == DiscoverLocation.inSidebar
+        }
+        watcher = FlowWatcherKt.watch(HomeCatalogSettingsRepository.shared.uiState) { [weak self] emitted in
+            guard let self, let state = emitted as? HomeCatalogSettingsUiState else { return }
+            let inSidebar = state.discoverLocation == DiscoverLocation.inSidebar
+            if inSidebar != self.isInSidebar { self.isInSidebar = inSidebar }
+        }
+    }
+
+    deinit {
+        watcher?.cancel()
+    }
 }
 
 /// The main app shell once a profile is selected.
@@ -359,6 +389,9 @@ struct MainTabView: View {
     /// re-evaluated every `Tab` closure, re-resolving `.toolbarVisibility` mid-transition (BUG-66).
     @State private var tabBarVisibility = TabBarVisibility()
 
+    /// Drives whether the Discover sidebar item is listed. Rarely changes, unlike Home's model.
+    @StateObject private var discoverTab = DiscoverTabModel()
+
     var body: some View {
         TabView(selection: $selectedTab) {
             // `role: .search` makes this the system search tab: the magnifying glass at the top
@@ -372,6 +405,13 @@ struct MainTabView: View {
                 HomeView(model: home)
                     .tabBarImmersiveHide()
             }
+            // Discover as its own sidebar item (Settings > Content Sources > Discover > In
+            // Sidebar). Hidden otherwise, so it neither lists nor builds its content.
+            Tab("Discover", systemImage: "safari", value: MainTab.discover) {
+                SearchView(surface: .discover)
+                    .tabBarImmersiveHide()
+            }
+            .hidden(!discoverTab.isInSidebar)
             Tab("Library", systemImage: "books.vertical", value: MainTab.library) {
                 LibraryView()
                     .tabBarImmersiveHide()
@@ -411,6 +451,11 @@ struct MainTabView: View {
         }
         .onChange(of: selectedTab) { _, tab in
             tabBarVisibility.setHomeTabSelected(tab == MainTab.home)
+        }
+        // Discover left the sidebar while it was the open tab (a settings sync from another
+        // device): fall back to Home instead of leaving an unlisted tab on screen.
+        .onChange(of: discoverTab.isInSidebar) { _, inSidebar in
+            if !inSidebar && selectedTab == MainTab.discover { selectedTab = MainTab.home }
         }
     }
 }

@@ -20,6 +20,9 @@ final class SettingsViewModel: ObservableObject {
     @Published private(set) var showCatalogType = true
     /// UX-8: hide the entire Discover section on the Search screen (synced; default off).
     @Published private(set) var hideDiscover = false
+    /// Where Discover lives: "off", "inSearch" (below the Search field) or "inSidebar" (its own
+    /// sidebar item). `SettingsPickerRow` selection key, not the raw Kotlin enum.
+    @Published private(set) var discoverLocation = "inSearch"
     /// Upstream 7c1c6578: keep and show recent searches (per profile, this Apple TV; default on).
     @Published private(set) var recentSearchesEnabled = true
     /// SET-2 / upstream 6fb46976b: rating visibility on detail pages (synced per profile).
@@ -215,6 +218,7 @@ final class SettingsViewModel: ObservableObject {
             self.showCatalogType = state.showCatalogType
             self.heroEnabled = state.heroEnabled
             self.hideDiscover = state.hideDiscover
+            self.discoverLocation = Self.discoverLocationKey(state.discoverLocation)
         }
 
         // BUG-33 defect 1 instrumentation: the Search Sources pane's fan-out caption. Watches
@@ -487,6 +491,25 @@ final class SettingsViewModel: ObservableObject {
     /// home-catalog namespace, same channel as Show Catalog Type).
     func setHideDiscover(_ enabled: Bool) {
         HomeCatalogSettingsRepository.shared.setHideDiscover(enabled: enabled)
+    }
+
+    /// "off", "inSearch" or "inSidebar" → the shared `DiscoverLocation` (same string-key pattern as
+    /// the library source below). Per profile, cross-device synced with `setHideDiscover`'s switch.
+    func setDiscoverLocation(_ key: String) {
+        let location: DiscoverLocation
+        switch key {
+        case "off": location = .off
+        case "inSidebar": location = .inSidebar
+        default: location = .inSearch
+        }
+        HomeCatalogSettingsRepository.shared.setDiscoverLocation(location: location)
+    }
+
+    /// Compared with `==` rather than switched over, like `librarySourceModeKey`.
+    private static func discoverLocationKey(_ location: DiscoverLocation) -> String {
+        if location == .off { return "off" }
+        if location == .inSidebar { return "inSidebar" }
+        return "inSearch"
     }
 
     /// Upstream 7c1c6578 (#1934): off stops recording and hides the Recent Searches chips; the

@@ -186,23 +186,43 @@ struct ContentSourcesSettingsPane: View {
         )
     }
 
+    private var discoverSubtitle: String {
+        switch model.discoverLocation {
+        case "off":
+            return String(localized: "Search shows only the search field and recent searches")
+        case "inSidebar":
+            return String(localized: "Discover is its own item in the sidebar. Search shows only the search field and recent searches")
+        default:
+            return String(localized: "Search shows the Discover section (types, catalogs, genres) below the field")
+        }
+    }
+
+    private static func discoverLocationName(forKey key: String) -> String {
+        switch key {
+        case "off": return String(localized: "Off")
+        case "inSidebar": return String(localized: "In Sidebar")
+        default: return String(localized: "In Search")
+        }
+    }
+
     /// FEAT-10: one toggle per search-capable catalog. Rows derive from the installed addons
     /// (SettingsViewModel's addon watcher), the disabled set is this profile's, on this Apple TV
     /// (SRC-2).
     @ViewBuilder
     private var searchSourcesSection: some View {
         // UX-8 (u/mrStevenx3, restated three times, finally "completely hide the Discover
-        // section"): one container-level toggle. Synced per profile — deliberately NOT under the
-        // "this Apple TV only" caption below, which describes the per-catalog rows.
-        SettingsToggleRow(
-            title: String(localized: "Hide Discover"),
-            subtitle: model.hideDiscover
-                ? String(localized: "Search shows only the search field and recent searches")
-                : String(localized: "Search shows the Discover section (types, catalogs, genres) below the field"),
-            isOn: Binding(
-                get: { model.hideDiscover },
-                set: { model.setHideDiscover($0) }
-            )
+        // section"): one container-level choice, now off / in Search / its own sidebar item.
+        // Synced per profile — deliberately NOT under the "this Apple TV only" caption below,
+        // which describes the per-catalog rows.
+        SettingsPickerRow(
+            title: String(localized: "Discover"),
+            subtitle: discoverSubtitle,
+            selection: Binding(
+                get: { model.discoverLocation },
+                set: { model.setDiscoverLocation($0) }
+            ),
+            options: ["off", "inSearch", "inSidebar"],
+            label: Self.discoverLocationName(forKey:)
         )
 
         // Upstream 7c1c6578 (#1934): per profile, stored on this Apple TV.

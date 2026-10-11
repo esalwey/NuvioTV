@@ -321,7 +321,7 @@ final class NuvioTVUITests: XCTestCase {
     /// renders off of), so tabs-mode callers see byte-identical behaviour below — the sidebar
     /// branch is a new `if`, not a change to the existing walk.
     private func openTab(_ app: XCUIApplication, named title: String) {
-        let tabNames = ["Home", "Search", "Library", "Add-ons", "Settings", "Profile"]
+        let tabNames = ["Home", "Search", "Library", "Add-ons", "Settings", "Profile", "Discover"]
         if app.descendants(matching: .any)["sidebar_item_Home"].exists || app.otherElements["sidebar_overlay"].exists {
             // The panel is visible even collapsed (showing only the CURRENT tab's own row), and it
             // only expands to show every row once focus actually lands ON one of them
@@ -2593,12 +2593,30 @@ final class NuvioTVUITests: XCTestCase {
         try ensureToggleRow(app, labelPrefix: "Card Depth", on: false, sidebarMaxX: sidebarX, category: "Appearance")
     }
 
-    // MARK: - UX-8: Hide Discover toggle round-trip
+    // MARK: - UX-8: Discover location (Off / In Search / In Sidebar)
 
-    /// Settings → Content Sources → "Hide Discover" ON ⇒ the Search tab must show NO Discover
-    /// header; OFF again ⇒ it must come back (test19's existence check, inverted then restored).
-    /// Toggle rows never report focus (test25), so `ensureToggleRow` walks by counted rows and
-    /// asserts the row's accessibility value flipped — a mis-landed walk fails loudly.
+    /// Picks `option` ("Off", "In Search" or "In Sidebar") in Settings → Content Sources →
+    /// Discover. The row is a `Menu { Picker }`: Select opens the popover with one button per
+    /// option, focus starting on the current one, so the walk to the wanted option goes up first
+    /// and then down. A row that is not found, or a menu that never offers the option, fails loudly.
+    private func chooseDiscoverLocation(_ app: XCUIApplication, option: String, sidebarMaxX: CGFloat) throws {
+        try walkToRowByTreeIndex(app, targetLabelPrefix: "Discover", sidebarMaxX: sidebarMaxX, category: "Content Sources")
+        remote.press(.select)
+        pause(1)
+        let choice = app.buttons[option]
+        guard choice.waitForExistence(timeout: 5) else {
+            XCTFail("the Discover menu did not offer '\(option)'")
+            return
+        }
+        if !choice.hasFocus, !moveFocus(.up, until: choice, max: 3) {
+            _ = moveFocus(.down, until: choice, max: 6)
+        }
+        remote.press(.select)
+        pause(1.5)
+    }
+
+    /// Settings → Content Sources → Discover "Off" ⇒ the Search tab must show NO Discover header;
+    /// "In Search" again ⇒ it must come back (test19's existence check, inverted then restored).
     func test29HideDiscoverToggle() throws {
         let app = launchToHome(forceFreshLaunch: true)
         let contentSources = app.buttons["Content Sources"]
@@ -2612,8 +2630,8 @@ final class NuvioTVUITests: XCTestCase {
         }
         openContentSources()
         let sidebarX = contentSources.frame.maxX
-        try ensureToggleRow(app, labelPrefix: "Hide Discover", on: true, sidebarMaxX: sidebarX, category: "Content Sources")
-        shot(app, "29a_hide_discover_on")
+        try chooseDiscoverLocation(app, option: "Off", sidebarMaxX: sidebarX)
+        shot(app, "29a_discover_off")
 
         openTab(app, named: "Search")
         pause(2.5)
@@ -2622,11 +2640,47 @@ final class NuvioTVUITests: XCTestCase {
         XCTAssertFalse(app.staticTexts["Discover"].exists, "Discover header still on Search with Hide Discover ON")
 
         openContentSources()
-        try ensureToggleRow(app, labelPrefix: "Hide Discover", on: false, sidebarMaxX: sidebarX, category: "Content Sources")
+        try chooseDiscoverLocation(app, option: "In Search", sidebarMaxX: sidebarX)
         openTab(app, named: "Search")
         pause(2.5)
         shot(app, "29c_search_with_discover_again")
-        XCTAssertTrue(app.staticTexts["Discover"].waitForExistence(timeout: 8), "Discover did not return after Hide Discover OFF")
+        XCTAssertTrue(app.staticTexts["Discover"].waitForExistence(timeout: 8), "Discover did not return after choosing In Search")
+        XCTAssertTrue(app.state == .runningForeground)
+    }
+
+    /// Discover "In Sidebar" ⇒ Search shows no Discover header and the tab shell lists a Discover
+    /// tab that opens the Discover browser on its own; back to "In Search" ⇒ the tab goes away and
+    /// Search shows Discover again.
+    func test71DiscoverInSidebar() throws {
+        let app = launchToHome(forceFreshLaunch: true)
+        let contentSources = app.buttons["Content Sources"]
+        func openContentSources() {
+            openTab(app, named: "Settings")
+            _ = moveToSidebarRow(app, .down, named: "Content Sources", max: 10)
+            remote.press(.select)
+            pause(1.5)
+            press(.right, times: 1)
+            pause(1)
+        }
+        openContentSources()
+        let sidebarX = contentSources.frame.maxX
+        try chooseDiscoverLocation(app, option: "In Sidebar", sidebarMaxX: sidebarX)
+        shot(app, "71a_discover_in_sidebar")
+
+        openTab(app, named: "Search")
+        pause(2.5)
+        XCTAssertTrue(app.textFields.firstMatch.waitForExistence(timeout: 6), "Search tab not reached")
+        XCTAssertFalse(app.staticTexts["Discover"].exists, "Discover header still on Search with Discover In Sidebar")
+
+        openTab(app, named: "Discover")
+        pause(2.5)
+        shot(app, "71b_discover_tab")
+        XCTAssertTrue(app.staticTexts["Discover"].waitForExistence(timeout: 8), "the Discover tab did not show the Discover browser")
+        XCTAssertFalse(app.textFields.firstMatch.exists, "the Discover tab must not carry a search field")
+
+        openContentSources()
+        try chooseDiscoverLocation(app, option: "In Search", sidebarMaxX: sidebarX)
+        XCTAssertFalse(app.buttons["Discover"].exists, "the Discover tab is still listed after choosing In Search")
         XCTAssertTrue(app.state == .runningForeground)
     }
 
