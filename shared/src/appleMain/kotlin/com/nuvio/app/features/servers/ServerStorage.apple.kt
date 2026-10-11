@@ -32,7 +32,7 @@ actual object ServerStorage {
      * A launch that finds no marker is the first one of this install: whatever the Keychain still
      * holds belongs to a previous install (or its owner), so it is dropped before the first read.
      */
-    private const val INSTALL_MARKER = "media_server_storage.installed"
+    private const val INSTALL_MARKER = "media_servers_install_marker"
 
     private val freshInstallCheck: Unit by lazy {
         val defaults = NSUserDefaults.standardUserDefaults
