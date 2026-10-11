@@ -406,12 +406,13 @@ struct MainTabView: View {
                     .tabBarImmersiveHide()
             }
             // Discover as its own sidebar item (Settings > Content Sources > Discover > In
-            // Sidebar). Hidden otherwise, so it neither lists nor builds its content.
-            Tab("Discover", systemImage: "safari", value: MainTab.discover) {
-                SearchView(surface: .discover)
-                    .tabBarImmersiveHide()
+            // Sidebar). Not part of the tab set otherwise, so it neither lists nor builds.
+            if discoverTab.isInSidebar {
+                Tab("Discover", systemImage: "safari", value: MainTab.discover) {
+                    SearchView(surface: .discover)
+                        .tabBarImmersiveHide()
+                }
             }
-            .hidden(!discoverTab.isInSidebar)
             Tab("Library", systemImage: "books.vertical", value: MainTab.library) {
                 LibraryView()
                     .tabBarImmersiveHide()
