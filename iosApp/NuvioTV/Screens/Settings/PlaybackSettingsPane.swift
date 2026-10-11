@@ -30,6 +30,9 @@ struct PlaybackSettingsPane: View {
     /// STREAM-INSIGHT: the stream-recommendation preferences (shared `StreamRankingSettingsRepository`).
     @StateObject private var streamRanking = StreamRankingPreferencesModel()
 
+    /// Automatic Skipping, Anime Skip and the IntroDB key (shared `PlayerSettingsRepository`).
+    @StateObject private var skip = SkipSettingsModel()
+
     var body: some View {
         Group {
             sections
@@ -37,6 +40,7 @@ struct PlaybackSettingsPane: View {
         .onAppear {
             secondaryLanguages.start()
             streamRanking.start()
+            skip.start()
         }
         .onDisappear {
             secondaryLanguages.stop()
@@ -57,6 +61,10 @@ struct PlaybackSettingsPane: View {
                 subtitle: String(localized: "Show a Skip button during intros and outros"),
                 isOn: Binding(get: { model.skipIntroEnabled }, set: { model.setSkipIntro($0) })
             )
+            // Skipping needs the segments Skip Intro looks up, so the rows below only exist with it on.
+            if model.skipIntroEnabled {
+                AutoSkipSettingsLinkRow(skip: skip)
+            }
             SettingsToggleRow(
                 title: String(localized: "Match Content Frame Rate"),
                 subtitle: String(localized: "Switch the display mode to the video's native frame rate and dynamic range. Also enable Match Content in tvOS Settings \u{2192} Video and Audio."),
@@ -109,6 +117,10 @@ struct PlaybackSettingsPane: View {
                 .font(Theme.Font.caption)
                 .foregroundStyle(Theme.Palette.textSecondary)
                 .frame(maxWidth: 1100, alignment: .leading)
+        }
+
+        if model.skipIntroEnabled {
+            SkipSourcesSection(skip: skip)
         }
 
         // Up Next (NE-6/SET-1). Every row is this Apple TV's own (the phone's synced auto-play

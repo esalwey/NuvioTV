@@ -58,26 +58,37 @@ extension MPVTVPlayerViewController: UIGestureRecognizerDelegate {
     }
 
     /// Show a skip prompt while the playhead is inside a segment (leaving a 1s tail so the button
-    /// disappears cleanly at the end).
+    /// disappears cleanly at the end). A segment the viewer picked under Automatic Skipping is
+    /// skipped here instead, once, without ever offering the chip (`AutoSkipTracker`).
     func updateSkipPrompt(position: Double, durationSec: Double) {
         // Upstream 80860602f: an error/placeholder clip (shared short-placeholder rule) offers no skip.
         let placeholder = WatchingPoliciesKt.isShortPlaceholderDuration(durationMs: Int64(durationSec * 1000))
-        let active = placeholder ? nil
-            : skipSegments.first(where: { position >= $0.start && position < $0.end - PlayerChipStyle.lastSecondExclusion })
-        let prompt = active.map {
-            SkipPrompt(label: skipLabel(for: $0.type), targetSec: $0.end,
-                       isCredits: UpNextTrigger.outroTypes.contains($0.type.lowercased()))
+        if !placeholder, autoSkipIfNeeded(position: position, durationSec: durationSec) {
+            if state.skipPrompt != nil { state.skipPrompt = nil }
+            return
         }
+        let prompt = placeholder ? nil
+            : SkipPlanner.prompt(position: position, durationSec: durationSec, segments: skipSegments)
         if prompt != state.skipPrompt { state.skipPrompt = prompt }
     }
 
-    private func skipLabel(for type: String) -> String {
-        let type = type.lowercased()
-        // Every credits type Up Next knows (AniSkip "ed"/"mixed-ed", IntroDB "outro", …).
-        if UpNextTrigger.outroTypes.contains(type) { return String(localized: "Skip Outro") }
-        if type == "recap" { return String(localized: "Skip Recap") }
-        return String(localized: "player.skip.intro", defaultValue: "Skip Intro",
-                      comment: "Player chip that jumps past a show's intro (both engines).")
+    /// Automatic Skipping: skips the segment the tracker picks for this tick, shows the "Intro
+    /// skipped" confirmation, and reports whether it did. Same rules, tracker and confirmation as the
+    /// native screen.
+    private func autoSkipIfNeeded(position: Double, durationSec: Double) -> Bool {
+        guard let skip = autoSkipTracker.evaluate(
+            position: position,
+            durationSec: durationSec,
+            now: ProcessInfo.processInfo.systemUptime,
+            isPlaying: !state.isPaused && !state.isScrubbing && !state.isEnded && !state.playbackErrorShown,
+            segments: skipSegments,
+            enabledKinds: AutoSkipSettings.enabledKinds()
+        ) else { return false }
+        seekForSkip(targetSec: skip.action.targetSec,
+                    isCredits: UpNextTrigger.outroTypes.contains(SkipPlanner.normalized(skip.segment.type)),
+                    skipsToPostCredits: skip.action.skipsToPostCredits)
+        state.autoSkipToast = AutoSkipToast(text: SkipPlanner.autoSkipMessage(forKind: skip.kind))
+        return true
     }
 
     // MARK: - Touch surface
@@ -310,18 +321,21 @@ extension MPVTVPlayerViewController: UIGestureRecognizerDelegate {
     }
 
     private func performSkip(_ prompt: SkipPrompt) {
-        // Skip Outro on credits that run to the end of the file = the next episode now (Up Next),
-        // not a seek onto the last frame.
-        if !(prompt.isCredits && state.upNextSkipCredits?(prompt.targetSec) == true) {
-            // Clamp against duration: a skip-outro target past EOF wedges mpv.
-            // durationSec is still 0 before the first duration event — seek unclamped then.
-            let target = state.durationSec > 0
-                ? min(prompt.targetSec, state.durationSec - 0.5)
-                : prompt.targetSec
-            seekAbsolute(target)
-        }
+        seekForSkip(targetSec: prompt.targetSec, isCredits: prompt.isCredits,
+                    skipsToPostCredits: prompt.skipsToPostCredits)
         state.skipPrompt = nil
         flashControls()
+    }
+
+    /// The seek behind a manual and an automatic skip alike.
+    private func seekForSkip(targetSec: Double, isCredits: Bool, skipsToPostCredits: Bool) {
+        // Skip Outro on credits that run to the end of the file = the next episode now (Up Next),
+        // not a seek onto the last frame. Credits followed by a scene seek to the scene instead.
+        if isCredits, !skipsToPostCredits, state.upNextSkipCredits?(targetSec) == true { return }
+        // Clamp against duration: a skip-outro target past EOF wedges mpv.
+        // durationSec is still 0 before the first duration event — seek unclamped then.
+        let target = state.durationSec > 0 ? min(targetSec, state.durationSec - 0.5) : targetSec
+        seekAbsolute(target)
     }
 
     /// Back with the chrome up: hide the transport bar, and while paused the pause card too (F3).

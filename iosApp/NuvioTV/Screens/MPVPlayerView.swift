@@ -106,6 +106,8 @@ final class MPVTVPlayerViewController: UIViewController {
     /// in flight (a resumed episode used to open its scrobble at 0 %).
     var resumeTargetSec: Double?
     var skipSegments: [SkipSegment] = []
+    /// Automatic Skipping: which segments were already skipped (or left to the viewer's seeks).
+    var autoSkipTracker = AutoSkipTracker()
     /// Last raw eof-reached value (edge detection for the post-play cover).
     private var lastEofFlag = false
     /// PLY-4: last cached pause flag — a pause pushes the position to the account (mobile flushes

@@ -224,7 +224,7 @@ struct PlayerTrack: Identifiable, Equatable {
 }
 
 /// A skippable segment (intro/recap/outro) resolved from `SkipIntroRepository`.
-struct SkipSegment {
+struct SkipSegment: Equatable {
     let start: Double
     let end: Double
     let type: String
@@ -236,6 +236,10 @@ struct SkipPrompt: Equatable {
     let targetSec: Double   // absolute seek target (segment end)
     /// The segment is the credits (outro/ED): skipping them can mean "next episode" (Up Next).
     var isCredits: Bool = false
+    /// A post-credits scene follows (an explicit "post-credits" segment, or a tail longer than
+    /// `UpNextTrigger.postCreditsGapSec`): the chip reads "Skip to Post-Credits" and the skip never
+    /// hands the credits over to Up Next.
+    var skipsToPostCredits: Bool = false
 }
 
 /// Live stream diagnostics read from libmpv properties (shown by the Stream Info overlay).

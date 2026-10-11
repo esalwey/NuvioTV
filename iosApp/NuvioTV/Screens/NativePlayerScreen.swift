@@ -53,6 +53,11 @@ struct NativePlayerScreen: View {
     @State private var panelAdapter: NativePlayerPanelAdapter?
     @State private var skipSegments: [SkipSegment] = []
     @State private var skipPrompt: SkipPrompt?
+    /// Automatic Skipping: which segments were already skipped (or left to the viewer's seeks).
+    /// A reference, so its per-tick bookkeeping never invalidates this view.
+    @State private var autoSkip = AutoSkipTrackerBox()
+    /// "Intro skipped": the confirmation shown for a moment after a segment was skipped on its own.
+    @State private var autoSkipToast: AutoSkipToast?
     /// Playback speed picked in the transport bar (1 = normal).
     @State private var playbackRate: Float = 1
     /// The end screen's cover was closed with Menu: leave for the details page once it's gone.
@@ -109,8 +114,10 @@ struct NativePlayerScreen: View {
                         makeInfoViewControllers: makeInfoViewControllers,
                         onSkip: { [weak coordinator, weak upNext] prompt in
                             // Skip Outro on credits that run to the end of the file = the next
-                            // episode now (Up Next), not a seek onto the last frame.
-                            if prompt.isCredits, upNext?.skipCreditsToNext(creditsEndSec: prompt.targetSec) == true {
+                            // episode now (Up Next), not a seek onto the last frame. Credits
+                            // followed by a scene seek to the scene instead.
+                            if prompt.isCredits, !prompt.skipsToPostCredits,
+                               upNext?.skipCreditsToNext(creditsEndSec: prompt.targetSec) == true {
                                 return
                             }
                             coordinator?.player?.seek(to: CMTime(seconds: prompt.targetSec, preferredTimescale: 600))
@@ -158,6 +165,11 @@ struct NativePlayerScreen: View {
                     .padding(.bottom, PlayerChipStyle.edgePadding + Self.contextualActionClearance)
                     .transition(.opacity)
                     .allowsHitTesting(false)
+            }
+
+            // "Intro skipped" — Automatic Skipping's confirmation (same capsule as the mpv screen).
+            AutoSkipToastOverlay(toast: autoSkipToast) { expired in
+                if autoSkipToast?.id == expired.id { autoSkipToast = nil }
             }
         }
         .animation(PlayerChipStyle.animation, value: upNext.phase)
@@ -369,33 +381,49 @@ struct NativePlayerScreen: View {
             guard !segments.isEmpty else { return }
             DispatchQueue.main.async {
                 self.skipSegments = segments
+                self.autoSkip.tracker.reset()
                 self.upNext.setSkipSegments(segments)
             }
         }
     }
 
     /// Offer the skip while inside a segment; the last second is excluded so the action
-    /// disappears cleanly at the end (same rule as the mpv screen).
+    /// disappears cleanly at the end (same rule as the mpv screen). A segment the viewer picked under
+    /// Automatic Skipping is skipped here instead, once, without ever offering the action.
     private func updateSkipPrompt(position: Double, durationSec: Double) {
         // Upstream 80860602f: an error/placeholder clip (shared short-placeholder rule) offers no skip.
         let placeholder = WatchingPoliciesKt.isShortPlaceholderDuration(durationMs: Int64(durationSec * 1000))
-        let active = placeholder ? nil
-            : skipSegments.first(where: { position >= $0.start && position < $0.end - PlayerChipStyle.lastSecondExclusion })
-        let prompt = active.map {
-            SkipPrompt(label: Self.skipLabel(for: $0.type), targetSec: $0.end,
-                       isCredits: UpNextTrigger.outroTypes.contains($0.type.lowercased()))
+        if !placeholder, autoSkipIfNeeded(position: position, durationSec: durationSec) {
+            if skipPrompt != nil { skipPrompt = nil }
+            return
         }
+        let prompt = placeholder ? nil
+            : SkipPlanner.prompt(position: position, durationSec: durationSec, segments: skipSegments)
         if prompt != skipPrompt { skipPrompt = prompt }
     }
 
-    private static func skipLabel(for type: String) -> String {
-        let type = type.lowercased()
-        // Every credits type Up Next knows (AniSkip "ed"/"mixed-ed", IntroDB "outro", …).
-        if UpNextTrigger.outroTypes.contains(type) { return String(localized: "Skip Outro") }
-        return type == "recap"
-            ? String(localized: "Skip Recap")
-            : String(localized: "player.skip.intro", defaultValue: "Skip Intro",
-                     comment: "Player skip button shown during an episode's intro (both engines).")
+    /// Automatic Skipping: skips the segment the tracker picks for this tick, shows the "Intro
+    /// skipped" confirmation, and reports whether it did. Same rules, tracker and confirmation as the
+    /// mpv screen.
+    private func autoSkipIfNeeded(position: Double, durationSec: Double) -> Bool {
+        guard let skip = autoSkip.tracker.evaluate(
+            position: position,
+            durationSec: durationSec,
+            now: ProcessInfo.processInfo.systemUptime,
+            isPlaying: !coordinator.isPaused && !coordinator.isEnded,
+            segments: skipSegments,
+            enabledKinds: AutoSkipSettings.enabledKinds()
+        ) else { return false }
+        let isCredits = UpNextTrigger.outroTypes.contains(SkipPlanner.normalized(skip.segment.type))
+        // Credits that run to the end of the file = the next episode now (Up Next), not a seek onto
+        // the last frame; credits followed by a scene seek to the scene.
+        let handedToUpNext = isCredits && !skip.action.skipsToPostCredits
+            && upNext.skipCreditsToNext(creditsEndSec: skip.action.targetSec)
+        if !handedToUpNext {
+            coordinator.player?.seek(to: CMTime(seconds: skip.action.targetSec, preferredTimescale: 600))
+        }
+        autoSkipToast = AutoSkipToast(text: SkipPlanner.autoSkipMessage(forKind: skip.kind))
+        return true
     }
 }
 

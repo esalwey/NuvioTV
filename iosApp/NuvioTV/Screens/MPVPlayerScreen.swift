@@ -206,6 +206,11 @@ struct MPVPlayerScreen: View {
                     .padding(.bottom, promptBottomInset)
                     .transition(.opacity)
             }
+
+            // "Intro skipped" — Automatic Skipping's confirmation (same capsule as the native screen).
+            AutoSkipToastOverlay(toast: state.autoSkipToast) { expired in
+                if state.autoSkipToast?.id == expired.id { state.autoSkipToast = nil }
+            }
         }
         .animation(PlayerChipStyle.animation, value: state.skipPrompt)
         .animation(PlayerChipStyle.animation, value: upNext.phase)

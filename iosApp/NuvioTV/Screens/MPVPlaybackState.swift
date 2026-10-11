@@ -48,6 +48,8 @@ final class MPVPlaybackState: ObservableObject {
 
     /// Active skip prompt ("Skip Intro"/"Skip Outro") when playback is inside a known segment.
     @Published var skipPrompt: SkipPrompt?
+    /// "Intro skipped": the confirmation shown for a moment after Automatic Skipping skipped a segment.
+    @Published var autoSkipToast: AutoSkipToast?
 
     /// Playback-settings panel state (speed, subtitle/audio delay, diagnostics).
     @Published var playbackSpeed: Double = 1.0

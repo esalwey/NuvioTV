@@ -725,6 +725,7 @@ extension MPVTVPlayerViewController {
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.skipSegments = segments
+                self.autoSkipTracker.reset()
                 // The outro also times the Up Next card (credits-aware trigger).
                 self.state.onSkipSegmentsLoaded?(segments)
             }
