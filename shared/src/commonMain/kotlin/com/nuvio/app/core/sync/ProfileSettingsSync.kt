@@ -416,7 +416,7 @@ object ProfileSettingsSync {
      * the local storages are only written when that push succeeded (so a failed copy changes
      * nothing). Returns false when nothing was copied.
      */
-    suspend fun copyProfileSettings(
+    suspend fun cloneProfileSettings(
         sourceProfileId: Int,
         targetProfileId: Int,
         copyMissingCredentials: Boolean,
@@ -500,12 +500,12 @@ object ProfileSettingsSync {
                 } finally {
                     if (targetIsActive) isApplyingRemoteBlob = false
                 }
-                log.i { "copyProfileSettings($sourceProfileId -> $targetProfileId) - done, ${imported.size} credential(s) imported" }
+                log.i { "cloneProfileSettings($sourceProfileId -> $targetProfileId) - done, ${imported.size} credential(s) imported" }
                 true
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Throwable) {
-                log.e(error) { "copyProfileSettings($sourceProfileId -> $targetProfileId) - FAILED" }
+                log.e(error) { "cloneProfileSettings($sourceProfileId -> $targetProfileId) - FAILED" }
                 false
             }
         }

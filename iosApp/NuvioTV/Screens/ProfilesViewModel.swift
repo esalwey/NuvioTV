@@ -184,7 +184,7 @@ final class ProfilesViewModel: ObservableObject {
     ) {
         guard !isBusy else { completion(false); return }
         isBusy = true
-        ProfileSettingsSync.shared.copyProfileSettings(
+        ProfileSettingsSync.shared.cloneProfileSettings(
             sourceProfileId: source.profileIndex,
             targetProfileId: target.profileIndex,
             copyMissingCredentials: copyMissingKeys
