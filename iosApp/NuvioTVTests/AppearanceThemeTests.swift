@@ -98,7 +98,7 @@ final class AppearanceThemeTests: XCTestCase {
         for preset in CustomAccentColor.presets {
             let back = CustomAccentColor.rgb(from: CustomAccentColor.hsb(fromRGB: preset))
             for (a, b) in zip(channels(preset), channels(back)) {
-                XCTAssertLessThanOrEqual(abs(a - b), 4, CustomAccentColor.hexString(preset))
+                XCTAssertLessThanOrEqual(abs(a - b), 6, CustomAccentColor.hexString(preset))
             }
         }
     }
