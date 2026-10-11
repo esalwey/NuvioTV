@@ -44,7 +44,7 @@ struct EpisodesSection: View {
     /// Settings → Detail Page → Season Selector (`SeasonViewModeStorage`, this Apple TV): text
     /// chips even when the seasons have posters. Read when the section is created; the setting
     /// lives in Settings, which cannot be open under a detail page.
-    @State private var seasonsAsText = SeasonViewModeStorage.shared.load() == SeasonViewMode.text
+    @State private var seasonsAsText = SeasonViewModeKeys.shared.load() == "text"
     /// EP-1: an episode card has had focus. Until then the shelf follows the Resume / Up Next action
     /// as it resolves (local progress first, a Trakt hydration seconds later); from then on the
     /// season on screen is pinned into `selectedSeason` and the shelf never scrolls by itself, so an

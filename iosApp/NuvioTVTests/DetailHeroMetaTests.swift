@@ -3,6 +3,7 @@ import XCTest
 
 /// The Detail hero's status badge, credit line and full release date are plain-string rules, so
 /// they are checked without a view. Assertions avoid the localized wording where they can.
+@MainActor
 final class DetailHeroMetaTests: XCTestCase {
 
     func testReleasedAndBlankStatusesGetNoBadge() {

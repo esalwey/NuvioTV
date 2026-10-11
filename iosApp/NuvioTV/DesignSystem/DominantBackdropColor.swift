@@ -9,8 +9,8 @@ import UIKit
 /// The sampling is deliberately cheap — the cached, already downsampled backdrop is drawn into a
 /// 32×18 bitmap and bucketed — and the maths lives in pure functions over an RGBA byte buffer so it
 /// can be tested without an image.
-enum DominantBackdropColor {
-    struct RGB: Equatable {
+nonisolated enum DominantBackdropColor {
+    nonisolated struct RGB: Equatable {
         var r: Double
         var g: Double
         var b: Double
@@ -32,6 +32,7 @@ enum DominantBackdropColor {
     /// The page tint for the backdrop at `url`, or nil when the image cannot be loaded or has no
     /// usable colour. Reads the shared artwork cache first, so a backdrop the page already shows
     /// costs no extra download.
+    @MainActor
     static func tint(for url: URL) async -> Color? {
         let image: UIImage?
         if let cached = ArtworkStore.cached(url) {
@@ -56,7 +57,7 @@ enum DominantBackdropColor {
     /// winning bucket, or nil for an empty or fully transparent buffer.
     nonisolated static func dominantColor(fromRGBA pixels: [UInt8]) -> RGB? {
         guard pixels.count >= 4 else { return nil }
-        struct Bucket { var weight = 0.0; var r = 0.0; var g = 0.0; var b = 0.0; var count = 0.0 }
+        nonisolated struct Bucket { var weight = 0.0; var r = 0.0; var g = 0.0; var b = 0.0; var count = 0.0 }
         var buckets: [Int: Bucket] = [:]
         var index = 0
         while index + 3 < pixels.count {

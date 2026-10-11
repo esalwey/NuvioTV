@@ -85,7 +85,7 @@ final class SettingsViewModel: ObservableObject {
     @Published private(set) var detailBlurUnwatchedEpisodes = false
     /// This Apple TV's season selector ("posters" or "text", `SeasonViewModeStorage`; not synced).
     @Published private(set) var seasonViewMode: String =
-        SeasonViewModeStorage.shared.load() == SeasonViewMode.text ? "text" : "posters"
+        SeasonViewModeKeys.shared.load() == "text" ? "text" : "posters"
     /// Where the More Like This row comes from: "trakt", "tmdb" or "simkl".
     @Published private(set) var moreLikeThisSource = "trakt"
 
@@ -681,7 +681,7 @@ final class SettingsViewModel: ObservableObject {
 
     /// "posters" or "text".
     func setSeasonViewMode(_ key: String) {
-        SeasonViewModeStorage.shared.save(mode: key == "text" ? SeasonViewMode.text : SeasonViewMode.posters)
+        SeasonViewModeKeys.shared.save(key: key == "text" ? "text" : "posters")
         seasonViewMode = key == "text" ? "text" : "posters"
     }
 

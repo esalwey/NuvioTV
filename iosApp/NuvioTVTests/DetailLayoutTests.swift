@@ -3,6 +3,7 @@ import XCTest
 
 /// Settings → Detail Page: the plain-value layer between the shared settings and `DetailView`
 /// (section order and gating, mode names), and the maths of the dominant-colour backdrop tint.
+@MainActor
 final class DetailLayoutTests: XCTestCase {
 
     // MARK: - DetailLayout
