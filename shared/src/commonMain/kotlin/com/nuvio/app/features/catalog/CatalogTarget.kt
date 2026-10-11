@@ -32,6 +32,19 @@ sealed interface CatalogTarget {
         override val supportsPagination: Boolean = false
     }
 
+    /**
+     * A Jellyfin / Emby library, collection or search scope. [libraryId] is null for a collection
+     * (then [collectionId] names the box set) and for per-type search results.
+     */
+    data class Server(
+        val connectionId: String,
+        val libraryId: String?,
+        override val contentType: String,
+        val collectionId: String? = null,
+    ) : CatalogTarget {
+        override val supportsPagination: Boolean = true
+    }
+
     data class CollectionSource(
         val collectionId: String,
         val folderId: String,

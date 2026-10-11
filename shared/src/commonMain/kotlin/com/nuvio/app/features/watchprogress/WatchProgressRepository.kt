@@ -1553,6 +1553,27 @@ object WatchProgressRepository {
         upsert(session = session, snapshot = snapshot, persist = true, syncRemote = syncRemote)
     }
 
+    /**
+     * Local-only merge of progress that another source owns and reports (a media server's resume
+     * points). Newer local rows win, nothing is marked dirty and nothing is pushed to the account:
+     * the server stays the source of truth for these entries.
+     */
+    fun applyExternalProgress(entries: List<WatchProgressEntry>) {
+        ensureLoaded()
+        var changed = false
+        entries.forEach { candidate ->
+            val entry = localEntriesSnapshot().resolveIdentityForUpsert(candidate)
+            val existing = localEntry(entry.resolvedProgressKey())
+            if (existing != null && existing.lastUpdatedEpochMs >= entry.lastUpdatedEpochMs) return@forEach
+            upsertLocalEntry(entry)
+            changed = true
+        }
+        if (changed) {
+            publish()
+            persist()
+        }
+    }
+
     fun clearProgress(videoId: String, parentMetaId: String? = null) {
         clearProgress(videoIds = listOf(videoId), parentMetaId = parentMetaId)
     }

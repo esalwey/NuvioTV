@@ -883,6 +883,16 @@ object WatchedRepository {
         )
     }
 
+    /** Applies marks that a media server reported: stored locally, never pushed to the account or trackers. */
+    internal fun markWatchedLocally(items: Collection<WatchedItem>) {
+        markWatched(items = items, trackerHistorySync = WatchedTrackerHistorySync.Skip, syncRemote = false)
+    }
+
+    /** Removes marks that a media server reported as unplayed: local only, no account or tracker delete. */
+    internal fun unmarkWatchedLocally(items: Collection<WatchedItem>) {
+        unmarkWatched(items = items, syncRemote = false)
+    }
+
     private fun markWatched(
         items: Collection<WatchedItem>,
         trackerHistorySync: WatchedTrackerHistorySync,
@@ -944,6 +954,10 @@ object WatchedRepository {
     }
 
     fun unmarkWatched(items: Collection<WatchedItem>) {
+        unmarkWatched(items = items, syncRemote = true)
+    }
+
+    private fun unmarkWatched(items: Collection<WatchedItem>, syncRemote: Boolean) {
         ensureLoaded()
         if (items.isEmpty()) return
         val source = activeSource
@@ -979,7 +993,7 @@ object WatchedRepository {
         if (removedItems.isNotEmpty()) {
             publish()
             persist()
-            pushDeleteToServer(items = removedItems, source = source)
+            if (syncRemote) pushDeleteToServer(items = removedItems, source = source)
         } else if (source.providerId != null) {
             // Nothing matched locally, but the title can still be watched on the provider under an
             // alternate id (that is what `providerExtraWatchedKeys` records). Republish to drop the
@@ -989,7 +1003,7 @@ object WatchedRepository {
                 publish()
                 persist()
             }
-            pushDeleteToServer(items = items.toList(), source = source)
+            if (syncRemote) pushDeleteToServer(items = items.toList(), source = source)
         }
     }
 

@@ -45,6 +45,7 @@ import com.nuvio.app.features.profiles.ProfileLifecycleProvider
 import com.nuvio.app.features.profiles.ProfileRepository
 import com.nuvio.app.features.search.SearchHistoryRepository
 import com.nuvio.app.features.search.SearchRepository
+import com.nuvio.app.features.servers.ServerRepository
 import com.nuvio.app.features.settings.ThemeSettingsRepository
 import com.nuvio.app.features.settings.ThemeSettingsStoreProvider
 import com.nuvio.app.features.settings.TvOsThemeSettingsStore
@@ -232,6 +233,9 @@ private object TvOsAccountDataCleaner : com.nuvio.app.core.account.AccountDataCl
         AddonRepository.clearLocalState()
         HomeRepository.clear()
         HomeCatalogSettingsRepository.clearLocalState()
+        // Jellyfin / Emby connections and their access tokens (Keychain). Not part of the
+        // NSUserDefaults registry below: ServerStorage.clear() deletes the whole keychain service.
+        ServerRepository.clearLocalState()
         MetaScreenSettingsRepository.clearLocalState()
         LibraryRepository.clearLocalState()
         LibraryDisplaySettingsRepository.clearLocalState()
@@ -400,6 +404,7 @@ private object TvOsProfileLifecycleCoordinator : ProfileLifecycleCoordinator {
         step("streamBadges") { StreamBadgeSettingsRepository.onProfileChanged() }
         step("streamRanking") { StreamRankingSettingsRepository.onProfileChanged() }
         step("homeCatalogSettings") { HomeCatalogSettingsRepository.onProfileChanged() }
+        step("mediaServers") { ServerRepository.onProfileChanged() }
         step("home") { HomeRepository.clear() }
         // H1 (BUG-47/UX-13) made the See All grid's pop RETAIN CatalogRepository state (detach()
         // instead of clear()) so a detail round trip restores position. That retention must not

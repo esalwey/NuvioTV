@@ -19,6 +19,8 @@ data class HomeCatalogDefinition(
     val catalogId: String,
     val supportsPagination: Boolean,
     val descriptorSignature: String,
+    /** Set for rows backed by a Jellyfin / Emby connection instead of an add-on catalog. */
+    val serverConnectionId: String? = null,
 ) {
     val cacheKey: String
         get() = "$key|$descriptorSignature"

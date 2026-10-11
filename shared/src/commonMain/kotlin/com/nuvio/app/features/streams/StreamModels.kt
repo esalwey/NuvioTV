@@ -3,6 +3,7 @@ package com.nuvio.app.features.streams
 import com.nuvio.app.core.build.FeaturePolicyProvider
 import com.nuvio.app.core.i18n.StringKey
 import com.nuvio.app.core.i18n.resourceString
+import com.nuvio.app.features.servers.ServerPlaybackTarget
 import kotlinx.serialization.Serializable
 
 @Serializable
@@ -32,6 +33,8 @@ data class StreamItem(
     val debridCacheStatus: StreamDebridCacheStatus? = null,
     val externalSubtitles: List<StreamSubtitle> = emptyList(),
     val badges: List<StreamBadge> = emptyList(),
+    /** Set on a Jellyfin / Emby file; resolved to a playable URL by `ServerPlayback.prepare`. */
+    val serverTarget: ServerPlaybackTarget? = null,
 ) {
     val streamLabel: String
         get() = name ?: resourceString("Stream", StringKey.stream_default_name)
