@@ -1349,7 +1349,8 @@ final class HomeViewModel: ObservableObject {
 /// with every save, and it comes back with the record from the account). It is replayed only when
 /// it is still likely to play:
 ///  - an in-progress card (an Up Next card has no source yet);
-///  - an http(s) URL on a real host, never a loopback address (another device's local proxy);
+///  - an http(s) URL on a real host, never a loopback address (another device's local proxy) nor a
+///    link resolved from a YouTube-only stream (it expires within hours);
 ///  - no expiring credentials in the query (the shared `hasLikelyExpiringPlaybackCredentials`, the
 ///    rule the mobile link cache applies);
 ///  - watched within the reuse window: the mobile "Reuse last link" hours when that synced setting
@@ -1409,7 +1410,8 @@ enum ContinueWatchingDirectPlay {
         guard let raw = stored?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty,
               let url = URL(string: raw),
               let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https",
-              let host = url.host?.lowercased(), !host.isEmpty, !isLoopback(host) else { return nil }
+              let host = url.host?.lowercased(), !host.isEmpty, !isLoopback(host),
+              !isYouTubeResolved(host: host) else { return nil }
         guard !PlaybackUrlCredentialsKt.hasLikelyExpiringPlaybackCredentials(raw) else { return nil }
         let updatedMs = entry.lastUpdatedEpochMs
         let nowMs = Int64(now.timeIntervalSince1970 * 1000)
@@ -1431,6 +1433,12 @@ enum ContinueWatchingDirectPlay {
 
     static func isDebrid(host: String) -> Bool {
         debridHosts.contains { host == $0 || host.hasSuffix("." + $0) }
+    }
+
+    /// A link the YouTube extractor produced for a YouTube-only stream: it expires within hours
+    /// and carries its credentials in the path, so the query check above cannot see them.
+    static func isYouTubeResolved(host: String) -> Bool {
+        ["googlevideo.com", "youtube.com", "youtu.be"].contains { host == $0 || host.hasSuffix("." + $0) }
     }
 
     static func isLoopback(_ host: String) -> Bool {

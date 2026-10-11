@@ -129,6 +129,10 @@ struct StreamPickerView: View {
     /// Transient failure message (debrid resolve errors), auto-dismissed after a few seconds.
     @State private var toast: String?
     @FocusState private var focusedRow: String?
+    /// Focus on the source filter row (`ProviderFilterRow` keys), tracked apart from the rows so
+    /// the picker's own initial focus never counts a chip as "the viewer's choice" before it has
+    /// placed focus itself.
+    @FocusState private var focusedChip: String?
     /// The key focus was last moved to by the picker itself (initial focus). While focus still
     /// sits there, the Best Match row may take it when it appears (spec §6.8 default focus).
     @State private var autoFocusedKey: String?
@@ -437,6 +441,10 @@ struct StreamPickerView: View {
                 guard stream != nil else { return }
                 moveInitialFocus(to: StreamsViewModel.bestMatchRowKey)
             }
+            .onChange(of: model.selectedAddonId) { _, addonId in
+                // Narrowed to one add-on: its rows are what was asked for, so the group opens.
+                if let addonId { expandedGroups.insert(addonId) }
+            }
             .onChange(of: expandedGroups) { _, ids in
                 // STREAM-INSIGHT: an open group keeps its row order under focus.
                 model.setExpandedGroups(ids)
@@ -534,6 +542,20 @@ struct StreamPickerView: View {
                 debridWarning(warning)
                     .padding([.horizontal, .top], Theme.Spacing.lg)
             }
+            // Refresh + All + one chip per add-on. Kept up while a refresh is loading, so focus on
+            // the refresh button is never pulled out from under the viewer.
+            if model.isLoading || !model.sources.isEmpty {
+                ProviderFilterRow(
+                    items: filterItems,
+                    selectedId: model.selectedAddonId,
+                    isRefreshing: model.isLoading,
+                    focus: $focusedChip,
+                    onSelect: { model.selectSource($0) },
+                    onRefresh: { refreshSources() }
+                )
+                .padding(.horizontal, Theme.Spacing.lg)
+                .padding(.top, Theme.Spacing.md)
+            }
             // `emptyReason` is only set once nothing is loading — or while a Retry from this very
             // screen is the only thing out (STAB-04), which keeps the screen and its focus.
             if let reason = model.emptyReason, model.groups.isEmpty {
@@ -565,7 +587,7 @@ struct StreamPickerView: View {
         LazyVStack(alignment: .leading, spacing: Theme.Spacing.md) {
             bestMatchSlot
 
-            ForEach(model.groups) { group in
+            ForEach(model.visibleGroups) { group in
                 VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
                     groupHeader(group)
                     // Collapsed groups render nothing at all (not just off-screen —
@@ -596,9 +618,9 @@ struct StreamPickerView: View {
             }
 
             // STAB-04: addons that failed, dimmed, each with Retry — after the playable groups.
-            if !model.failedGroups.isEmpty {
+            if !model.visibleFailedGroups.isEmpty {
                 VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
-                    ForEach(model.failedGroups) { failed in
+                    ForEach(model.visibleFailedGroups) { failed in
                         failedRow(failed)
                     }
                 }
@@ -616,11 +638,14 @@ struct StreamPickerView: View {
     @ViewBuilder
     private var bestMatchSlot: some View {
         if let best = model.bestMatch {
-            streamRow(best.stream, key: StreamsViewModel.bestMatchRowKey,
-                      pinnedLabel: best.isLastUsed
-                          ? Self.lastUsedLabel
-                          : (best.isRecommended ? StreamInsightPresenter.recommendedLabel : Self.bestMatchLabel))
-                .focusSection()
+            // Narrowed to one add-on: the pinned pick stays only when it is that add-on's.
+            if model.selectedAddonId == nil || best.groupId == model.selectedAddonId {
+                streamRow(best.stream, key: StreamsViewModel.bestMatchRowKey,
+                          pinnedLabel: best.isLastUsed
+                              ? Self.lastUsedLabel
+                              : (best.isRecommended ? StreamInsightPresenter.recommendedLabel : Self.bestMatchLabel))
+                    .focusSection()
+            }
         } else if model.isLoading {
             HStack(spacing: Theme.Spacing.md) {
                 ProgressView()
@@ -686,6 +711,28 @@ struct StreamPickerView: View {
         .frame(maxWidth: .infinity, minHeight: focusedNameFooterHeight, maxHeight: focusedNameFooterHeight,
                alignment: .topLeading)
         .accessibilityHidden(true)
+    }
+
+    // MARK: - Source filter
+
+    /// The model's add-ons as the shared filter row takes them.
+    private var filterItems: [ProviderFilterRow.Item] {
+        model.sources.map { chip in
+            let status: ProviderFilterRow.Item.Status
+            switch chip.status {
+            case .loading: status = .loading
+            case .ready: status = .ready
+            case .failed: status = .failed
+            }
+            return ProviderFilterRow.Item(id: chip.id, name: chip.name, status: status, count: chip.count)
+        }
+    }
+
+    /// The refresh button: asks every add-on again (the shared reload bypasses the HTTP cache). The
+    /// button shows a spinner for as long as any add-on is out; a press during that is ignored.
+    private func refreshSources() {
+        guard !model.isLoading else { return }
+        model.reload()
     }
 
     // MARK: - Failed addons (STAB-04)
@@ -775,6 +822,19 @@ struct StreamPickerView: View {
                     }
                 }
                 .focusSection()
+            }
+            // The filter row above carries the refresh button whenever it is shown.
+            if model.sources.isEmpty && !model.isLoading {
+                Button {
+                    refreshSources()
+                } label: {
+                    Label("Refresh Sources", systemImage: "arrow.clockwise")
+                        .font(Theme.Font.meta)
+                        .padding(.horizontal, Theme.Spacing.lg)
+                        .padding(.vertical, Theme.Spacing.xxs + 2)
+                }
+                .buttonStyle(.bordered)
+                .padding(.top, Theme.Spacing.sm)
             }
             Button {
                 dismiss()
@@ -1015,7 +1075,10 @@ struct StreamPickerView: View {
     /// Moves focus for the picker — initial focus, then the Best Match row — but only while focus
     /// is nowhere, on the DEBUG test button, or still where the picker itself last put it.
     private func moveInitialFocus(to key: String) {
-        let untouched = focusedRow == nil || focusedRow == Self.testRowKey
+        // Focus on a filter chip is the viewer's own once the picker has placed focus itself; before
+        // that it is only where the system happened to land when the row appeared.
+        let untouched = (focusedRow == nil && (focusedChip == nil || autoFocusedKey == nil))
+            || focusedRow == Self.testRowKey
             || (autoFocusedKey != nil && focusedRow == autoFocusedKey)
         guard untouched, focusedRow != key else { return }
         autoFocusedKey = key
@@ -1202,7 +1265,8 @@ struct StreamPickerView: View {
         // modifier is skipped entirely when no external player is installed, so the long-press
         // stays inert rather than opening an empty menu.
         .modifier(ExternalPlayMenu(
-            players: externalPlayers,
+            // Nothing to hand over for a YouTube-only stream (it has no link until resolved).
+            players: YouTubeStreamPlayback.needsResolving(stream) ? [] : externalPlayers,
             defaultPlayerId: activeDefaultExternalPlayer?.id,
             onExternal: { player in
                 externalPlay(stream, rowKey: key, playerId: player.id)
@@ -1408,7 +1472,9 @@ struct StreamPickerView: View {
     /// external default ⇒ hand off (with automatic fallback to the built-in player if the
     /// handoff fails), otherwise the built-in pipeline.
     private func play(_ stream: StreamItem, rowKey: String) {
-        if let defaultPlayer = activeDefaultExternalPlayer {
+        // A YouTube-only stream has no link an external player could open: it resolves on this
+        // device and plays in the built-in player.
+        if let defaultPlayer = activeDefaultExternalPlayer, !YouTubeStreamPlayback.needsResolving(stream) {
             externalPlay(stream, rowKey: rowKey, playerId: defaultPlayer.id, fallbackToInternal: true)
             return
         }
@@ -1418,6 +1484,11 @@ struct StreamPickerView: View {
     private func internalPlay(_ stream: StreamItem, rowKey: String) {
         // STAB-03: Back from the player puts focus back on this row.
         lastPlayedRowKey = rowKey
+        // A stream whose only source is a YouTube id: resolved on the device, then played here.
+        if let watchUrl = YouTubeStreamPlayback.watchURL(for: stream) {
+            resolveYouTubeStream(stream, watchUrl: watchUrl, rowKey: rowKey)
+            return
+        }
         let direct: String? = stream.playableDirectUrl
         if let direct, !direct.isEmpty, let url = URL(string: direct) {
             // A manual stream pick is user interaction — reset the Still Watching run.
@@ -1434,6 +1505,34 @@ struct StreamPickerView: View {
             }
             NextEpisodeEngine.consecutiveAutoPlays = 0
             selected = context(url: url, stream: resolved)
+        }
+    }
+
+    /// Resolves a YouTube-only stream (`ytId`) to a link the player can open, one resolve at a time
+    /// (`resolvingKey` drives the row spinner, like a debrid resolve). The same generation guard
+    /// applies: an answer that arrives after the deadline, or after the list moved on, is dropped.
+    /// The resolved link expires within hours, so it is only ever handed to the player for this one
+    /// playback — nothing here stores it.
+    private func resolveYouTubeStream(_ stream: StreamItem, watchUrl: String, rowKey: String) {
+        guard resolvingKey == nil else { return }
+        resolveGeneration += 1
+        let generation = resolveGeneration
+        resolvingKey = rowKey
+        Task { @MainActor in
+            let url = await YouTubeStreamPlayback.resolve(watchUrl: watchUrl)
+            // Superseded (retarget, a player went up): nobody is waiting for this answer.
+            guard generation == resolveGeneration else { return }
+            resolvingKey = nil
+            guard let url else {
+                showToast(String(
+                    localized: "streams.youtube.failed",
+                    defaultValue: "Couldn\u{2019}t load this YouTube video. Try again, or pick another source.",
+                    comment: "Source picker: a stream that is only a YouTube video could not be resolved."
+                ))
+                return
+            }
+            NextEpisodeEngine.consecutiveAutoPlays = 0
+            selected = context(url: url, stream: stream)
         }
     }
 

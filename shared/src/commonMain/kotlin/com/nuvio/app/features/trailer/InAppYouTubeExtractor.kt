@@ -579,7 +579,10 @@ class InAppYouTubeExtractor {
             bestAudio = bestAudio,
             bestAvcVideo = bestAvcVideo,
             bestM4aAudio = bestM4aAudio,
-        )?.copy(videoId = videoId)
+        )?.copy(
+            videoId = videoId,
+            masterPlaylistUrl = bestManifest?.manifestUrl?.takeIf { it.isNotBlank() },
+        )
     }
 
     private suspend fun fetchPlayerResponse(
