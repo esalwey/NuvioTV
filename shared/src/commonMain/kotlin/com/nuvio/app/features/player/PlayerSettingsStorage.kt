@@ -94,6 +94,8 @@ expect object PlayerSettingsStorage {
     fun saveIntroDbApiKey(apiKey: String)
     fun loadIntroSubmitEnabled(): Boolean?
     fun saveIntroSubmitEnabled(enabled: Boolean)
+    fun loadAutoSkipSegmentTypes(): Set<String>?
+    fun saveAutoSkipSegmentTypes(types: Set<String>)
     fun loadStreamAutoPlayNextEpisodeEnabled(): Boolean?
     fun saveStreamAutoPlayNextEpisodeEnabled(enabled: Boolean)
     fun loadStreamAutoPlayNextEpisodeFallbackEnabled(): Boolean?
