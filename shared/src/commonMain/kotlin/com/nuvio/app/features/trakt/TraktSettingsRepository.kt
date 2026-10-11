@@ -45,7 +45,8 @@ fun librarySourceModeFromStorage(value: String?): LibrarySourceMode =
 @Serializable
 enum class MoreLikeThisSourcePreference {
     TRAKT,
-    TMDB;
+    TMDB,
+    SIMKL;
 
     companion object {
         fun fromStorage(value: String?): MoreLikeThisSourcePreference =
@@ -300,3 +301,8 @@ fun shouldUseTraktMoreLikeThis(
     isAuthenticated: Boolean,
     source: MoreLikeThisSourcePreference,
 ): Boolean = isAuthenticated && source == MoreLikeThisSourcePreference.TRAKT
+
+fun shouldUseSimklMoreLikeThis(
+    isAuthenticated: Boolean,
+    source: MoreLikeThisSourcePreference,
+): Boolean = isAuthenticated && source == MoreLikeThisSourcePreference.SIMKL

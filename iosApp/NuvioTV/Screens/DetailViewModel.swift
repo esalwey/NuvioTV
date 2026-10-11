@@ -50,6 +50,15 @@ final class DetailViewModel: ObservableObject {
     /// `EpisodeRatingsVisibility.name` ("SHOW_ALL" / "HIDE_EPISODES" / "HIDE_UNWATCHED_EPISODES").
     @Published private(set) var showOverallRatings = true
     @Published private(set) var episodeRatingsVisibility = "SHOW_ALL"
+    /// Settings → Detail Page (synced per profile): which sections show and in what order, the
+    /// backdrop treatment and the episode card options.
+    @Published private(set) var layout = DetailLayout()
+    /// Settings → Trakt → Comments (`TraktCommentsSettings`, synced per profile): off hides the
+    /// Comments section and the per-episode Comments action, and no request is made.
+    @Published private(set) var commentsEnabled = true
+    /// Trakt comments on the title in total (0 until the first page lands); the inline section
+    /// shows a few and offers the full list when there are more.
+    @Published private(set) var commentsTotalCount = 0
     /// Resolved full-screen trailer (from the Trailers row); drives a player cover with sound.
     @Published var trailerPlayback: TrailerPlaybackItem?
     /// Trailer currently resolving (spinner on its row card).
@@ -76,6 +85,7 @@ final class DetailViewModel: ObservableObject {
     private var progressWatcher: FlowWatcher?
     private var cwPrefsWatcher: FlowWatcher?
     private var ratingsSettingsWatcher: FlowWatcher?
+    private var commentsEnabledWatcher: FlowWatcher?
     // Latest shared-state emissions (the exported StateFlow interface has no `value` accessor,
     // so the watchers below capture what the series primary action needs).
     private var latestProgressEntries: [WatchProgressEntry] = []
@@ -144,6 +154,11 @@ final class DetailViewModel: ObservableObject {
         if let state = MetaScreenSettingsRepository.shared.uiState.value_ as? MetaScreenSettingsUiState {
             showOverallRatings = state.showOverallRatings
             episodeRatingsVisibility = state.episodeRatingsVisibility.name
+            layout = DetailLayout(state: state)
+        }
+        TraktCommentsSettings.shared.ensureLoaded()
+        if let enabled = TraktCommentsSettings.shared.enabled.value_ as? KotlinBoolean {
+            commentsEnabled = enabled.boolValue
         }
 
         detailWatcher = FlowWatcherKt.watch(MetaDetailsRepository.shared.uiState) { [weak self] emitted in
@@ -220,8 +235,15 @@ final class DetailViewModel: ObservableObject {
             guard let self, let state = emitted as? MetaScreenSettingsUiState else { return }
             self.showOverallRatings = state.showOverallRatings
             self.episodeRatingsVisibility = state.episodeRatingsVisibility.name
+            let newLayout = DetailLayout(state: state)
+            if newLayout != self.layout { self.layout = newLayout }
             // Episode ratings shown again after the title loaded with them hidden: fetch them now.
             if let m = self.meta { self.fetchEpisodeRatingsIfNeeded(m) }
+        }
+
+        commentsEnabledWatcher = FlowWatcherKt.watch(TraktCommentsSettings.shared.enabled) { [weak self] emitted in
+            guard let self, let enabled = emitted as? KotlinBoolean else { return }
+            self.applyCommentsEnabled(enabled.boolValue)
         }
 
         MetaDetailsRepository.shared.load(type: type, id: id)
@@ -237,6 +259,7 @@ final class DetailViewModel: ObservableObject {
         progressWatcher?.cancel(); progressWatcher = nil
         cwPrefsWatcher?.cancel(); cwPrefsWatcher = nil
         ratingsSettingsWatcher?.cancel(); ratingsSettingsWatcher = nil
+        commentsEnabledWatcher?.cancel(); commentsEnabledWatcher = nil
         episodeProgressRequestedFor = nil
         lastReconcileSignature = nil
         trailerVideoURL = nil
@@ -411,13 +434,30 @@ final class DetailViewModel: ObservableObject {
     /// when the synced Trakt token is rejected), and an undeclared Kotlin exception crossing a
     /// suspend completion terminates the app. The bridge collapses failures to nil.
     private func fetchCommentsIfNeeded(_ meta: MetaDetails) {
-        guard !didRequestComments else { return }
+        // Comments switched off: no request, and nothing is remembered as requested so that
+        // switching them back on fetches (see `applyCommentsEnabled`).
+        guard commentsEnabled, !didRequestComments else { return }
         didRequestComments = true
         TraktCommentsSwiftBridge.shared.pageOrNull(meta: meta, page: 1, forceRefresh: false) { [weak self] page, _ in
             DispatchQueue.main.async {
-                guard let self, let page else { return }
+                guard let self, let page, self.commentsEnabled else { return }
                 self.comments = page.items
+                self.commentsTotalCount = Int(page.itemCount)
             }
+        }
+    }
+
+    /// The Trakt comments setting changed (here or through profile sync): clear the section when it
+    /// goes off, fetch the first page when it comes back on.
+    private func applyCommentsEnabled(_ enabled: Bool) {
+        guard enabled != commentsEnabled else { return }
+        commentsEnabled = enabled
+        if enabled {
+            if let meta { fetchCommentsIfNeeded(meta) }
+        } else {
+            comments = []
+            commentsTotalCount = 0
+            didRequestComments = false
         }
     }
 
@@ -637,6 +677,104 @@ final class DetailViewModel: ObservableObject {
             episode: episode,
             isCurrentlyWatched: watchedEpisodeKeys.contains("\(s):\(e)")
         )
+    }
+
+    // MARK: - Episode options (long-press menu) and Shuffle
+
+    /// What the episode long-press menu offers for one episode (mobile / Android TV episode options).
+    struct EpisodeOptions {
+        /// Released episodes of the episode's season (the targets of "Mark Season Watched").
+        let seasonEpisodes: [MetaVideo]
+        /// Every released episode of the season is watched: the season item then clears them.
+        let isSeasonWatched: Bool
+        /// Released episodes before this one that are not watched yet; empty hides "Mark Previous Episodes Watched".
+        let unwatchedPreviousEpisodes: [MetaVideo]
+        /// The episode has partial progress to start over from.
+        let hasProgress: Bool
+    }
+
+    /// Released episodes in play order (specials last), derived once per meta and day: the menu of
+    /// every card reads it on each render.
+    private var releasedEpisodesCache: (signature: String, episodes: [MetaVideo])?
+
+    private func releasedEpisodes(of meta: MetaDetails) -> [MetaVideo] {
+        let today = CurrentDateProvider.shared.todayIsoDate()
+        let signature = "\(meta.id)|\(meta.videos.count)|\(today)"
+        if let cache = releasedEpisodesCache, cache.signature == signature { return cache.episodes }
+        let episodes = meta.releasedPlayableEpisodes(todayIsoDate: today)
+        releasedEpisodesCache = (signature, episodes)
+        return episodes
+    }
+
+    func episodeOptions(for episode: MetaVideo) -> EpisodeOptions? {
+        guard let meta, let s = episode.season?.value, let e = episode.episode?.value else { return nil }
+        let season = EpisodesSection.normalizeSeasonNumber(episode.season)
+        let released = releasedEpisodes(of: meta)
+        let inSeason = released.filter {
+            $0.season != nil && $0.episode != nil && EpisodesSection.normalizeSeasonNumber($0.season) == season
+        }
+        let isSeasonWatched = !inSeason.isEmpty && inSeason.allSatisfy { isWatchedEpisode($0) }
+        // Specials never offer "previous episodes": that would sweep the whole series.
+        var previous: [MetaVideo] = []
+        if season > 0 {
+            previous = released.filter { candidate in
+                guard let cs = candidate.season?.value, let ce = candidate.episode?.value,
+                      !isWatchedEpisode(candidate) else { return false }
+                let candidateKey = EpisodesSection.seasonSortKey(max(cs, 0))
+                return candidateKey < season || (candidateKey == season && ce < e)
+            }
+        }
+        return EpisodeOptions(
+            seasonEpisodes: inSeason,
+            isSeasonWatched: isSeasonWatched,
+            unwatchedPreviousEpisodes: previous,
+            hasProgress: episodeProgress["\(s):\(e)"] != nil
+        )
+    }
+
+    private func isWatchedEpisode(_ episode: MetaVideo) -> Bool {
+        guard let s = episode.season?.value, let e = episode.episode?.value else { return false }
+        return watchedEpisodeKeys.contains("\(s):\(e)")
+    }
+
+    /// Mark the episode's whole season watched, or clear it when it already is (shared
+    /// `WatchingActions.toggleSeasonWatched`, which also clears progress and re-derives the series state).
+    func toggleSeasonWatched(of episode: MetaVideo) {
+        guard let meta, let options = episodeOptions(for: episode), !options.seasonEpisodes.isEmpty else { return }
+        WatchingActions.shared.toggleSeasonWatched(
+            meta: meta,
+            episodes: options.seasonEpisodes,
+            areCurrentlyWatched: options.isSeasonWatched
+        )
+    }
+
+    /// Mark every unwatched released episode before this one as watched.
+    func markPreviousEpisodesWatched(before episode: MetaVideo) {
+        guard let meta, let options = episodeOptions(for: episode),
+              !options.unwatchedPreviousEpisodes.isEmpty else { return }
+        WatchingActions.shared.togglePreviousEpisodesWatched(
+            meta: meta,
+            episodes: options.unwatchedPreviousEpisodes,
+            areCurrentlyWatched: false
+        )
+    }
+
+    private var shuffleCountCache: (signature: String, count: Int)?
+
+    /// The Shuffle button shows when there is something to choose between.
+    var canShuffle: Bool {
+        guard let meta, EpisodesSection.isSeriesLike(meta) else { return false }
+        let signature = "\(meta.id)|\(meta.videos.count)|\(CurrentDateProvider.shared.todayIsoDate())"
+        if let cache = shuffleCountCache, cache.signature == signature { return cache.count >= 2 }
+        let count = Int(EpisodeShuffle.shared.count(videos: meta.videos))
+        shuffleCountCache = (signature, count)
+        return count >= 2
+    }
+
+    /// A random released episode, unwatched ones first (the whole series once it is all watched).
+    func pickShuffleEpisode() -> MetaVideo? {
+        guard let meta else { return nil }
+        return EpisodeShuffle.shared.pick(contentId: meta.id, videos: meta.videos, watchedKeys: watchedEpisodeKeys)
     }
 
     /// The latest progress record per episode of this series (under the meta's id, DET-1), kept

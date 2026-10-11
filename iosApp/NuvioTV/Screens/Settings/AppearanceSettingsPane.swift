@@ -47,6 +47,10 @@ struct AppearanceSettingsPane: View {
     @AppStorage("detail_trailer_duration") private var detailTrailerDuration = 0
     /// FEAT-9: mirrors DetailView's `detail_action_icons_only` key.
     @AppStorage("detail_action_icons_only") private var detailActionIconsOnly = false
+    /// Mirrors DetailView's `detail_trailer_button_enabled` key (default ON). Local-only, not synced.
+    @AppStorage("detail_trailer_button_enabled") private var detailTrailerButton = true
+    /// Mirrors DetailView's `detail_show_full_release_date` key (default OFF). Local-only, not synced.
+    @AppStorage("detail_show_full_release_date") private var detailFullReleaseDate = false
     /// FEAT-7: mirrors SettingsView's own `settings_style` key (same UserDefaults key, read
     /// independently here) so this pane's chip row and the sidebar it controls stay in sync.
     @AppStorage("settings_style") private var settingsStyle = "default"
@@ -211,6 +215,12 @@ struct AppearanceSettingsPane: View {
                 subtitle: String(localized: "A muted trailer plays behind the description on detail pages"),
                 isOn: $detailTrailerBackground
             )
+            // Independent of the two switches above: this one only removes the action-row button.
+            SettingsToggleRow(
+                title: String(localized: "Trailer Button on Detail"),
+                subtitle: String(localized: "Show the Trailer button beside Play"),
+                isOn: $detailTrailerButton
+            )
             // FEAT-8: only meaningful while the background trailer itself is on.
             if detailTrailerBackground {
                 SettingsPickerRow(
@@ -230,6 +240,11 @@ struct AppearanceSettingsPane: View {
                 title: String(localized: "Icon-Only Detail Buttons"),
                 subtitle: String(localized: "Buttons show icons only"),
                 isOn: $detailActionIconsOnly
+            )
+            SettingsToggleRow(
+                title: String(localized: "Full Release Date"),
+                subtitle: String(localized: "A movie's detail page shows its release date instead of the year"),
+                isOn: $detailFullReleaseDate
             )
         }
 

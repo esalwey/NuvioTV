@@ -258,6 +258,8 @@ struct SettingsView: View {
             )
         case .homeScreen:
             HomeScreenSettingsPane(model: model)
+        case .detailPage:
+            DetailPageSettingsPane(model: model)
         case .contentSources:
             ContentSourcesSettingsPane(model: model, plugins: plugins)
         case .addons:
@@ -354,6 +356,8 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
     case playback
     case appearance
     case homeScreen
+    /// How a title's page is laid out (sections, background, episode cards).
+    case detailPage
     case contentSources
     /// Wave 2 (decision D1): the former Add-ons tab, hosted in Settings.
     case addons
@@ -370,6 +374,7 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
         case .playback: return String(localized: "Playback")
         case .appearance: return String(localized: "Appearance")
         case .homeScreen: return String(localized: "Home Screen")
+        case .detailPage: return String(localized: "Detail Page")
         case .contentSources: return String(localized: "Content Sources")
         case .addons: return String(localized: "Add-ons")
         case .advanced: return String(localized: "Advanced")
@@ -385,6 +390,7 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
         case .playback: return "play.rectangle"
         case .appearance: return "paintbrush"
         case .homeScreen: return "house"
+        case .detailPage: return "rectangle.stack"
         case .contentSources: return "square.stack.3d.up"
         case .addons: return "puzzlepiece.extension"
         case .advanced: return "gearshape.2"

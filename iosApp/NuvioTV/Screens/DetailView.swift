@@ -304,8 +304,15 @@ struct DetailView: View {
     /// PLY-A13: the movie stream picker was opened by "Start from Beginning", not by Play.
     @State private var showStreamsFromBeginning = false
     @State private var seriesPlay: SeriesPlayRoute?
+    /// The episode Shuffle picked; opens the same stream picker the episode shelf does.
+    @State private var shuffledEpisode: EpisodeRoute?
     /// Trakt comment ids the user has expanded (reveals spoilers / full text).
     @State private var expandedComments: Set<Int64> = []
+    /// Settings → Detail Page → Background → Dominant Color: the tint sampled from the backdrop
+    /// (nil until it has been read, and in the other modes).
+    @State private var dominantTint: Color?
+    /// A Trakt comment thread shown full screen: the title's, or one episode's.
+    @State private var commentsThread: CommentsThreadRoute?
 
     /// Tester ask: auto full-screen the hero trailer a few seconds after opening a title.
     /// F2 / decision D5: opt-in only. The default autoplay is the muted in-place background
@@ -327,6 +334,13 @@ struct DetailView: View {
     /// Library) as icon-only pills. Mirrors AppearanceSettingsPane's "Icon-Only Detail Buttons"
     /// toggle (same @AppStorage key).
     @AppStorage("detail_action_icons_only") private var actionIconsOnly = false
+    /// Mirrors AppearanceSettingsPane's "Trailer Button" toggle (same @AppStorage key). Off hides
+    /// only the explicit action-row button; the background trailer, auto-play and the Trailers row
+    /// keep their own switches.
+    @AppStorage("detail_trailer_button_enabled") private var trailerButtonEnabled = true
+    /// Mirrors AppearanceSettingsPane's "Full Release Date" toggle (same @AppStorage key): a movie's
+    /// meta line then shows its release date instead of the year.
+    @AppStorage("detail_show_full_release_date") private var showFullReleaseDate = false
     /// FEAT-11: whether a full-screen trailer should start with sound instead of muted. Mirrors
     /// PlaybackSettingsPane's "Trailer Sound by Default" toggle (same @AppStorage key) — read here
     /// only to restore the shared `HeroTrailerAudioState` back to this default once a full-screen
@@ -486,7 +500,7 @@ struct DetailView: View {
         // BUG-41 measurement probe, gated at runtime by `DetailScrollProbe.enabled` (see above).
         let _ = Self.logBodyEval()
         ZStack(alignment: .topLeading) {
-            backdropImage
+            backdropLayer
                 // FEAT-32: the still lands enlarged when the trailer cover goes and settles to 1.
                 .scaleEffect(TrailerBridgeChoreography.backdropScale(bridgePhase))
                 .animation(TrailerBridgeChoreography.backdropAnimation(to: bridgePhase), value: bridgePhase)
@@ -528,56 +542,13 @@ struct DetailView: View {
             ScrollView(.vertical) {
                 VStack(alignment: .leading, spacing: Theme.Spacing.lg + Theme.Spacing.sm) {
                     topBlock
-                    // Grouped to stay under ViewBuilder's 10-subview ceiling. BUG-96: every row
-                    // below the top block is anchored — see `DetailRowAnchor`.
-                    Group {
-                        companyLogosRow
-                            .detailRowAnchored(.logos, focusedRow: $focusedRow, offsets: $detailRowOffsets)
-                        parentalGuideSection
-                            .detailRowAnchored(.parental, focusedRow: $focusedRow, offsets: $detailRowOffsets)
+                    // Settings → Detail Page: the sections below the header, in the order and with
+                    // the visibility the profile chose. Only a section that has something to show
+                    // takes a slot, so an empty one never leaves a gap. BUG-96: every row below
+                    // the top block is anchored — see `DetailRowAnchor`.
+                    ForEach(visibleSections, id: \.self) { section in
+                        sectionContent(section)
                     }
-                    if let meta = model.meta, EpisodesSection.isSeriesLike(meta) {
-                        EpisodesSection(
-                            meta: meta,
-                            episodeRatings: model.episodeRatings,
-                            watchedEpisodeKeys: model.watchedEpisodeKeys,
-                            episodeProgress: model.episodeProgress,
-                            preferredSeason: model.seriesAction?.seasonNumber?.value,
-                            preferredEpisode: model.seriesAction?.episodeNumber?.value,
-                            episodeRatingsVisibility: model.episodeRatingsVisibility,
-                            showOverallRatings: model.showOverallRatings,
-                            onToggleWatched: { model.toggleEpisodeWatched($0) }
-                        )
-                        // A discrete focus region: vertical D-pad moves must land here instead of
-                        // geometrically skipping from the info/network chips down to the cast row.
-                        .focusSection()
-                        .detailRowAnchored(.episodes, focusedRow: $focusedRow, offsets: $detailRowOffsets)
-                    }
-                    Group {
-                        castRow
-                            .detailRowAnchored(.cast, focusedRow: $focusedRow, offsets: $detailRowOffsets)
-                        collectionRow
-                            .detailRowAnchored(.collection, focusedRow: $focusedRow, offsets: $detailRowOffsets)
-                        trailersRow
-                            .detailRowAnchored(.trailers, focusedRow: $focusedRow, offsets: $detailRowOffsets)
-                        moreLikeThisRow
-                            .detailRowAnchored(.moreLikeThis, focusedRow: $focusedRow, offsets: $detailRowOffsets)
-                        // Codex P2 review finding (BUG-99 follow-up, round 2): TRACKED but never
-                        // ANCHORED. Round-1 left this section out of `detailRowAnchored` entirely —
-                        // "a vertical list of expandable cards whose focus moves never change
-                        // `focusedRow`" — which was true only because nothing here reported focus
-                        // in the first place; that left `focusedRow` nil both here and in the top
-                        // block, indistinguishable to `DetailRowAnchor.direction`. Tracking this
-                        // section resolves that ambiguity structurally (see `DetailRowID`'s and
-                        // `direction`'s doc comments); it still must never anchor — a pending
-                        // correction could scroll back to the section top under a later comment —
-                        // so `DetailView.onChange(of: focusedRow)` bails out for `row == .comments`
-                        // before any anchor decision runs.
-                        commentsSection
-                            .detailRowAnchored(.comments, focusedRow: $focusedRow, offsets: $detailRowOffsets)
-                    }
-                    // VIS-08: the facts grid closes the page, below every focusable row.
-                    infoSection
                 }
                 .padding(Theme.Spacing.screen)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -866,6 +837,7 @@ struct DetailView: View {
         // stops the background player (a `withAnimation(.easeInOut(duration: 1.5))` at the call site
         // overrides this ambient 0.8s for that specific change — see `stopBackgroundTrailer()`).
         .animation(.easeInOut(duration: 0.8), value: model.trailerVideoURL != nil && !backgroundTrailerStopped)
+        .task(id: dominantTintTaskID) { await refreshDominantTint() }
         // UX-12 removed the on-screen speaker indicator (FEAT-11's default-audio setting makes it
         // redundant); the Siri Remote's play/pause button remains the mute/unmute control.
         .onPlayPauseCommand {
@@ -915,6 +887,12 @@ struct DetailView: View {
             }
         }
         .onChange(of: seriesPlay?.id) { _, routeId in
+            if routeId != nil {
+                cancelAutoPlayTrailer()
+                withdrawTrailerBridgeIfLeaving()
+            }
+        }
+        .onChange(of: shuffledEpisode?.id) { _, routeId in
             if routeId != nil {
                 cancelAutoPlayTrailer()
                 withdrawTrailerBridgeIfLeaving()
@@ -979,6 +957,12 @@ struct DetailView: View {
                 startFromBeginning: route.startOver
             )
         }
+        .fullScreenCover(item: $shuffledEpisode) { route in
+            EpisodeStreamPickerCover(route: route, playbackMeta: playbackMeta)
+        }
+        .fullScreenCover(item: $commentsThread) { route in
+            CommentsThreadView(route: route)
+        }
         // FEAT-32: presented from `presentedTrailer`, which `beginTrailerBridge` sets after the
         // leaving choreography. Dismissal (Back) writes nil back to the request so every
         // `trailerPlayback == nil` gate in this view reads as before.
@@ -1023,7 +1007,7 @@ struct DetailView: View {
                 // presentation background was tried first: it keeps the presenting view alive
                 // under the cover, and one Menu press then both dismissed the cover and popped the
                 // detail page, test51 run of 2026-09-05 18:15.)
-                backdropImage
+                backdropLayer
                     .scaleEffect(TrailerBridgeChoreography.returnScale)
                 // Codex round 3 (P2): composed exactly as the description composes it underneath
                 // (scrim, then the scroll dim at its current value; the poster layer is held for
@@ -1208,6 +1192,20 @@ struct DetailView: View {
         }
     }
 
+    /// Shuffle: a random released episode, unwatched first, into the same stream picker the episode
+    /// shelf opens. Like Play, an unplayable series explains itself instead of opening a dead list.
+    private func performShuffle() {
+        switch primaryPlayState {
+        case .unavailable:
+            showingPlaybackUnavailable = true
+        case .loading, .movie:
+            break
+        case .series(let meta, _):
+            guard let episode = model.pickShuffleEpisode() else { return }
+            shuffledEpisode = EpisodeRoute(meta: meta, episode: episode)
+        }
+    }
+
     private static var startOverTitle: String {
         String(localized: "detail.action.startOver", defaultValue: "Start from Beginning",
                comment: "Detail page button beside Resume: play the title (or the episode to resume) from 0:00.")
@@ -1316,6 +1314,8 @@ struct DetailView: View {
     private var isTrailerActive: Bool {
         backgroundTrailerEnabled && model.trailerVideoURL != nil && !showStreams
             && model.trailerPlayback == nil && !backgroundTrailerStopped && !reduceMotion
+            // The soft and tinted backgrounds replace the video: a clip would hide them.
+            && model.layout.backgroundMode == .normal
     }
 
     /// BUG-41: `isTrailerActive` plus the scroll-dim hysteresis latch — whether the hero-trailer
@@ -1386,7 +1386,113 @@ struct DetailView: View {
         // opaque cover. The cover is transparent on its way out now, so the layer would show
         // through the reveal as a second artwork fading over the settling still. Idle only.
         posterBackdropEnabled && posterUrl != nil && posterUrl != backgroundUrl && !isTrailerActive
-            && bridgePhase == .idle
+            && bridgePhase == .idle && model.layout.backgroundMode == .normal
+    }
+
+    // MARK: - Layout-driven sections (Settings → Detail Page)
+
+    /// The enabled lower sections, in the profile's order, that have something to show.
+    private var visibleSections: [DetailSection] {
+        model.layout.sections.filter(sectionHasContent)
+    }
+
+    private func sectionHasContent(_ section: DetailSection) -> Bool {
+        guard let meta = model.meta else { return false }
+        switch section {
+        case .production: return !companyLogos.isEmpty
+        case .episodes: return EpisodesSection.isSeriesLike(meta)
+        case .cast: return !meta.cast.isEmpty
+        case .collection: return !meta.collectionItems.isEmpty
+        case .trailers: return !meta.trailers.isEmpty
+        case .moreLikeThis: return !meta.moreLikeThis.isEmpty
+        case .comments: return model.commentsEnabled && !model.comments.isEmpty
+        case .details: return !model.parentalWarnings.isEmpty || !infoRows.isEmpty
+        }
+    }
+
+    @ViewBuilder
+    private func sectionContent(_ section: DetailSection) -> some View {
+        switch section {
+        case .production:
+            companyLogosRow
+                .detailRowAnchored(.logos, focusedRow: $focusedRow, offsets: $detailRowOffsets)
+        case .episodes:
+            if let meta = model.meta, EpisodesSection.isSeriesLike(meta) {
+                EpisodesSection(
+                    meta: meta,
+                    episodeRatings: model.episodeRatings,
+                    watchedEpisodeKeys: model.watchedEpisodeKeys,
+                    episodeProgress: model.episodeProgress,
+                    preferredSeason: model.seriesAction?.seasonNumber?.value,
+                    preferredEpisode: model.seriesAction?.episodeNumber?.value,
+                    episodeRatingsVisibility: model.episodeRatingsVisibility,
+                    showOverallRatings: model.showOverallRatings,
+                    cardStyle: model.layout.episodeCardStyle,
+                    blurUnwatchedEpisodes: model.layout.blurUnwatchedEpisodes,
+                    onToggleWatched: { model.toggleEpisodeWatched($0) },
+                    episodeOptions: { model.episodeOptions(for: $0) },
+                    onToggleSeasonWatched: { model.toggleSeasonWatched(of: $0) },
+                    onMarkPreviousWatched: { model.markPreviousEpisodesWatched(before: $0) },
+                    onOpenComments: episodeCommentsAction
+                )
+                // A discrete focus region: vertical D-pad moves must land here instead of
+                // geometrically skipping from the info/network chips down to the cast row.
+                .focusSection()
+                .detailRowAnchored(.episodes, focusedRow: $focusedRow, offsets: $detailRowOffsets)
+            }
+        case .cast:
+            castRow
+                .detailRowAnchored(.cast, focusedRow: $focusedRow, offsets: $detailRowOffsets)
+        case .collection:
+            collectionRow
+                .detailRowAnchored(.collection, focusedRow: $focusedRow, offsets: $detailRowOffsets)
+        case .trailers:
+            trailersRow
+                .detailRowAnchored(.trailers, focusedRow: $focusedRow, offsets: $detailRowOffsets)
+        case .moreLikeThis:
+            moreLikeThisRow
+                .detailRowAnchored(.moreLikeThis, focusedRow: $focusedRow, offsets: $detailRowOffsets)
+        case .comments:
+            // Codex P2 review finding (BUG-99 follow-up, round 2): TRACKED but never
+            // ANCHORED. Round-1 left this section out of `detailRowAnchored` entirely —
+            // "a vertical list of expandable cards whose focus moves never change
+            // `focusedRow`" — which was true only because nothing here reported focus
+            // in the first place; that left `focusedRow` nil both here and in the top
+            // block, indistinguishable to `DetailRowAnchor.direction`. Tracking this
+            // section resolves that ambiguity structurally (see `DetailRowID`'s and
+            // `direction`'s doc comments); it still must never anchor — a pending
+            // correction could scroll back to the section top under a later comment —
+            // so `DetailView.onChange(of: focusedRow)` bails out for `row == .comments`
+            // before any anchor decision runs.
+            commentsSection
+                .detailRowAnchored(.comments, focusedRow: $focusedRow, offsets: $detailRowOffsets)
+        case .details:
+            // VIS-08: the facts grid, with the parental guide chips above it. Not focusable.
+            VStack(alignment: .leading, spacing: Theme.Spacing.lg + Theme.Spacing.sm) {
+                if !model.parentalWarnings.isEmpty {
+                    parentalGuideSection
+                        .detailRowAnchored(.parental, focusedRow: $focusedRow, offsets: $detailRowOffsets)
+                }
+                infoSection
+            }
+        }
+    }
+
+    /// The episode menu's "Episode Comments", offered only while Trakt comments are switched on.
+    private var episodeCommentsAction: ((MetaVideo) -> Void)? {
+        guard model.commentsEnabled else { return nil }
+        return { presentEpisodeComments($0) }
+    }
+
+    /// Opens an episode's Trakt comments full screen (the episode menu's "Episode Comments").
+    private func presentEpisodeComments(_ episode: MetaVideo) {
+        guard let meta = model.meta, let season = episode.season?.value, let number = episode.episode?.value else { return }
+        commentsThread = CommentsThreadRoute(
+            meta: meta,
+            season: season,
+            episode: number,
+            heading: EpisodesSection.episodeTitle(episode)
+        )
     }
 
     // MARK: - Sections
@@ -1401,6 +1507,70 @@ struct DetailView: View {
         // Purely decorative full-bleed background — the title/overview text drawn over it
         // already carries the same information for VoiceOver.
         .accessibilityHidden(true)
+    }
+
+    /// The page's backdrop for the chosen Settings → Detail Page → Background mode. Both the page
+    /// and the trailer cover's copy of it (FEAT-32) draw this, so they always agree.
+    @ViewBuilder
+    private var backdropLayer: some View {
+        switch model.layout.backgroundMode {
+        case .normal:
+            backdropImage
+        case .cinematic:
+            // The artwork as a soft, darkened wash (spec 3.4: an ambient wash over #0D0D0D).
+            ZStack {
+                backdropImage.blur(radius: 48, opaque: true)
+                Color.black.opacity(0.3)
+            }
+            .ignoresSafeArea()
+        case .dominantColor:
+            // The backdrop's own colour as the page, with the artwork fading into it from the
+            // trailing edge and the bottom.
+            ZStack {
+                (dominantTint ?? Theme.Palette.background)
+                backdropImage
+                    .opacity(0.85)
+                    .mask(
+                        LinearGradient(
+                            stops: [
+                                .init(color: .clear, location: 0),
+                                .init(color: .black.opacity(0.5), location: 0.4),
+                                .init(color: .black, location: 0.85),
+                            ],
+                            startPoint: .leading, endPoint: .trailing
+                        )
+                    )
+                    .mask(
+                        LinearGradient(
+                            colors: [.black, .black, .clear],
+                            startPoint: .top, endPoint: .bottom
+                        )
+                    )
+            }
+            .ignoresSafeArea()
+        }
+    }
+
+    /// Colour of the legibility scrims: black, except in Dominant Color mode where the page's tint
+    /// carries them so the tint is not painted over.
+    private var scrimBase: Color {
+        model.layout.backgroundMode == .dominantColor ? (dominantTint ?? .black) : .black
+    }
+
+    /// Re-samples the tint when the mode or the backdrop changes (the `.task(id:)` on the body).
+    private var dominantTintTaskID: String {
+        model.layout.backgroundMode == .dominantColor ? (backgroundUrl ?? "") : ""
+    }
+
+    private func refreshDominantTint() async {
+        guard model.layout.backgroundMode == .dominantColor,
+              let string = backgroundUrl, let url = URL(string: string) else { return }
+        guard let tint = await DominantBackdropColor.tint(for: url), !Task.isCancelled else { return }
+        if reduceMotion {
+            dominantTint = tint
+        } else {
+            withAnimation(.easeInOut(duration: 0.32)) { dominantTint = tint }
+        }
     }
 
     /// The poster pinned to the right 40% of the screen, behind the description (tester ask, mirrors
@@ -1437,14 +1607,14 @@ struct DetailView: View {
         ZStack {
             LinearGradient(
                 colors: [
-                    .black.opacity(0.95),
-                    .black.opacity(0.4),
-                    .black.opacity(posterBackdropVisible ? 0.45 : 0.85)
+                    scrimBase.opacity(0.95),
+                    scrimBase.opacity(0.4),
+                    scrimBase.opacity(posterBackdropVisible ? 0.45 : 0.85)
                 ],
                 startPoint: .leading, endPoint: .trailing
             )
             LinearGradient(
-                colors: [.clear, .black.opacity(0.9)],
+                colors: [.clear, scrimBase.opacity(0.9)],
                 startPoint: .center, endPoint: .bottom
             )
         }
@@ -1464,13 +1634,30 @@ struct DetailView: View {
     private var topBlock: some View {
         VStack(alignment: .leading, spacing: Theme.Spacing.lg) {
             header
-            metaLine
-            if let overview, !overview.isEmpty {
-                // AES-10: four lines, with a More / Less button only when it overflows.
-                DetailOverview(text: overview, maxWidth: 880)
+            // Settings → Detail Page → Overview: the meta line, ratings and synopsis.
+            if model.layout.showsOverview {
+                VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
+                    metaLine
+                    if let credit = creditLineText {
+                        Text(verbatim: credit)
+                            .font(Theme.Font.meta)
+                            .foregroundStyle(Theme.Palette.textSecondary)
+                            .lineLimit(1)
+                    }
+                }
+                if !externalRatings.isEmpty {
+                    DetailRatingsStrip(ratings: externalRatings)
+                }
+                if let overview, !overview.isEmpty {
+                    // AES-10: four lines, with a More / Less button only when it overflows.
+                    DetailOverview(text: overview, maxWidth: 880)
+                }
             }
-            actionRow
-                .padding(.top, Theme.Spacing.sm)
+            // Settings → Detail Page → Actions.
+            if model.layout.showsActions {
+                actionRow
+                    .padding(.top, Theme.Spacing.sm)
+            }
         }
         .padding(.top, Self.headerTopInset)
         .focusSection()
@@ -1512,7 +1699,14 @@ struct DetailView: View {
     private var metaFacts: [String] {
         var parts: [String] = []
         let year: String? = model.meta?.releaseInfo ?? preview.releaseInfo
-        if let year, !year.isEmpty { parts.append(year) }
+        // Movies only: a series' "2021 - 2024" span stays a span. Falls back to the year when the
+        // title carries no full date.
+        let releaseDate: String? = model.meta?.releaseDate
+        if showFullReleaseDate, !isSeries, let full = DetailHeroMeta.fullReleaseDate(releaseDate) {
+            parts.append(full)
+        } else if let year, !year.isEmpty {
+            parts.append(year)
+        }
         parts.append(contentsOf: genres.prefix(2))
         let runtime: String? = model.meta?.runtime
         if let runtime, !runtime.isEmpty { parts.append(runtime) }
@@ -1527,7 +1721,9 @@ struct DetailView: View {
                     .lineLimit(1)
             }
             // SET-2: Settings → Appearance → Ratings → Overall Ratings.
-            if model.showOverallRatings, let rating = model.meta?.imdbRating ?? preview.imdbRating, !rating.isEmpty {
+            // The MDBList strip below carries its own IMDb score; don't show two.
+            if model.showOverallRatings, !externalRatingsIncludeIMDb,
+               let rating = model.meta?.imdbRating ?? preview.imdbRating, !rating.isEmpty {
                 HStack(spacing: Theme.Spacing.xxs) {
                     Image(systemName: "star.fill")
                         .foregroundStyle(Theme.Palette.star)
@@ -1537,20 +1733,44 @@ struct DetailView: View {
                 .accessibilityElement(children: .combine)
             }
             if let age = model.meta?.ageRating, !age.isEmpty {
-                Text(verbatim: age)
-                    .font(Theme.Font.caption.weight(.bold))
-                    .padding(.horizontal, Theme.Spacing.xs)
-                    .padding(.vertical, 2)
-                    .overlay {
-                        RoundedRectangle(cornerRadius: Theme.Radius.chip, style: .continuous)
-                            .strokeBorder(Theme.Palette.textSecondary, lineWidth: 1)
-                    }
+                metaBadge(age)
+            }
+            // Ongoing / Ended / Cancelled / In Production ... ("Released" is not worth a badge).
+            let status: String? = model.meta?.status
+            if let label = DetailHeroMeta.statusLabel(status) {
+                metaBadge(label)
             }
             if model.isLoading { ProgressView() }
         }
         .font(Theme.Font.sectionTitle.weight(.regular))
         .foregroundStyle(Theme.Palette.textSecondary)
     }
+
+    /// The monochrome outlined capsule of the Apple TV app's meta line (age rating, status).
+    private func metaBadge(_ text: String) -> some View {
+        Text(verbatim: text)
+            .font(Theme.Font.caption.weight(.bold))
+            .padding(.horizontal, Theme.Spacing.xs)
+            .padding(.vertical, 2)
+            .overlay {
+                RoundedRectangle(cornerRadius: Theme.Radius.chip, style: .continuous)
+                    .strokeBorder(Theme.Palette.textSecondary, lineWidth: 1)
+            }
+    }
+
+    /// "Created by X" for a series, "Directed by X" for a movie (writers when there is no director),
+    /// shown under the meta line: secondary, one line, two names at most, not focusable.
+    private var creditLineText: String? {
+        DetailHeroMeta.creditLine(
+            directors: model.meta?.director ?? [],
+            writers: model.meta?.writer ?? [],
+            isSeries: isSeries
+        )
+    }
+
+    /// MDBList provider scores for the hero's ratings strip (empty without an MDBList key).
+    private var externalRatings: [MetaExternalRating] { model.meta?.externalRatings ?? [] }
+    private var externalRatingsIncludeIMDb: Bool { externalRatings.contains { $0.source == "imdb" } }
 
     /// The parental-guide chips' capsule. VIS-08 / spec gap 14: content gets no glass, so this is
     /// always the flat translucent fill the BUG-41 scroll legs used to swap in (the leg switch is
@@ -1597,7 +1817,20 @@ struct DetailView: View {
                 .focused($focusedAction, equals: .startOver)
             }
 
-            if model.trailerVideoURL != nil {
+            // Shuffle: a series with more than one released episode plays a random one, unwatched
+            // first (mobile / Android TV episode shuffle).
+            if isSeries, model.canShuffle {
+                Button {
+                    performShuffle()
+                } label: {
+                    actionLabel("Shuffle", systemImage: "shuffle")
+                        .font(Theme.Font.body)
+                }
+                .buttonStyle(.bordered)
+                .focused($focusedAction, equals: .shuffle)
+            }
+
+            if trailerButtonEnabled, model.trailerVideoURL != nil {
                 // Explicit, focusable "watch it full screen" entry point (tester request — the
                 // background hero loop is muted and deliberately NON-focusable). It hands the
                 // already-resolved hero trailer to the same `trailerPlayback` full-screen-cover
@@ -1751,9 +1984,16 @@ struct DetailView: View {
         let items = model.meta?.moreLikeThis ?? []
         if !items.isEmpty {
             VStack(alignment: .leading, spacing: Theme.Spacing.md) {
-                Text("More Like This")
-                    .font(Theme.Font.sectionTitle)
-                    .foregroundStyle(Theme.Palette.textPrimary)
+                HStack(alignment: .firstTextBaseline, spacing: Theme.Spacing.md) {
+                    Text("More Like This")
+                        .font(Theme.Font.sectionTitle)
+                        .foregroundStyle(Theme.Palette.textPrimary)
+                    if let attribution = moreLikeThisAttribution {
+                        Text(attribution)
+                            .font(Theme.Font.caption)
+                            .foregroundStyle(Theme.Palette.textSecondary)
+                    }
+                }
                 ScrollView(.horizontal, showsIndicators: false) {
                     LazyHStack(spacing: Theme.Spacing.lg) {
                         ForEach(items, id: \.id) { item in
@@ -1774,6 +2014,16 @@ struct DetailView: View {
                 .scrollClipDisabled()
             }
             .focusSection()
+        }
+    }
+
+    /// "Powered by Trakt" and friends: which service the row came from (`MoreLikeThisSource.name`).
+    private var moreLikeThisAttribution: String? {
+        switch model.meta?.moreLikeThisSource?.name {
+        case "TMDB": return String(localized: "Powered by TMDB")
+        case "TRAKT": return String(localized: "Powered by Trakt")
+        case "SIMKL": return String(localized: "Powered by Simkl")
+        default: return nil
         }
     }
 
@@ -1836,16 +2086,8 @@ struct DetailView: View {
         let language: String? = meta.language;  add(String(localized: "Language"), language ?? "")
         let status: String? = meta.status;      add(String(localized: "Status"), status ?? "")
         let awards: String? = meta.awards;      add(String(localized: "Awards"), awards ?? "")
-        let ratings = meta.externalRatings
-        if !ratings.isEmpty {
-            add(String(localized: "Ratings"), ratings.map { "\($0.source) \(formatRating($0.value))" }.joined(separator: "   "))
-        }
+        // Provider scores (MDBList) are drawn as logos in the hero's ratings strip, not as text here.
         return rows
-    }
-
-    private func formatRating(_ v: Double) -> String {
-        let r = (v * 10).rounded() / 10
-        return r == r.rounded() ? String(Int(r)) : String(r)
     }
 
     // MARK: - Collection row ("Part of the X Collection")
@@ -2051,18 +2293,41 @@ struct DetailView: View {
 
     // MARK: - Trakt community comments
 
+    /// Comments shown inline; the rest is behind "Show All Comments".
+    private static let inlineCommentCount = 4
+
     @ViewBuilder
     private var commentsSection: some View {
         let comments = model.comments
-        if !comments.isEmpty {
+        if model.commentsEnabled, !comments.isEmpty {
             VStack(alignment: .leading, spacing: Theme.Spacing.md) {
                 Text("Comments")
                     .font(Theme.Font.sectionTitle)
                     .foregroundStyle(Theme.Palette.textPrimary)
                 LazyVStack(alignment: .leading, spacing: Theme.Spacing.md) {
-                    ForEach(Array(comments.prefix(8).enumerated()), id: \.element.id) { _, comment in
-                        commentCard(comment)
+                    ForEach(comments.prefix(Self.inlineCommentCount), id: \.id) { comment in
+                        TraktCommentCard(
+                            comment: comment,
+                            isExpanded: expandedComments.contains(comment.id),
+                            toggle: {
+                                if expandedComments.contains(comment.id) {
+                                    expandedComments.remove(comment.id)
+                                } else {
+                                    expandedComments.insert(comment.id)
+                                }
+                            }
+                        )
                     }
+                }
+                if let meta = model.meta,
+                   comments.count > Self.inlineCommentCount || model.commentsTotalCount > Self.inlineCommentCount {
+                    Button {
+                        commentsThread = CommentsThreadRoute(meta: meta)
+                    } label: {
+                        Label("Show All Comments", systemImage: "text.bubble")
+                            .font(Theme.Font.body)
+                    }
+                    .buttonStyle(.bordered)
                 }
                 Text("From Trakt")
                     .font(Theme.Font.caption)
@@ -2071,78 +2336,6 @@ struct DetailView: View {
             .frame(maxWidth: 1100, alignment: .leading)
             .focusSection()
         }
-    }
-
-    /// One comment as a focusable card. Pressing reveals spoilers / expands long text.
-    private func commentCard(_ comment: TraktCommentReview) -> some View {
-        let expanded = expandedComments.contains(comment.id)
-        let hidesForSpoiler = (comment.spoiler || comment.hasSpoilerContent) && !expanded
-        return Button {
-            if expanded {
-                expandedComments.remove(comment.id)
-            } else {
-                expandedComments.insert(comment.id)
-            }
-        } label: {
-            VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
-                HStack(spacing: Theme.Spacing.md) {
-                    Text(comment.authorDisplayName)
-                        .font(Theme.Font.meta)
-                        .rowTextColor()
-                    if let rating = comment.rating?.value {
-                        HStack(spacing: 2) {
-                            // BUG-50: the star's fixed gold (Theme.Palette.star) isn't a
-                            // semantic color the row's colorScheme flip can fix, and reads as
-                            // washed-out on the near-white focused platter. `rowAccentTint`
-                            // preserves the gold at rest (active: false, inactiveColor: star)
-                            // while forcing the platter-safe color on focus, same shape as
-                            // BUG-22's row-icon fix.
-                            Image(systemName: "star.fill")
-                                .rowAccentTint(false, inactiveColor: Theme.Palette.star)
-                            Text("\(rating)/10")
-                        }
-                        .font(Theme.Font.caption)
-                        .rowTextColor(secondary: true)
-                    }
-                    if let date = commentDate(comment) {
-                        Text(date)
-                            .font(Theme.Font.caption)
-                            .rowTextColor(secondary: true)
-                    }
-                    if comment.review {
-                        Text("Review")
-                            .font(Theme.Font.caption)
-                            .rowAccentTint()
-                    }
-                    Spacer(minLength: 0)
-                    if comment.likes > 0 {
-                        Label("\(comment.likes)", systemImage: "heart.fill")
-                            .font(Theme.Font.caption)
-                            .rowTextColor(secondary: true)
-                    }
-                }
-                if hidesForSpoiler {
-                    Label("Contains spoilers \u{2014} press to reveal", systemImage: "eye.slash")
-                        .font(Theme.Font.body)
-                        .rowTextColor(secondary: true)
-                } else {
-                    Text(comment.comment)
-                        .font(Theme.Font.body)
-                        .rowTextColor()
-                        .lineLimit(expanded ? nil : 5)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-            .padding(Theme.Spacing.md)
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .buttonStyle(.settingsRow)
-    }
-
-    private func commentDate(_ comment: TraktCommentReview) -> String? {
-        let raw: String? = comment.createdAt
-        guard let raw, raw.count >= 10 else { return nil }
-        return String(raw.prefix(10))
     }
 
     // MARK: - Auto-play hero trailer
@@ -2224,7 +2417,7 @@ struct DetailView: View {
 
 /// F1: the Detail action-row buttons `DetailView.focusedAction` tracks.
 private enum DetailActionFocus: Hashable {
-    case play, startOver, trailer, watched, library
+    case play, startOver, shuffle, trailer, watched, library
 }
 
 /// One label/value pair in the Detail info block. `id` is the label (unique within the block).

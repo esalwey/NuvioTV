@@ -303,6 +303,55 @@ object MetaScreenSettingsRepository {
         persist()
     }
 
+    /**
+     * String-keyed twins of the two enum setters, for the Apple apps: Kotlin/Native lower-cases
+     * PascalCase enum entries unpredictably across the ObjC bridge (`DominantColor`), so Swift
+     * hands over the persisted key instead of naming the entry. Unknown keys are ignored.
+     */
+    fun setBackgroundModeByKey(key: String) {
+        MetaScreenBackgroundMode.parse(key)?.let(::setBackgroundMode)
+    }
+
+    fun setEpisodeCardStyleByKey(key: String) {
+        MetaEpisodeCardStyle.parse(key)?.let(::setEpisodeCardStyle)
+    }
+
+    /**
+     * Rewrites the whole section order in one publish/persist: [order] first, any section it
+     * leaves out after them in their current relative order. Unlike [moveByIndex] this does not
+     * depend on the stored order being the one the caller is looking at (an Apple TV shows its own
+     * default order until the first change, see [MetaScreenSectionLayout]).
+     */
+    fun setOrder(order: List<MetaScreenSectionKey>) {
+        ensureLoaded()
+        val current = definitions
+            .sortedBy { definition -> preferences[definition.key]?.order ?: Int.MAX_VALUE }
+            .map { it.key }
+        val ranked = order.distinct() + current.filter { it !in order }
+        ranked.forEachIndexed { index, key ->
+            val existing = preferences[key] ?: return@forEachIndexed
+            preferences[key] = existing.copy(order = index)
+        }
+        publish()
+        persist()
+    }
+
+    /**
+     * Section order/visibility and the layout options, back to their defaults. Unlike
+     * [resetToDefaults] the rating visibility toggles are kept (they live in a different
+     * settings pane on the Apple apps).
+     */
+    fun resetLayoutToDefaults() {
+        ensureLoaded()
+        val keepOverallRatings = showOverallRatings
+        val keepEpisodeRatings = episodeRatingsVisibility
+        resetToDefaults()
+        showOverallRatings = keepOverallRatings
+        episodeRatingsVisibility = keepEpisodeRatings
+        publish()
+        persist()
+    }
+
     fun setBlurUnwatchedEpisodes(enabled: Boolean) {
         ensureLoaded()
         blurUnwatchedEpisodes = enabled
