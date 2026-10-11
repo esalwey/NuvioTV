@@ -103,3 +103,50 @@ jobs:
             ARCHS=arm64 \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO
+
+      # Unit tests (NuvioTVTests). NuvioTVUITests stays out: it needs the signed-in fixture.
+      - name: List tvOS Simulator devices
+        run: xcrun simctl list devices available
+
+      - name: Test NuvioTV unit tests (tvOS Simulator)
+        run: |
+          set -o pipefail
+          UDID=$(xcrun simctl list devices available -j | python3 -c '
+          import json, sys
+          data = json.load(sys.stdin)["devices"]
+          for runtime in sorted(data, reverse=True):
+              if "tvOS" not in runtime:
+                  continue
+              for d in data[runtime]:
+                  if "Apple TV" in d["name"] and d.get("isAvailable", True):
+                      print(d["udid"])
+                      sys.exit(0)
+          sys.exit(1)
+          ')
+          echo "Using simulator $UDID"
+          rm -rf "$RUNNER_TEMP/NuvioTVTests.xcresult"
+          set +e
+          xcodebuild test \
+            -project iosApp/iosApp.xcodeproj \
+            -scheme NuvioTVTests \
+            -configuration Debug \
+            -destination "platform=tvOS Simulator,id=$UDID" \
+            -resultBundlePath "$RUNNER_TEMP/NuvioTVTests.xcresult" \
+            ARCHS=arm64 \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO 2>&1 | tee "$RUNNER_TEMP/xcodebuild-test.log"
+          status=${PIPESTATUS[0]}
+          set -e
+          echo "::group::Failure summary"
+          grep -E "error:|failed|Test Case .* failed|\*\* TEST FAILED" "$RUNNER_TEMP/xcodebuild-test.log" | sort -u || true
+          echo "::endgroup::"
+          xcrun xcresulttool get test-results summary --path "$RUNNER_TEMP/NuvioTVTests.xcresult" 2>/dev/null | head -80 || true
+          exit $status
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: NuvioTVTests.xcresult
+          path: ${{ runner.temp }}/NuvioTVTests.xcresult
+          if-no-files-found: ignore
