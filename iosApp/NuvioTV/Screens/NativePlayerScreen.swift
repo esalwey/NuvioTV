@@ -391,6 +391,8 @@ struct NativePlayerScreen: View {
 
     private func replay() {
         upNext.resetForReplay()
+        // A replay is a new viewing: Automatic Skipping may skip the intro again.
+        autoSkip.tracker.reset()
         coordinator.replay()
     }
 

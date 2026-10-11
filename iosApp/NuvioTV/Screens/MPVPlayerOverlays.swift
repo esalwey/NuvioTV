@@ -123,11 +123,11 @@ struct PlayerTransportBar<Buttons: View, ScrubberOverlay: View, Tabs: View>: Vie
     private var timeRow: some View {
         HStack(alignment: .firstTextBaseline, spacing: Theme.Spacing.sm) {
             if let rate = state.fastForwardRate {
-                // Hold-right fast-forward rate (2×, 3×, 4×).
+                // Hold fast-forward / rewind rate (2×, 3×, 4×), as the system bar names it.
                 Label {
-                    Text(verbatim: "\(Int(rate))\u{00D7}")
+                    Text(verbatim: "\(Int(abs(rate)))\u{00D7}")
                 } icon: {
-                    Image(systemName: "forward.fill")
+                    Image(systemName: rate < 0 ? "backward.fill" : "forward.fill")
                 }
                 .labelStyle(.titleAndIcon)
             } else if state.isPaused {
@@ -327,6 +327,58 @@ struct PlayerControlsOverlay: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
         .allowsHitTesting(false)
+    }
+}
+
+/// The system player's skip indicator: a click on the left / right edge of the touch surface draws
+/// the circular arrow with the seconds skipped on that side of the picture (clicks in a row add up:
+/// 10, 20, 30...), and it fades a moment after the last one. Passive; the bar shows alongside.
+struct PlayerSkipIndicator: View {
+    let feedback: SkipFeedback?
+    /// Called once the indicator has been on screen long enough; the owner clears it.
+    let onExpired: (SkipFeedback) -> Void
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private static let visibleDuration: Duration = .milliseconds(900)
+    /// Distance of the arrow from the screen edge: it sits over the picture, well inside the edge
+    /// the click was made on.
+    private static let sideInset: CGFloat = Theme.Spacing.screen * 3
+    private static let glyphSize: CGFloat = 120
+
+    var body: some View {
+        ZStack {
+            if let feedback {
+                glyph(feedback)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity,
+                           alignment: feedback.direction < 0 ? .leading : .trailing)
+                    .padding(.horizontal, Self.sideInset)
+                    .transition(.opacity)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.18), value: feedback)
+        .task(id: feedback?.id) {
+            guard let feedback else { return }
+            try? await Task.sleep(for: Self.visibleDuration)
+            guard !Task.isCancelled else { return }
+            onExpired(feedback)
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+
+    private func glyph(_ feedback: SkipFeedback) -> some View {
+        ZStack {
+            Image(systemName: feedback.direction < 0 ? "gobackward" : "goforward")
+                .font(.system(size: Self.glyphSize, weight: .regular))
+            Text(verbatim: "\(feedback.seconds)")
+                .font(.system(size: feedback.seconds >= 100 ? 30 : 40, weight: .semibold, design: .rounded))
+                .monospacedDigit()
+                .offset(y: 4)
+        }
+        .foregroundStyle(.white)
+        .shadow(color: .black.opacity(0.5), radius: 12, y: 2)
     }
 }
 

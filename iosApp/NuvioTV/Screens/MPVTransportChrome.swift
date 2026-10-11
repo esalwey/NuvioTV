@@ -94,6 +94,9 @@ struct MPVTransportFocusView: View {
         case tab(PlayerContentTab)
     }
 
+    /// The Subtitles menu's "Automatic" row (the system popover's "Auto"): its own choice id.
+    private static let automaticSubtitleID = "subtitles.automatic"
+
     @FocusState private var focus: Focus?
     @State private var selectedTab: PlayerContentTab = .info
     /// A tab has focus, or focus went down into its content: the content shows under the bar.
@@ -392,6 +395,9 @@ struct MPVTransportFocusView: View {
         let sections = panelModel.subtitleSections(SubtitleOrganization.current)
         if sections.count <= 1 {
             Picker(selection: subtitleBinding) {
+                if !panelModel.subtitles.isEmpty {
+                    Text(verbatim: String(localized: "Automatic")).tag(Self.automaticSubtitleID)
+                }
                 ForEach(panelModel.subtitles) { option in
                     Text(verbatim: Self.menuTitle(option)).tag(option.id)
                 }
@@ -400,6 +406,12 @@ struct MPVTransportFocusView: View {
             }
             .pickerStyle(.inline)
         } else {
+            Picker(selection: subtitleBinding) {
+                Text(verbatim: String(localized: "Automatic")).tag(Self.automaticSubtitleID)
+            } label: {
+                Text(verbatim: title)
+            }
+            .pickerStyle(.inline)
             ForEach(sections) { section in
                 if let header = section.title {
                     Section {
@@ -496,8 +508,16 @@ struct MPVTransportFocusView: View {
 
     private var subtitleBinding: Binding<String> {
         Binding(
-            get: { panelModel.subtitles.first(where: \.isSelected)?.id ?? "off" },
+            get: {
+                state.subtitlesAutomatic
+                    ? Self.automaticSubtitleID
+                    : (panelModel.subtitles.first(where: \.isSelected)?.id ?? "off")
+            },
             set: { id in
+                if id == Self.automaticSubtitleID {
+                    state.selectAutoSubtitles?()
+                    return
+                }
                 guard let option = panelModel.subtitles.first(where: { $0.id == id }) else { return }
                 panelModel.onSelectSubtitle?(option.group == .off ? nil : option)
             })

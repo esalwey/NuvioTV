@@ -10,19 +10,30 @@ import SharedCore
 
 // Siri Remote grammar for the mpv engine (PLY-A2/A3/A4, F3/F5/F6/F7, spec §6.9.4): the same answers
 // as Apple's player and the native engine. Every layer Back can close comes before leaving:
-// Up Next card → Stream Info → scrub (back to the original time) → fast-forward → chrome and pause
-// card → exit. Scrubbing state lives in `MPVPlaybackState` (extensions hold no stored properties).
+// Up Next card → Stream Info → scrub (back to the original time) → fast-forward / rewind → chrome
+// and pause card → exit. Scrubbing state lives in `MPVPlaybackState` (extensions hold no stored
+// properties).
+//
+// What the system player does, and so does this one:
+//  - a click on the left / right edge skips ±10 s, shows the skip indicator (the circular arrow with
+//    the seconds, clicks in a row add up) and the bar;
+//  - a hold on an edge starts fast-forward / rewind at 2×, each further press of the same edge steps
+//    to 3× then 4×, the opposite edge, Select, Play/Pause or Back return to normal speed; the rate
+//    shows next to the elapsed time;
+//  - swiping on the touch surface only shows the bar while playing, and scrubs while paused;
+//  - the bar hides 5 s after the last touch while playing and stays up while paused.
 extension MPVTVPlayerViewController: UIGestureRecognizerDelegate {
     /// Identifies the touch-surface pan this extension installs (installed once per view).
     private static let transportPanName = "nuvio.mpv.transportPan"
-    /// An arrow held at least this long is a hold (fast-forward / accumulated scrub), not a click.
+    /// An arrow held at least this long is a hold (fast-forward / rewind), not a click.
     private static let holdThresholdSec: TimeInterval = 0.45
-    /// Held-arrow scrub: one step per tick, 20 s growing to 60 s (the old accelerating jumps).
-    private static let holdStepIntervalSec: TimeInterval = 0.4
     /// A click left/right: one exact ±10 s seek (a step of the scrub head while scrubbing).
     private static let clickSeekSec: Double = 10
-    /// Hold right while playing: 2×, and each further right press steps to 3×, then 4×.
+    /// A hold: 2×, and each further press of the same edge steps to 3×, then 4×.
     private static let fastForwardRates: [Double] = [2, 3, 4]
+    /// Rewind, and any hold while paused, has no playback rate to ride on in mpv: the head is moved
+    /// by a timer instead, one seek per tick, at the rate's pace.
+    private static let rateStepIntervalSec: TimeInterval = 0.25
     /// Touch-surface scrub at slow speed: about 1 s per 8 pt of travel (spec §6.9.4), faster swipes
     /// accelerate.
     private static let scrubSecondsPerPoint: Double = 1.0 / 8.0
@@ -49,7 +60,7 @@ extension MPVTVPlayerViewController: UIGestureRecognizerDelegate {
         state.controlsVisible || state.pauseChromeShown
     }
 
-    /// Hands focus to the chrome's focus layer (menus, content tabs): fast-forward stops, and the
+    /// Hands focus to the chrome's focus layer (menus, content tabs): fast-forward / rewind stops, and the
     /// track lists are refreshed (the async walk fills them if this raced the events).
     private func openChrome(_ entry: PlayerChromeEntry) {
         endFastForward()
@@ -82,7 +93,7 @@ extension MPVTVPlayerViewController: UIGestureRecognizerDelegate {
             now: ProcessInfo.processInfo.systemUptime,
             // Not under an open panel either: the skip may end in the next episode replacing the player.
             isPlaying: !state.isPaused && !state.isScrubbing && !state.isEnded && !state.playbackErrorShown
-                && !state.panelOpen,
+                && !state.panelOpen && state.fastForwardRate == nil,
             segments: skipSegments,
             enabledKinds: AutoSkipSettings.enabledKinds()
         ) else { return false }
@@ -145,11 +156,11 @@ extension MPVTVPlayerViewController: UIGestureRecognizerDelegate {
         switch pan.state {
         case .began:
             NextEpisodeEngine.consecutiveAutoPlays = 0
-            if state.isPaused { beginScrub(commitsOnRelease: false) }
+            if state.isPaused { beginScrub() }
             pan.setTranslation(.zero, in: view)
             flashControls()
         case .changed:
-            guard state.isPaused, state.isScrubbing, !state.scrubCommitsOnRelease else { return }
+            guard state.isPaused, state.isScrubbing else { return }
             let dx = Double(pan.translation(in: view).x)
             pan.setTranslation(.zero, in: view)
             let speed = abs(Double(pan.velocity(in: view).x))
@@ -349,7 +360,7 @@ extension MPVTVPlayerViewController: UIGestureRecognizerDelegate {
         if state.isPaused { state.pauseChromeDismissed = true }
     }
 
-    // MARK: Arrows: click, hold, fast-forward
+    // MARK: Arrows: click, hold, fast-forward / rewind
 
     /// An arrow went down. Click or hold is decided by how long it stays down: a click acts on the
     /// release, a hold once `holdThresholdSec` has passed.
@@ -371,25 +382,15 @@ extension MPVTVPlayerViewController: UIGestureRecognizerDelegate {
         guard seekDirection != 0, mpv != nil else { return }
         seekHoldCount = 1
         seekTimer = nil
-        if seekDirection > 0, !state.isPaused, !state.isScrubbing {
-            // Hold right while playing: fast-forward (spec gap 2). It keeps going after the release;
-            // Select, Play/Pause, Back or a left press return to normal speed.
-            startOrStepFastForward()
+        if state.isScrubbing {
+            // A hold on top of a touch-surface scrub steps the head once, like a click would; the
+            // scrub still waits for Select / Play, and Back still cancels it.
+            moveScrubTarget(by: seekDirection * Self.clickSeekSec)
             return
         }
-        // Rewind, or any hold while paused: accelerating jumps of the scrub head, one exact seek on
-        // the release (decision D9: mpv has no fast reverse).
-        endFastForward()
-        beginScrub(commitsOnRelease: true)
-        moveScrubTarget(by: seekDirection * 20)
-        let timer = Timer(timeInterval: Self.holdStepIntervalSec, repeats: true) { [weak self] _ in
-            guard let self, self.seekDirection != 0 else { return }
-            self.seekHoldCount += 1
-            let step = Double(min(10 + self.seekHoldCount * 10, 60))  // 30s, 40s … up to 60s
-            self.moveScrubTarget(by: self.seekDirection * step)
-        }
-        RunLoop.main.add(timer, forMode: .common)
-        seekTimer = timer
+        // Fast-forward / rewind (spec gap 2). It keeps going after the release; Select, Play/Pause,
+        // Back or the opposite edge return to normal speed.
+        startOrStepRate(seekDirection)
     }
 
     private func arrowPressEnded(cancelled: Bool) {
@@ -400,22 +401,18 @@ extension MPVTVPlayerViewController: UIGestureRecognizerDelegate {
         seekTimer = nil
         seekDirection = 0
         seekHoldCount = 0
-        if wasHold {
-            // A held-arrow scrub seeks once, now. (A touch-surface scrub it added to waits for
-            // Select/Play; fast-forward keeps running.)
-            if state.isScrubbing, state.scrubCommitsOnRelease { commitScrub(resume: false) }
-            return
-        }
-        guard !cancelled else { return }
+        // A hold already did its work (the rate keeps running after the release).
+        guard !wasHold, !cancelled else { return }
         arrowClicked(dir)
     }
 
     private func arrowClicked(_ dir: Double) {
-        if state.fastForwardRate != nil {
-            // Fast-forwarding: right steps up (2× → 3× → 4×), left returns to normal speed.
-            if dir > 0 {
-                startOrStepFastForward()
+        if let rate = state.fastForwardRate {
+            if rate * dir > 0 {
+                // The same edge again: 2× → 3× → 4×.
+                startOrStepRate(dir)
             } else {
+                // The opposite edge: back to normal speed.
                 endFastForward()
                 flashControls()
             }
@@ -426,24 +423,77 @@ extension MPVTVPlayerViewController: UIGestureRecognizerDelegate {
             return
         }
         seekBy(dir * Self.clickSeekSec, exact: true)
+        showSkipFeedback(dir)
         flashControls()
     }
 
-    private func startOrStepFastForward() {
+    /// The system's skip indicator: the arrow on the side that was clicked, with the seconds skipped
+    /// by the clicks in a row (the overlay clears it a moment after the last one).
+    private func showSkipFeedback(_ dir: Double) {
+        let direction = dir < 0 ? -1 : 1
+        let previous = state.skipFeedback
+        let carried = (previous?.direction == direction) ? (previous?.seconds ?? 0) : 0
+        state.skipFeedback = SkipFeedback(id: (previous?.id ?? 0) &+ 1, direction: direction,
+                                          seconds: carried + Int(Self.clickSeekSec))
+    }
+
+    /// Starts the rate in `dir` (+1 forward, -1 back) at 2×, or steps an already running one in the
+    /// same direction up to 3× and 4×. Forward while playing rides mpv's own speed (muted); backward,
+    /// and anything while paused, moves the head by timer (`rateStepTick`).
+    private func startOrStepRate(_ dir: Double) {
         let rates = Self.fastForwardRates
-        let next: Double
-        if let current = state.fastForwardRate, let index = rates.firstIndex(of: current) {
-            next = rates[min(index + 1, rates.count - 1)]
-        } else {
-            next = rates[0]
+        var magnitude = rates[0]
+        if let current = state.fastForwardRate, current * dir > 0,
+           let index = rates.firstIndex(of: abs(current)) {
+            magnitude = rates[min(index + 1, rates.count - 1)]
         }
-        state.fastForwardRate = next
-        applyPlaybackRate(next, muted: true)
+        state.fastForwardRate = dir * magnitude
+        rateStepTimer?.invalidate()
+        rateStepTimer = nil
+        if dir > 0, !state.isPaused {
+            state.rateSeekTarget = nil
+            applyPlaybackRate(magnitude, muted: true)
+        } else {
+            // The pictures come from the seeks; playing, the sound is muted and the speed is the
+            // normal one, so the timer alone decides where the head is.
+            if !state.isPaused { applyPlaybackRate(1, muted: true) }
+            if state.rateSeekTarget == nil { state.rateSeekTarget = state.positionSec }
+            let timer = Timer(timeInterval: Self.rateStepIntervalSec, repeats: true) { [weak self] _ in
+                self?.rateStepTick()
+            }
+            RunLoop.main.add(timer, forMode: .common)
+            rateStepTimer = timer
+        }
         flashControls()
+    }
+
+    /// One step of a rewind (or of a hold while paused): the head moves by rate × interval and the
+    /// core is asked for the picture there (nearest keyframe, which is what trick play shows).
+    private func rateStepTick() {
+        guard mpv != nil, let rate = state.fastForwardRate, var target = state.rateSeekTarget else {
+            endFastForward()
+            return
+        }
+        target += rate * Self.rateStepIntervalSec
+        let duration = state.durationSec
+        let atEdge = (rate < 0 && target <= 0) || (rate > 0 && duration > 0 && target >= duration - 1)
+        if atEdge { target = rate < 0 ? 0 : max(duration - 1, 0) }
+        state.rateSeekTarget = target
+        // The bar follows at once; the core's own position events catch up behind the seek.
+        updateProps { $0.position = target }
+        state.positionSec = target
+        postSeek(String(format: "%.3f", target), mode: "absolute+keyframes")
+        if atEdge {
+            endFastForward()
+            flashControls()
+        }
     }
 
     /// Back to the speed picked in the panel (1× unless changed), sound on.
     private func endFastForward() {
+        rateStepTimer?.invalidate()
+        rateStepTimer = nil
+        state.rateSeekTarget = nil
         guard state.fastForwardRate != nil else { return }
         state.fastForwardRate = nil
         applyPlaybackRate(state.playbackSpeed, muted: false)
@@ -457,12 +507,12 @@ extension MPVTVPlayerViewController: UIGestureRecognizerDelegate {
 
     // MARK: Scrubbing (state in `MPVPlaybackState`)
 
-    /// Starts a scrub at the playhead. No-op while one is running (a hold adds to a swipe's target).
-    private func beginScrub(commitsOnRelease: Bool) {
+    /// Starts a scrub at the playhead. No-op while one is running.
+    private func beginScrub() {
         guard state.scrubTargetSec == nil else { return }
+        endFastForward()
         let origin = state.positionSec
         state.scrubOriginSec = origin
-        state.scrubCommitsOnRelease = commitsOnRelease
         state.scrubTargetSec = origin
     }
 
@@ -499,11 +549,11 @@ extension MPVTVPlayerViewController: UIGestureRecognizerDelegate {
     private func clearScrub() {
         state.scrubTargetSec = nil
         state.scrubOriginSec = nil
-        state.scrubCommitsOnRelease = false
     }
 
     /// Stops every remote-driven transport activity: held-arrow timers, a scrub in progress (dropped,
-    /// no seek) and fast-forward. The core calls it when the player leaves the screen or fails.
+    /// no seek), fast-forward / rewind and the skip indicator. The core calls it when the player
+    /// leaves the screen or fails.
     func endSeek() {
         seekTimer?.invalidate()
         seekTimer = nil
@@ -511,6 +561,7 @@ extension MPVTVPlayerViewController: UIGestureRecognizerDelegate {
         seekHoldCount = 0
         if state.isScrubbing { clearScrub() }
         endFastForward()
+        state.skipFeedback = nil
     }
 
     // MARK: Playback
@@ -532,6 +583,8 @@ extension MPVTVPlayerViewController: UIGestureRecognizerDelegate {
     func replay() {
         guard mpv != nil else { return }
         endSeek()
+        // A replay is a new viewing: Automatic Skipping may skip the intro again.
+        autoSkipTracker.reset()
         seekAbsolute(0)
         // The seek first, then the unpause (both posted, in that order); the cache follows at once so
         // the end-of-file state does not outlive the request.

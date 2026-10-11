@@ -210,6 +210,11 @@ struct MPVPlayerScreen: View {
             .opacity(chromeShown ? 1 : 0)
             .animation(.easeInOut(duration: 0.25), value: chromeShown)
 
+            // The ±10 s skip indicator of a click on the touch surface's edge (the system's glyph).
+            PlayerSkipIndicator(feedback: state.skipFeedback) { expired in
+                if state.skipFeedback?.id == expired.id { state.skipFeedback = nil }
+            }
+
             // Transient prompts, bottom-trailing — same chip family as the native screen's
             // contextual actions (PlayerChipStyle). libmpv owns the remote, so these are drawn
             // non-focusable and act on the remote (see `pressesBegan`); Up Next wins over a skip.

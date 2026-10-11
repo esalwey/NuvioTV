@@ -375,6 +375,8 @@ extension MPVTVPlayerViewController {
         guard didAutoSelectTracks, fileLoaded, !subtitleSelectionResolved, mpv != nil else { return }
         switch restorePersistedSubtitle(subInfos: subInfos) {
         case .restored:
+            // A saved pick is a hand-made choice, not the automatic one.
+            state.subtitlesAutomatic = false
             finishSubtitleSelection()
         case .waiting:
             armSubtitleRestoreDeadline()
@@ -877,9 +879,24 @@ extension MPVTVPlayerViewController {
         // The viewer's pick wins over a saved choice still waiting to be restored, and is saved for
         // the next episode (c9d6f5f63).
         finishSubtitleSelection()
+        state.subtitlesAutomatic = false
         persistSubtitleChoice(trackId: id)
         pendingSubtitleSelectURL = nil
         postSubtitleSelection(id < 0 ? "no" : String(id))
+        refreshTracksAsync()
+    }
+
+    /// The Subtitles menu's "Automatic" row (the system popover's "Auto"): the manual pick is
+    /// forgotten, here and for the next episodes, and the language plan chooses again — the same
+    /// choice it made when the file opened.
+    func selectAutomaticSubtitles() {
+        guard mpv != nil else { return }
+        finishSubtitleSelection()
+        state.subtitlesAutomatic = true
+        persistedTrackPreference = PlayerSubtitleMemory.forgetSubtitle(parentMetaId: context.parentMetaId,
+                                                                       keeping: persistedTrackPreference)
+        pendingSubtitleSelectURL = nil
+        _ = applySubtitlePlan(subInfos: lastSubtitleInfos, isFinal: true)
         refreshTracksAsync()
     }
 
