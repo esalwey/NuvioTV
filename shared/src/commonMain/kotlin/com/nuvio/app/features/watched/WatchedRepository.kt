@@ -179,7 +179,7 @@ internal fun selectDirtyWatchedBacklog(
     return dirtyKeys
         .mapNotNull { key ->
             items[key]
-                ?.takeIf { item -> item.id.isNotBlank() }
+                ?.takeIf { item -> item.id.isNotBlank() && !ServerWatched.isServerItem(item) }
                 ?.let { item -> key to item.normalizedMarkedAt() }
         }
         .sortedWith(
@@ -387,7 +387,10 @@ object WatchedRepository {
             }.toMap()
             itemsStore.update { nuvioItems, providerItems, dirtyNuvioKeys, dirtyProviderKeys ->
                 nuvioItems.putAll(restoredItems)
-                dirtyNuvioKeys += storedPayload.dirtyWatchedKeys.filter { key -> key in restoredItems }
+                // Server marks saved as dirty by an older build are dropped here: they never sync.
+                dirtyNuvioKeys += storedPayload.dirtyWatchedKeys.filter { key ->
+                    restoredItems[key]?.let { item -> !ServerWatched.isServerItem(item) } == true
+                }
                 restoredProviderPayloads.forEach { (providerId, providerPayload) ->
                     val providerItemsByKey = (providerPayload.items + expandProviderWatchedItems(providerPayload.itemGroups))
                         .map(WatchedItem::normalizedMarkedAt)
@@ -916,7 +919,9 @@ object WatchedRepository {
             timestampedItems.forEach { watchedItem ->
                 val key = watchedItemKey(watchedItem.type, watchedItem.id, watchedItem.season, watchedItem.episode)
                 targetItems[key] = watchedItem
-                dirtyKeys += key
+                // A media-server mark belongs to that server: it is never acknowledged by the
+                // account, so a dirty key would stay forever and reach the cloud with the backlog.
+                if (!ServerWatched.isServerItem(watchedItem)) dirtyKeys += key
             }
         }
         publish()
