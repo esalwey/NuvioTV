@@ -104,6 +104,9 @@ nonisolated final class LocalHLSServer: @unchecked Sendable {
     private let producingInfo: @Sendable () -> (producing: Int, pending: Int?)
     /// Ask the remux to jump production to a segment (seek-anywhere).
     private let requestReposition: @Sendable (Int) -> Void
+    /// AVPlayer asked for this video/audio segment: the remux paces itself against it (playhead
+    /// estimate) instead of producing a 90 GB film ahead of the player.
+    private let onSegmentRequest: @Sendable (Int) -> Void
     /// Resume offset published as `EXT-X-START` in the media playlists (PLY-A5): AVPlayer starts the
     /// item at the resume segment the remux was repositioned to, instead of fetching segment 1.
     /// nil = start at zero.
@@ -122,6 +125,7 @@ nonisolated final class LocalHLSServer: @unchecked Sendable {
          stripSdh: Bool = false,
          producingInfo: @escaping @Sendable () -> (producing: Int, pending: Int?),
          requestReposition: @escaping @Sendable (Int) -> Void,
+         onSegmentRequest: @escaping @Sendable (Int) -> Void = { _ in },
          startOffsetSec: Double? = nil) {
         self.rootDir = rootDir
         self.map = map
@@ -136,6 +140,7 @@ nonisolated final class LocalHLSServer: @unchecked Sendable {
         self.stripSdh = stripSdh
         self.producingInfo = producingInfo
         self.requestReposition = requestReposition
+        self.onSegmentRequest = onSegmentRequest
         self.startOffsetSec = startOffsetSec
         self.token = UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased()
     }
@@ -457,6 +462,11 @@ nonisolated final class LocalHLSServer: @unchecked Sendable {
             return
         }
 
+        // The segment AVPlayer is asking for is the playhead the remux paces itself against.
+        if name.hasPrefix("seg-") || name.hasPrefix("aud-"), let requested = Self.segmentIndex(name) {
+            onSegmentRequest(requested)
+        }
+
         // init.mp4 / seg-NNNNN.m4s / esub-K-NNNNN.vtt / aud-T-init.mp4 / aud-T-NNNNN.m4s — produced
         // just-in-time by the remux; block until present. A file of a NON-active audio track makes
         // the remux switch tracks (info-panel W3) — AVPlayer only requests a rendition's files once
@@ -469,11 +479,13 @@ nonisolated final class LocalHLSServer: @unchecked Sendable {
            !FileManager.default.fileExists(atPath: rootDir.appendingPathComponent(name).path) {
             requestAudioTrack(audio.track, audio.segment)
             serveSegmentJIT(name: name, rangeHeader: rangeHeader, isHead: isHead, on: connection,
-                            deadline: Date().addingTimeInterval(blockTimeout), mode: .repositioned, live: live)
+                            deadline: Date().addingTimeInterval(blockTimeout), mode: .repositioned, live: live,
+                            arrived: Date())
             return
         }
         serveSegmentJIT(name: name, rangeHeader: rangeHeader, isHead: isHead, on: connection,
-                        deadline: Date().addingTimeInterval(blockTimeout), mode: nil, live: live)
+                        deadline: Date().addingTimeInterval(blockTimeout), mode: nil, live: live,
+                        arrived: Date())
     }
 
     /// Serve a subtitle rendition: cached VTT if present, else download the addon file, convert
@@ -548,10 +560,12 @@ nonisolated final class LocalHLSServer: @unchecked Sendable {
     /// (a newer seek won). Past the last segment → 404; abandoned connection → stop immediately.
     private func serveSegmentJIT(name: String, rangeHeader: String?, isHead: Bool,
                                  on connection: NWConnection, deadline: Date,
-                                 mode: JITMode?, live: ConnLive) {
+                                 mode: JITMode?, live: ConnLive, arrived: Date) {
         guard live.alive else { connection.cancel(); return }   // client gave up mid-block
         let fileURL = rootDir.appendingPathComponent(name)
         if let data = try? Data(contentsOf: fileURL, options: .mappedIfSafe) {
+            // How long AVPlayer waited for the remux (≈0 when production is ahead of playback).
+            NativePlaybackMetrics.shared.recordServe(bytes: data.count, waitSec: Date().timeIntervalSince(arrived))
             serveBytes(data, name: name, rangeHeader: rangeHeader, isHead: isHead, on: connection)
             return
         }
@@ -587,13 +601,14 @@ nonisolated final class LocalHLSServer: @unchecked Sendable {
         }
 
         if Date() >= deadline {
+            NativePlaybackMetrics.shared.noteServeTimeout()
             send(status: "503 Service Unavailable", contentType: "text/plain", body: Data("Remux timeout".utf8),
                  on: connection, extraHeaders: ["Retry-After": "1"], requestPath: name)
             return
         }
         connQueue.asyncAfter(deadline: .now() + 0.12) { [weak self] in
             self?.serveSegmentJIT(name: name, rangeHeader: rangeHeader, isHead: isHead,
-                                  on: connection, deadline: deadline, mode: mode, live: live)
+                                  on: connection, deadline: deadline, mode: mode, live: live, arrived: arrived)
         }
     }
 
@@ -634,16 +649,34 @@ nonisolated final class LocalHLSServer: @unchecked Sendable {
         for (k, v) in extraHeaders { head += "\(k): \(v)\r\n" }
         head += "Cache-Control: no-store\r\n"
         head += "Connection: close\r\n\r\n"
-        // Send the header and body as two ordered sends (NWConnection preserves order) rather than
+        // Send the header and body as ordered sends (NWConnection preserves order) rather than
         // concatenating — that keeps the (memory-mapped) segment body from being copied into a second
         // full-size buffer, which on concurrent large-segment serves is a real transient-memory spike.
+        // A 4K remux segment is tens of MB: the body goes out in bounded slices, each queued when the
+        // previous one was accepted, so the connection never holds the whole segment twice.
         let headData = Data(head.utf8)
         if isHead || body.isEmpty {
             connection.send(content: headData, completion: .contentProcessed { _ in connection.cancel() })
         } else {
             connection.send(content: headData, completion: .contentProcessed { _ in })
-            connection.send(content: body, completion: .contentProcessed { _ in connection.cancel() })
+            Self.sendBody(body, from: 0, on: connection)
         }
+    }
+
+    /// Largest piece of a response body handed to NWConnection at once.
+    private static let sendSliceBytes = 4 << 20
+
+    private static func sendBody(_ body: Data, from offset: Int, on connection: NWConnection) {
+        let end = min(offset + sendSliceBytes, body.count)
+        let slice = body[(body.startIndex + offset)..<(body.startIndex + end)]
+        let isLast = end >= body.count
+        connection.send(content: slice, completion: .contentProcessed { error in
+            if isLast || error != nil {
+                connection.cancel()
+            } else {
+                sendBody(body, from: end, on: connection)
+            }
+        })
     }
 
     private static func contentType(for name: String) -> String {

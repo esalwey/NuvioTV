@@ -81,6 +81,10 @@ final class NativePlaybackCoordinator: ObservableObject {
     /// the teardown flush records it completed, whatever the last observed position.
     private var completed = false
     private var endObserver: NSObjectProtocol?
+    /// `AVPlayerItemPlaybackStalled` for the current item (counted in `NativePlaybackMetrics`).
+    private var stallObserver: NSObjectProtocol?
+    /// Dropped-frame total seen at the previous access-log sample (to log only the increase).
+    private var lastDroppedFrames = 0
     private var positionTask: Task<Void, Never>?
 
     let context: PlaybackContext
@@ -346,6 +350,8 @@ final class NativePlaybackCoordinator: ObservableObject {
         config.preferredAudioPicker = preferredAudioPicker()
         let remux = RemuxSession(config: config)
         self.remux = remux
+        NativePlaybackMetrics.shared.reset()
+        lastDroppedFrames = 0
         remux.start { state in
             guard case .failed(let stage) = state else { return }
             Task { @MainActor [weak self] in self?.failIfPreplayback(stage) }
@@ -367,6 +373,7 @@ final class NativePlaybackCoordinator: ObservableObject {
         artworkTask?.cancel(); artworkTask = nil
         if let o = mediaSelectionObserver { NotificationCenter.default.removeObserver(o); mediaSelectionObserver = nil }
         if let o = endObserver { NotificationCenter.default.removeObserver(o); endObserver = nil }
+        if let o = stallObserver { NotificationCenter.default.removeObserver(o); stallObserver = nil }
         timeControlObserver?.invalidate(); timeControlObserver = nil
         addonSubsWatcher?.cancel(); addonSubsWatcher = nil
         // A finished episode is flushed as completed (position = duration), so a late tick near the
@@ -604,6 +611,9 @@ final class NativePlaybackCoordinator: ObservableObject {
                                     stripSdh: playerSettings?.subtitleStyle.stripSdh ?? false,
                                     producingInfo: { remux.producingInfo },
                                     requestReposition: { remux.reposition(toSegment: $0) },
+                                    // The segment AVPlayer asks for is the playhead the remux paces
+                                    // itself against (bounded disk + CPU on 90 GB 4K files).
+                                    onSegmentRequest: { remux.notePlayhead(segment: $0) },
                                     // Resume (PLY-A5): the item opens at the segment the remux was
                                     // repositioned to — no segment-1 fetch, no first-frame flash.
                                     startOffsetSec: plannedResumeSec)
@@ -939,6 +949,7 @@ final class NativePlaybackCoordinator: ObservableObject {
 
     private func observePlayback(player: AVPlayer, item: AVPlayerItem) {
         observeEnd(item: item)
+        observeStalls(item: item)
         startPositionTicks(player: player, item: item)
         observeTask = Task { @MainActor [weak self] in
             var readied = false
@@ -1050,6 +1061,7 @@ final class NativePlaybackCoordinator: ObservableObject {
                         if self.audibleGroup == nil { self.handleMediaSelectionChange(item: item, player: player) }
                         else { self.syncAudioSelection(item: item, player: player) }
                         self.onTick?(pos, dur)
+                        self.sampleAccessLog(item: item)
                     }
 
                     // Stall diagnostics: if the player sits in a waiting state across several ticks,
@@ -1083,6 +1095,48 @@ final class NativePlaybackCoordinator: ObservableObject {
                 try? await Task.sleep(nanoseconds: readied ? 3_000_000_000 : 200_000_000)
             }
         }
+    }
+
+    // MARK: - Playback health measurements
+
+    /// Count AVPlayer's playback stalls and note where the remux was when one happened (Developer pane,
+    /// Native Playback). Re-armed per item (the signaling retry swaps items).
+    private func observeStalls(item: AVPlayerItem) {
+        if let old = stallObserver { NotificationCenter.default.removeObserver(old) }
+        stallObserver = NotificationCenter.default.addObserver(
+            forName: .AVPlayerItemPlaybackStalled, object: item, queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self, self.playerItem === item else { return }
+                let at = self.player.map { CMTimeGetSeconds($0.currentTime()) } ?? 0
+                let info = self.remux?.producingInfo
+                let note = String(format: "at %.1fs, remux on segment %d", at.isFinite ? at : 0, info?.producing ?? 0)
+                NativePlaybackMetrics.shared.notePlaybackStall(note: note)
+                print("[NativePlayer] playback stalled \(note)")
+            }
+        }
+    }
+
+    /// Totals from the item's access log (summed over its events) into the shared metrics — indicated and
+    /// observed bitrate, dropped video frames, stalls — and a console line whenever frames were dropped
+    /// since the previous sample. Cheap: runs on the 3 s observe tick, on the main actor, no I/O.
+    private func sampleAccessLog(item: AVPlayerItem) {
+        guard let events = item.accessLog()?.events, let last = events.last else { return }
+        var dropped = 0, stalls = 0, overdue = 0
+        for event in events {
+            dropped += max(0, event.numberOfDroppedVideoFrames)
+            stalls += max(0, event.numberOfStalls)
+            overdue += max(0, event.downloadOverdue)
+        }
+        if dropped > lastDroppedFrames {
+            let at = player.map { CMTimeGetSeconds($0.currentTime()) } ?? 0
+            print("[NativePlayer] dropped video frames +\(dropped - lastDroppedFrames) (total \(dropped)) near "
+                  + "\(String(format: "%.0f", at.isFinite ? at : 0))s, observed "
+                  + "\(String(format: "%.0f", last.observedBitrate / 1_000_000)) Mb/s")
+        }
+        lastDroppedFrames = dropped
+        NativePlaybackMetrics.shared.recordPlayer(indicatedBps: last.indicatedBitrate, observedBps: last.observedBitrate,
+                                                  dropped: dropped, stalls: stalls, overdue: overdue)
     }
 
     // MARK: - Subtitle delay
@@ -1331,6 +1385,11 @@ final class NativePlaybackCoordinator: ObservableObject {
                 transfer += " \u{00B7} " + String(localized: "\(event.numberOfStalls) stall(s)")
             }
             add(String(localized: "Transferred"), transfer)
+        }
+        // Remux speed, pacing and AVPlayer frame/stall counters: only with the Developer pane unlocked
+        // (the Info tab is a fixed-height two-column grid, and these rows are for diagnosing a device).
+        if DeveloperMode.isUnlocked {
+            for row in NativePlaybackMetrics.shared.infoRows() { add(row.label, row.value) }
         }
         return rows
     }

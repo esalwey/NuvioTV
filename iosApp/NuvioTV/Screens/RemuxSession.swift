@@ -27,6 +27,18 @@ import Libavutil
 // every fragment lands at its published playlist time regardless of which run produced it). Unproduced
 // holes are legal — a request into one triggers another reposition — and the worker parks at EOF
 // instead of exiting so late back-seeks still work.
+//
+// PLAYHEAD-PACED PRODUCTION (very large 4K sources): the worker does NOT race through the whole file at
+// network speed. LocalHLSServer reports every segment AVPlayer asks for (`notePlayhead`); the worker
+// pauses once it is `aheadLimit()` segments past that request (a byte budget, so a 100 Mb/s remux
+// holds fewer segments than a 15 Mb/s one) and deletes segment files far behind it. A 90 GB film
+// therefore never writes 90 GB into Caches (the device fills up, the OS purges, playback hitches) and
+// the remux stops competing with playback for CPU and I/O whenever it is comfortably ahead.
+//
+// TIMESTAMPS: video DTS are derived from the REAL PTS through a reorder window (see the copy loop), not
+// from a uniform frame grid. A grid built on the container's truncated frame duration (MKV: 41 ms
+// instead of 41.708 ms at 23.976 fps) drifts away from the PTS by tens of seconds over a film, and a
+// reorder depth beyond the grid's slack produced pts < dts, which draws as frames jumping back.
 
 /// HLS master-playlist signaling for the remuxed video, per Apple's HLS authoring spec: a full
 /// RFC 6381 CODECS token (bare "hvc1" is non-compliant and stricter tvOS builds reject it), plus
@@ -165,6 +177,31 @@ nonisolated final class RemuxSession: @unchecked Sendable {
     /// repositioning (mirrors LocalHLSServer.blockMargin — production reaches it within the JIT budget).
     static let repositionMargin = 6
 
+    // Playhead pacing (see the header note). The budgets are bytes so the window adapts to the bitrate.
+    static let aheadBudgetBytes = 1 << 30            // ~1 GiB of produced-but-unplayed segments
+    static let minAheadSegments = 10                 // AVPlayer prefetches ~4 (24 s); keep a wide margin
+    static let maxAheadSegments = 40
+    static let behindBudgetBytes = 640 << 20         // kept behind the playhead for short back-seeks
+    static let minBehindSegments = 8
+    static let maxBehindSegments = 20
+    /// Transient source-read failures (a dropped CDN connection) are retried from the failing segment
+    /// this many times in a row before the session gives up and the coordinator falls back to mpv.
+    static let maxReadRecoveries = 4
+
+    /// The newest segment AVPlayer asked for (video or audio rendition), nil until its first request.
+    /// Guarded by `control`; the worker uses it as the playhead estimate.
+    private var _playheadSeg: Int?
+
+    /// AVPlayer asked for `segment`: advance (or move) the playhead estimate and wake a paused worker.
+    /// Non-blocking, any thread.
+    func notePlayhead(segment: Int) {
+        guard segment >= 1 else { return }
+        control.lock()
+        _playheadSeg = segment
+        control.signal()
+        control.unlock()
+    }
+
     /// The segment the worker is producing right now, and any reposition target it hasn't reached yet.
     /// The JIT server uses this window to decide poll-vs-reposition.
     var producingInfo: (producing: Int, pending: Int?) {
@@ -302,6 +339,13 @@ nonisolated final class RemuxSession: @unchecked Sendable {
         // the output fMP4 timeline (AVPlayer rejects it with CoreMediaErrorDomain -12927).
         var inOpts: OpaquePointer?
         av_dict_set(&inOpts, "fflags", "+genpts", 0)
+        // A long, paced session keeps one HTTP connection open for hours and idles it while the worker
+        // is ahead of the player: CDNs drop such connections. Reconnect (resuming with a Range request)
+        // instead of surfacing a read error. Options a protocol does not know are ignored.
+        av_dict_set(&inOpts, "reconnect", "1", 0)
+        av_dict_set(&inOpts, "reconnect_streamed", "1", 0)
+        av_dict_set(&inOpts, "reconnect_on_network_error", "1", 0)
+        av_dict_set(&inOpts, "reconnect_delay_max", "4", 0)
         // Addon-declared stream headers (same block MediaProbe sent — the CDN that 403s a bare
         // probe 403s a bare remux read too). Ignored by non-HTTP protocols.
         if !config.requestHeaders.isEmpty {
@@ -467,9 +511,18 @@ nonisolated final class RemuxSession: @unchecked Sendable {
         // declarations draw CoreMedia -12318 "Segment exceeds specified bandwidth" complaints, and a
         // container that omits the VIDEO bitrate (common for MKV) must not be priced off audio alone.
         let declaredBitrate = Int(videoPar.pointee.bit_rate) + audioBitrate
-        let bandwidth = videoPar.pointee.bit_rate > 0
+        // The whole-file average (size over duration) prices the variant honestly when the container
+        // omits the stream bitrate: a 90 GB 4K remux averages ~80 Mb/s, and the old 30 Mb/s floor told
+        // AVPlayer it was a third of that.
+        var fileBitrate = 0
+        if let pb = input.pointee.pb, input.pointee.duration > 0 {
+            let size = avio_size(pb)
+            if size > 0 { fileBitrate = Int(Double(size) * 8.0 / (Double(input.pointee.duration) / 1_000_000.0)) }
+        }
+        let bandwidth = max(videoPar.pointee.bit_rate > 0
             ? Int(Double(declaredBitrate) * 1.5)
-            : max(Int(Double(declaredBitrate) * 1.5), 30_000_000)
+            : max(Int(Double(declaredBitrate) * 1.5), 30_000_000),
+                            Int(Double(fileBitrate) * 1.5))
         lock.lock()
         _signaling = signaling
         _hasAudio = audioIn >= 0
@@ -547,7 +600,7 @@ nonisolated final class RemuxSession: @unchecked Sendable {
         defer { var p: UnsafeMutablePointer<AVPacket>? = pkt; av_packet_free(&p) }
 
         let noTS = Int64.min                                     // AV_NOPTS_VALUE
-        let reorderSlack: Int64 = 6                              // frames of pts>=dts headroom
+        let reorderSlack: Int64 = 8                              // frames of reorder depth the DTS window tolerates
         let boundaries = map.boundaryTicks
         let originTicks = boundaries[0]                          // playlist time zero, video time_base
         let videoTag = videoOutputTag(videoPar)
@@ -742,6 +795,68 @@ nonisolated final class RemuxSession: @unchecked Sendable {
             }
         }
 
+        // --- Playhead pacing + disk pruning (see the header note) --------------------------------------
+        var produced: [(seg: Int, audio: Int)] = []    // finalized segments on disk (worker thread only)
+        var avgSegBytes = 0                             // moving average of video+audio bytes per segment
+        let metrics = NativePlaybackMetrics.shared
+        func aheadLimit() -> Int {
+            let bySize = avgSegBytes > 0 ? Self.aheadBudgetBytes / avgSegBytes : Self.maxAheadSegments
+            return min(Self.maxAheadSegments, max(Self.minAheadSegments, bySize))
+        }
+        func behindLimit() -> Int {
+            let bySize = avgSegBytes > 0 ? Self.behindBudgetBytes / avgSegBytes : Self.maxBehindSegments
+            return min(Self.maxBehindSegments, max(Self.minBehindSegments, bySize))
+        }
+        func removeSegmentFiles(_ entry: (seg: Int, audio: Int)) {
+            let fm = FileManager.default
+            try? fm.removeItem(at: outputDir.appendingPathComponent(Self.segmentName(entry.seg)))
+            if entry.audio >= 0 {
+                try? fm.removeItem(at: outputDir.appendingPathComponent(
+                    String(format: "aud-%d-%05d.m4s", entry.audio, entry.seg)))
+            }
+        }
+        /// Delete segment files far behind the playhead, and (a safety net for repeated seeking) the
+        /// ones farthest from it once more than a generous window exists. Runs on the worker thread,
+        /// never while a lock is held.
+        func pruneDisk(head: Int?) {
+            guard let head else { return }
+            let lowKeep = head - behindLimit()
+            var removed = 0
+            var i = 0
+            while i < produced.count {
+                if produced[i].seg < lowKeep {
+                    removeSegmentFiles(produced[i]); produced.remove(at: i); removed += 1
+                } else { i += 1 }
+            }
+            let cap = aheadLimit() + behindLimit() + 24
+            while produced.count > cap, let far = produced.indices.max(by: { abs(produced[$0].seg - head) < abs(produced[$1].seg - head) }) {
+                removeSegmentFiles(produced[far]); produced.remove(at: far); removed += 1
+            }
+            if removed > 0 { metrics.notePruned(removed) }
+        }
+        /// Hold production while it is more than `aheadLimit()` segments past what AVPlayer last asked
+        /// for. Wakes on any playhead move, reposition, audio switch or stop; the 0.5 s timeout is
+        /// lost-wakeup insurance. `currentSeg` is the segment about to be produced.
+        func paceProduction(_ currentSeg: Int) {
+            var paused = false
+            while !isCancelled() {
+                control.lock()
+                let head = _playheadSeg
+                let pending = _pendingTarget != nil || _pendingAudio != nil
+                control.unlock()
+                pruneDisk(head: head)
+                let limit = aheadLimit()
+                if let head { metrics.recordPacing(ahead: max(0, currentSeg - head), limit: limit, onDisk: produced.count) }
+                guard let head, !pending, currentSeg > head + limit else { return }
+                if !paused { paused = true; metrics.noteThrottleEpisode() }
+                control.lock()
+                if _pendingTarget == nil, _pendingAudio == nil {
+                    control.wait(until: Date().addingTimeInterval(0.5))
+                }
+                control.unlock()
+            }
+        }
+
         runLoop: while !isCancelled() {
             // Take a pending audio switch first: it defines this run's audio track (and, when it came
             // with a segment, where the run starts). Runs are the switch granularity — the audio muxer
@@ -820,8 +935,19 @@ nonisolated final class RemuxSession: @unchecked Sendable {
             // into that stream's POST-header time_base (see the timescale-trap note in makeMux).
             let anchorSrcTicks = map.segments[startSeg - 1].startTicks - originTicks
             let vAnchorOut = av_rescale_q(anchorSrcTicks, videoTB, run.video.outStream.pointee.time_base)
-            var vIndex: Int64 = 0
             var vPrevDTS: Int64? = nil
+            var vLastPTS: Int64? = nil
+            var vWindow: [Int64] = []          // held PTS values (ascending); the oldest is the next DTS
+            var vPackets: Int64 = 0            // video packets written this run (seeding phase excluded from fixup stats)
+            var dtsFixups = 0, ptsRaised = 0
+            var maxComposition: Int64 = 0      // largest pts - dts written (output time_base)
+            // Nominal frame duration in the OUTPUT time_base, from the stream's average frame rate
+            // (23.976 = 24000/1001 exactly, unlike the container's truncated packet durations).
+            let vFrameDurOut: Int64 = {
+                guard let fr = input.pointee.streams[videoIn]?.pointee.avg_frame_rate, fr.num > 0, fr.den > 0 else { return 0 }
+                return av_rescale_q(1, AVRational(num: fr.den, den: fr.num), run.video.outStream.pointee.time_base)
+            }()
+            var segStartedAt = Date()
             var aNextDTS: Int64 = noTS
             let aFloor: Int64 = run.audio.map { av_rescale_q(anchorSrcTicks, videoTB, $0.outStream.pointee.time_base) } ?? 0
             var currentSeg = startSeg
@@ -832,6 +958,7 @@ nonisolated final class RemuxSession: @unchecked Sendable {
                 if let track = activeTrack { run.audio?.writer.beginFile(named: track.segmentName(seg)) }
             }
             beginSegmentFiles(currentSeg)
+            segStartedAt = Date()
 
             // Bind the transcoder to this run's audio output (post-header time_base — timescale trap)
             // and define its emit path: encoded packets arrive already on the playlist timeline.
@@ -877,6 +1004,7 @@ nonisolated final class RemuxSession: @unchecked Sendable {
 
             enum RunEnd { case eof, error, repositioned(Int), audioSwitch, cancelled }
             var runEnd: RunEnd?
+            var sourceReadFailed = false        // the run ended on a non-EOF source read error
 
             while runEnd == nil {
                 if isCancelled() { runEnd = .cancelled; break }
@@ -920,7 +1048,7 @@ nonisolated final class RemuxSession: @unchecked Sendable {
                             interrupts.repositionPending = false
                             continue
                         }
-                        else { print("[Remux] read error \(r) at segment \(currentSeg)"); runEnd = .error }
+                        else { print("[Remux] read error \(r) at segment \(currentSeg)"); sourceReadFailed = true; runEnd = .error }
                         break
                     }
                 }
@@ -969,15 +1097,35 @@ nonisolated final class RemuxSession: @unchecked Sendable {
                         print("[Remux] fragment flush/finalize failed at segment \(currentSeg) boundary")
                         av_packet_unref(pkt); runEnd = .error; break
                     }
+                    // Measure the segment just closed (wall time of production only — pacing waits
+                    // happen after this point), keep a record of its files for pruning.
+                    let producedSec = Date().timeIntervalSince(segStartedAt)
+                    let segBytes = run.video.writer.lastFinalizedBytes + (run.audio?.writer.lastFinalizedBytes ?? 0)
+                    avgSegBytes = avgSegBytes == 0 ? segBytes : (avgSegBytes * 3 + segBytes) / 4
+                    produced.append((seg: currentSeg, audio: activeTrack != nil ? audioIn : -1))
+                    let footprint = processFootprintMB()
+                    metrics.recordSegment(number: currentSeg, mediaSec: map.segments[currentSeg - 1].durationSec,
+                                          produceSec: producedSec, bytes: segBytes, footprintMB: footprint)
+                    if dtsFixups > 0 || ptsRaised > 0 || maxComposition > 0 {
+                        let tbOut = run.video.outStream.pointee.time_base
+                        metrics.recordTimestamps(fixups: dtsFixups, ptsRaised: ptsRaised,
+                                                 maxCompositionSec: Double(maxComposition) * Double(tbOut.num) / Double(max(tbOut.den, 1)))
+                        dtsFixups = 0; ptsRaised = 0; maxComposition = 0
+                    }
                     currentSeg += 1
                     nextBoundary += 1
                     publishProducing(currentSeg)
                     if (currentSeg - 1) % 15 == 0 || currentSeg == startSeg + 1 {
-                        print("[Remux] seg \(currentSeg - 1) done footprint=\(processFootprintMB())MB")
+                        print("[Remux] seg \(currentSeg - 1) done in \(String(format: "%.1f", producedSec))s"
+                              + " (\(String(format: "%.1f", map.segments[currentSeg - 2].durationSec / max(producedSec, 0.001)))x realtime,"
+                              + " \(segBytes / 1_048_576) MB) footprint=\(footprint)MB")
                     }
                     consecutiveErrorParks = 0   // a finalized segment = real progress; the error cap
                                                 // counts genuinely consecutive non-productive failures
+                    paceProduction(currentSeg)  // hold here while far enough ahead of AVPlayer
+                    if isCancelled() { runEnd = .cancelled; break }
                     beginSegmentFiles(currentSeg)
+                    segStartedAt = Date()
                 }
 
                 av_packet_rescale_ts(pkt, inS.pointee.time_base, outS.pointee.time_base)
@@ -999,22 +1147,45 @@ nonisolated final class RemuxSession: @unchecked Sendable {
                 }
 
                 if isVideo {
-                    // Video DTS regenerated on a uniform grid (sloppy sources carry missing or
-                    // non-monotonic DTS; AVPlayer rejects such timelines with -12927). Anchored at
-                    // the run's start boundary, offset back for B-frame reorder, clamped at zero.
-                    if pkt.pointee.duration > 0 {
-                        vDur = pkt.pointee.duration
-                    } else if vDur == 0, pkt.pointee.pts != noTS, pkt.pointee.pts > vAnchorOut {
-                        vDur = pkt.pointee.pts - vAnchorOut
+                    // Video DTS regenerated from the REAL PTS (sloppy sources carry missing or
+                    // non-monotonic DTS; AVPlayer rejects such timelines with -12927). A window of
+                    // `reorderSlack` held PTS values is kept sorted and each packet pops the smallest:
+                    // that is the exact decode-order timestamp of a stream whose reorder depth is within
+                    // the window, it can never exceed the packet's own PTS, and it follows the source
+                    // clock instead of an assumed frame rate. (The previous uniform grid on the
+                    // container's truncated frame duration drifted from the PTS by ~0.7 ms per frame
+                    // — tens of seconds over a film — and its pts-clamp produced pts < dts as soon as
+                    // the reorder depth outgrew its slack: frames shown out of order.) The window is
+                    // seeded with synthetic timestamps one frame apart before the run's first PTS.
+                    if pkt.pointee.duration > 0 { vDur = pkt.pointee.duration }
+                    var step = max(vDur, 1)
+                    if vFrameDurOut > 0, vDur == 0 || abs(vFrameDurOut - vDur) * 4 <= vDur { step = vFrameDurOut }
+                    var pts = pkt.pointee.pts
+                    if pts == noTS {
+                        pts = vLastPTS.map { $0 + step } ?? vAnchorOut
+                        pkt.pointee.pts = pts
                     }
-                    var dts = vAnchorOut + (vIndex - reorderSlack) * max(vDur, 1)
+                    vLastPTS = pts
+                    if vWindow.isEmpty {
+                        for k in stride(from: reorderSlack, through: 1, by: -1) { vWindow.append(pts - k * step) }
+                    }
+                    vWindow.insert(pts, at: vWindow.firstIndex(where: { $0 > pts }) ?? vWindow.count)
+                    var dts = vWindow.removeFirst()
                     if dts < 0 { dts = 0 }
-                    if pkt.pointee.pts != noTS, dts > pkt.pointee.pts { dts = pkt.pointee.pts }
-                    if let prev = vPrevDTS, dts <= prev { dts = prev + 1 }
+                    if dts > pts { dts = pts }
+                    // Equal/backward values while the window still holds its synthetic seeds are expected
+                    // (file start, open-GOP leading pictures); past that they mean the stream's reorder
+                    // depth exceeds the window, which the Developer pane reports.
+                    let seeding = vPackets <= 2 * reorderSlack
+                    if let prev = vPrevDTS, dts <= prev { dts = prev + 1; if !seeding { dtsFixups += 1 } }
+                    if dts > pts { pts = dts; pkt.pointee.pts = pts; if !seeding { ptsRaised += 1 } }
+                    vPackets += 1
                     vPrevDTS = dts
                     pkt.pointee.dts = dts
-                    if pkt.pointee.pts == noTS { pkt.pointee.pts = vAnchorOut + vIndex * max(vDur, 1) }
-                    vIndex += 1
+                    // The last sample of a fragment takes its duration from the packet: use the exact
+                    // nominal one (not the container's truncated value) so fragments tile the timeline.
+                    pkt.pointee.duration = step
+                    maxComposition = max(maxComposition, pts - dts)
                 } else {
                     // Audio keeps source timestamps; gap-fill only when absent, floored at the run
                     // start so a timestamp-less packet can't land at t=0 in a fragment at t=T_K.
@@ -1058,6 +1229,20 @@ nonisolated final class RemuxSession: @unchecked Sendable {
 
             case .error:
                 destroyRun(run)
+                if sourceReadFailed, !isCancelled() {
+                    // A dropped source connection (a paced session idles it for minutes) is not a bad
+                    // file: reopen from the segment that was being produced, a few times in a row,
+                    // before conceding to mpv. Seeking the demuxer re-issues the HTTP Range request.
+                    consecutiveErrorParks += 1
+                    guard consecutiveErrorParks < Self.maxReadRecoveries else {
+                        return fail("source read failed repeatedly at segment \(currentSeg)")
+                    }
+                    metrics.noteReadRecovery()
+                    print("[Remux] source read failed — retrying from segment \(currentSeg) (\(consecutiveErrorParks)/\(Self.maxReadRecoveries - 1))")
+                    startSeg = currentSeg
+                    Thread.sleep(forTimeInterval: 0.5)
+                    continue runLoop
+                }
                 if !everRepositioned { return fail("read/write error at segment \(currentSeg)") }
                 // Repositioned sessions self-heal: park; the JIT re-request repositions us again.
                 consecutiveErrorParks += 1
@@ -1420,6 +1605,9 @@ private nonisolated final class SegmentWriter {
     /// Whether init.mp4 has been written (the moov box has been seen and routed).
     var initFinalized: Bool { initDone }
 
+    /// Size of the segment file `finalizeCurrent` wrote last (0 before the first).
+    private(set) var lastFinalizedBytes = 0
+
     /// True when the init segment is complete but no fragment bytes have arrived in the current
     /// window. Detects delay_moov's moov-only first flush (movenc keeps the first fragment's samples
     /// buffered and emits them on the NEXT flush) so the caller can force an extra flush.
@@ -1457,6 +1645,7 @@ private nonisolated final class SegmentWriter {
             if allowEmpty { writeAtomic(Data(), name: segName) }
             return false
         }
+        lastFinalizedBytes = segData.count
         writeAtomic(segData, name: segName)
         segData.removeAll(keepingCapacity: true)
         return true
