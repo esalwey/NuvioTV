@@ -378,6 +378,9 @@ final class NativePlaybackCoordinator: ObservableObject {
         addonSubsWatcher?.cancel(); addonSubsWatcher = nil
         // A finished episode is flushed as completed (position = duration), so a late tick near the
         // end — or the system player restarting the file under the end screen — can't downgrade it.
+        // Otherwise the player's own clock: the observe loop only refreshes `lastPositionSec` every
+        // 3 s, and a seek or an auto-skip just before leaving must not be flushed at the old spot.
+        if !completed { refreshPositionFromPlayer() }
         let finalPositionSec = completed && lastDurationSec > 0 ? lastDurationSec : lastPositionSec
         if lastDurationSec > 0 {
             recorder.record(positionSec: finalPositionSec, durationSec: lastDurationSec, isPaused: true, speed: 1,
@@ -532,9 +535,13 @@ final class NativePlaybackCoordinator: ObservableObject {
                                                                 labels: labels)
         // Settings > Playback > Subtitle List: the system popover has no headers to give, so the
         // grouping shows as the order of the renditions (the same grouping the mpv menu draws).
+        // The 24-rendition cap is taken on the ranking, BEFORE the grouping reorders it: arranging
+        // first would let one add-on's whole group push another add-on's preferred-language files out.
+        let cappedAddon = rankedAddonSubtitles(keptAddonSubtitles,
+                                               audioLanguage: remux.audioTracks.first(where: \.selected)?.language)
+            .prefix(max(0, SubtitleVTT.maxAddonRenditions - context.externalSubtitles.count))
         let rankedAddon = SubtitleOrganizer.arranged(
-            rankedAddonSubtitles(keptAddonSubtitles,
-                                 audioLanguage: remux.audioTracks.first(where: \.selected)?.language),
+            Array(cappedAddon),
             organization: SubtitleOrganization.current,
             language: { $0.language },
             addon: { $0.addonName })
@@ -1466,10 +1473,19 @@ final class NativePlaybackCoordinator: ObservableObject {
     /// the linear remux frontier, or the source truncated). Flipping `phase` to `.failed` makes
     /// `NativePlayerScreen` call `onFallback(lastPositionSec)`, which re-presents mpv at the same
     /// position — mpv seeks anywhere via its own demuxer. No-op unless we are actually playing.
+    /// Pulls the player's current time into `lastPositionSec` (the observe loop is up to 3 s behind).
+    /// Ignored while the player has no valid time yet, so a pre-ready 0 never replaces a resume point.
+    private func refreshPositionFromPlayer() {
+        guard let player else { return }
+        let t = CMTimeGetSeconds(player.currentTime())
+        if t.isFinite, t > 0 { lastPositionSec = t }
+    }
+
     private func fallbackMidPlay(_ reason: String) {
         guard phase == .playing else { return }
         observeTask?.cancel()
         positionTask?.cancel()
+        refreshPositionFromPlayer()
         print("[NativePlayer] mid-play fallback to mpv at \(String(format: "%.1f", lastPositionSec))s — \(reason)")
         phase = .failed(reason)
     }
