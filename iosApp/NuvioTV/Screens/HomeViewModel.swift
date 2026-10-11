@@ -216,6 +216,11 @@ final class HomeViewModel: ObservableObject {
     /// The ready add-on set of the last refresh, so a server change can rebuild without waiting
     /// for an add-on emission.
     private var lastReadyAddons: [ManagedAddon] = []
+    /// True once the add-on repository has delivered an initialised list (possibly an empty one), so
+    /// a server change can build Home rows on its own for a profile that has no add-on at all.
+    private var addonsSettled = false
+    /// Debounce for `onServersChanged`: a burst of library toggles becomes one refresh.
+    private var serverRefreshTask: Task<Void, Never>?
     /// Addon-wipe guard (2026-08-28): watches `AddonRepository.serverPullSettled` so a gated seed
     /// (see `maybeSeedDefaultAddon()`) gets retried once the signed-in account's first pull lands.
     private var seedGateWatcher: FlowWatcher?
@@ -965,6 +970,9 @@ final class HomeViewModel: ObservableObject {
         }
         addonWatcher?.cancel()
         serverWatcher?.cancel()
+        serverRefreshTask?.cancel()
+        serverRefreshTask = nil
+        addonsSettled = false
         seedGateWatcher?.cancel()
         homeWatcher?.cancel()
         noSourcesSyncWatcher?.cancel()
@@ -1286,8 +1294,11 @@ final class HomeViewModel: ObservableObject {
         // reaches the rows-gate escape below, and would not open it if it did — see
         // `AddonBootstrapRoute`, which is the term that makes that true for every shape, not just
         // the empty one.
+        if state.isInitialized { addonsSettled = true }
         if state.addons.isEmpty {
             addonManifestError = nil
+            // The removed add-ons must not come back through a later server change.
+            lastReadyAddons = []
             maybeSeedDefaultAddon()
             // Codex round 10 (P2): the settled empty list used to return here without asking
             // `AddonBootstrapRoute`, so a seed that could not land (offline fresh install) left the
@@ -1412,9 +1423,21 @@ final class HomeViewModel: ObservableObject {
         defer { lastServerSignature = signature }
         if !signature.isEmpty, lastServerSignature != signature { MediaServersController.shared.warm() }
         guard let previous = lastServerSignature, previous != signature else { return }
-        guard !lastReadyAddons.isEmpty else { return }
-        HomeCatalogSettingsRepository.shared.syncCatalogs(addons: lastReadyAddons)
-        HomeRepository.shared.refresh(addons: lastReadyAddons, force: true)
+        // Wait for the add-on list to settle first, then rebuild with whatever it holds, even an
+        // empty list: a server-only profile still gets its server rows.
+        guard addonsSettled else { return }
+        // Every library or metadata toggle moves the signature. Debounce so a burst of toggles in
+        // Settings is one refresh, and let the repository dedupe (no `force`): the add-on
+        // definitions did not change, so the cached add-on catalogs are reused.
+        let generation = pipelineGeneration
+        serverRefreshTask?.cancel()
+        serverRefreshTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+            guard !Task.isCancelled, let self, self.pipelineGeneration == generation else { return }
+            let addons = self.lastReadyAddons
+            HomeCatalogSettingsRepository.shared.syncCatalogs(addons: addons)
+            HomeRepository.shared.refresh(addons: addons, force: false)
+        }
     }
 
     /// BUG-35 (beta.12): a catalog row scrolled into view — ask the shared repo to localize its
@@ -1425,6 +1448,7 @@ final class HomeViewModel: ObservableObject {
 
     deinit {
         addonWatcher?.cancel()
+        serverRefreshTask?.cancel()
         seedGateWatcher?.cancel()
         homeWatcher?.cancel()
         noSourcesSyncWatcher?.cancel()

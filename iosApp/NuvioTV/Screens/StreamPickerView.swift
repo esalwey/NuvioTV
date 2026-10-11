@@ -485,6 +485,11 @@ struct StreamPickerView: View {
                     model.detach()
                 } else {
                     model.stop()
+                    // The picker itself went away: a server or YouTube resolve still in flight
+                    // belongs to nobody. Bumping the generation makes its late answer take the
+                    // "superseded" branch, which closes the server session it opened.
+                    resolveGeneration += 1
+                    resolvingKey = nil
                 }
             }
             .onChange(of: selected?.id) { _, id in
@@ -1536,6 +1541,11 @@ struct StreamPickerView: View {
         resolveGeneration += 1
         let generation = resolveGeneration
         resolvingKey = rowKey
+        armResolveDeadline(generation: generation, rowKey: rowKey, message: String(
+            localized: "streams.youtube.timeout",
+            defaultValue: "This YouTube video took too long to load. Try again, or pick another source.",
+            comment: "Source picker: a YouTube-only stream took too long to resolve and was abandoned."
+        ))
         Task { @MainActor in
             let url = await YouTubeStreamPlayback.resolve(watchUrl: watchUrl)
             // Superseded (retarget, a player went up): nobody is waiting for this answer.
@@ -1562,6 +1572,11 @@ struct StreamPickerView: View {
         resolveGeneration += 1
         let generation = resolveGeneration
         resolvingKey = rowKey
+        armResolveDeadline(generation: generation, rowKey: rowKey, message: String(
+            localized: "streams.server.timeout",
+            defaultValue: "The media server didn\u{2019}t answer in time. Try again, or pick another source.",
+            comment: "Source picker: preparing a Jellyfin or Emby file took too long and was abandoned."
+        ))
         let savedAt = ServerStreamPreparer.savedProgressTimestamp(
             videoId: videoId, parentMetaId: parentMetaId, season: season, episode: episode)
         ServerStreamPreparer.prepare(stream, savedAtEpochMs: savedAt) { result in
@@ -1591,6 +1606,19 @@ struct StreamPickerView: View {
 
     /// STAB-06: how long a debrid resolve may run before the row gives up and says so.
     private static let debridResolveTimeoutSeconds: Double = 20
+
+    /// The same deadline for the other resolves (a server file, a YouTube video): when the resolve
+    /// is still the current one after `debridResolveTimeoutSeconds`, its generation is bumped so a
+    /// late answer is dropped (and a server session it opened is closed), the spinner stops and a
+    /// toast says why.
+    private func armResolveDeadline(generation: Int, rowKey: String, message: String) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.debridResolveTimeoutSeconds) {
+            guard generation == resolveGeneration, resolvingKey == rowKey else { return }
+            resolveGeneration += 1
+            resolvingKey = nil
+            showToast(message)
+        }
+    }
 
     /// Resolves a torrent / clientResolve row to a playable link through the in-app debrid
     /// connection, one at a time (`resolvingKey` drives the row spinner). STAB-06: each resolve
