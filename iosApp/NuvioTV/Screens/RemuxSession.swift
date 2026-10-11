@@ -1560,12 +1560,12 @@ nonisolated final class RemuxSession: @unchecked Sendable {
         cb?(s)
     }
 
-    /// Bytes the app can still write to the cache volume (purgeable space counted, as the system would
-    /// reclaim it), nil when the volume does not report it.
+    /// Bytes the app can still write to the cache volume (as reported by the volume;
+    /// nil when the volume does not report it.
     private static func freeDiskBytes() -> Int? {
         let probe = cacheRoot.deletingLastPathComponent()
-        guard let values = try? probe.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey]),
-              let free = values.volumeAvailableCapacityForImportantUsage else { return nil }
+        guard let values = try? probe.resourceValues(forKeys: [.volumeAvailableCapacityKey]),
+              let free = values.volumeAvailableCapacity else { return nil }
         return Int(free)
     }
 
