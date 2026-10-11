@@ -22,6 +22,7 @@ import com.nuvio.app.features.tracking.TrackingRefreshIntent
 import com.nuvio.app.features.tracking.TrackingSettingsRepository
 import com.nuvio.app.features.tracking.effectiveLibrarySourceMode as resolveEffectiveLibrarySourceMode
 import com.nuvio.app.features.tracking.providerId
+import com.nuvio.app.features.servers.ServerItemRef
 import com.nuvio.app.features.tracking.supportsContentType
 import kotlinx.atomicfu.locks.SynchronizedObject
 import kotlinx.atomicfu.locks.synchronized
@@ -289,6 +290,11 @@ object LibraryRepository {
         ensureLoaded()
 
         activeLibraryProvider()?.let { provider ->
+            // A Jellyfin / Emby title only ever lives in the local library: no tracker list can hold it.
+            if (item.isServerItem) {
+                ToastControllerProvider.controller.show(SERVER_TITLE_UNSUPPORTED)
+                return
+            }
             val profileId = localState.snapshot().token.profileId
             log.i {
                 "toggleSaved routed to ${provider.providerId.storageId} library source " +
@@ -399,7 +405,10 @@ object LibraryRepository {
         libraryTabsWithLocal(
             TrackingProviderRegistry.connectedLibraryProviders()
                 .flatMap { provider -> provider.snapshot().tabs },
-        ).filter { tab -> item == null || tab.supportsContentType(item.type) }
+        ).filter { tab ->
+            item == null ||
+                (tab.supportsContentType(item.type) && (!item.isServerItem || tab.key == LOCAL_LIBRARY_LIST_KEY))
+        }
 
     suspend fun getMembershipSnapshot(item: LibraryItem): Map<String, Boolean> {
         ensureLoaded()
@@ -417,6 +426,7 @@ object LibraryRepository {
         val currentlyInLocal = localState.contains(item.id, item.type)
         val profileId = localState.snapshot().token.profileId
         val providerChanges = TrackingProviderRegistry.connectedLibraryProviders()
+            .filterNot { item.isServerItem }
             .mapNotNull { provider ->
                 val providerListKeys = provider.snapshot().tabs.mapTo(mutableSetOf(), TrackingLibraryTab::key)
                 desiredMembership
@@ -501,9 +511,12 @@ object LibraryRepository {
                     }
                     val upsertItems = snapshot.pendingUpsertKeys.mapNotNull { key ->
                         itemsByKey[libraryItemKey(key.contentId, key.contentType)]
-                    }
+                    }.filterNot { it.isServerItem }
                     syncAdapter.pushItems(profileId, upsertItems)
-                    syncAdapter.deleteItems(profileId, snapshot.pendingDeleteKeys)
+                    syncAdapter.deleteItems(
+                        profileId,
+                        snapshot.pendingDeleteKeys.filterNot { ServerItemRef.isServerId(it.contentId) },
+                    )
                     localState.markPushCompleted(snapshot)?.let(::persist)
                     log.i {
                         "Library delta push completed profile=$profileId " +
@@ -635,6 +648,13 @@ object LibraryRepository {
 }
 
 internal const val LOCAL_LIBRARY_LIST_KEY = "local"
+
+/** A Jellyfin / Emby title: it lives in the local library only, never in tracker lists or the account. */
+private val LibraryItem.isServerItem: Boolean
+    get() = ServerItemRef.isServerId(id)
+
+private const val SERVER_TITLE_UNSUPPORTED =
+    "Titles from your media server can't be added to this library. Turn on Use add-on metadata for the server to save them here."
 private const val DEFAULT_LOCAL_LIBRARY_TAB_TITLE = "Nuvio Library"
 private const val DEFAULT_LIBRARY_OTHER_TITLE = "Other"
 

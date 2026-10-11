@@ -9,6 +9,7 @@ import com.nuvio.app.features.addons.AddonRepository
 import com.nuvio.app.features.addons.AddonsUiState
 import com.nuvio.app.features.addons.enabledAddons
 import com.nuvio.app.features.details.MetaDetails
+import com.nuvio.app.features.servers.ServerItemRef
 import com.nuvio.app.features.details.MetaDetailsRepository
 import com.nuvio.app.features.player.PlayerPlaybackSnapshot
 import com.nuvio.app.features.profiles.ProfileRepository
@@ -2164,6 +2165,8 @@ object WatchProgressRepository {
     }
 
     private fun pushScrobbleToServer(entry: WatchProgressEntry, profileId: Int, isRetry: Boolean = false) {
+        // The media server keeps its own resume point (ServerPlayback reports to it); never the account.
+        if (ServerItemRef.isServerId(entry.parentMetaId)) return
         val operationGeneration = profileGeneration.takeIf { profileId == currentProfileId }
         accountScopeSnapshot().launch {
             runCatching {
@@ -2229,7 +2232,7 @@ object WatchProgressRepository {
                     val backlog = selectDirtyWatchProgressBacklog(
                         entries = localEntriesSnapshot(),
                         dirtyProgressKeys = dirtyKeys,
-                    )
+                    ).filterNot { ServerItemRef.isServerId(it.parentMetaId) }
                     if (backlog.isEmpty()) return@withLock
                     pushedRows = backlog.size
                     log.i {
@@ -2267,6 +2270,7 @@ object WatchProgressRepository {
      */
     private fun pushDeleteToServer(entries: Collection<WatchProgressEntry>) {
         val profileId = currentProfileId
+        val entries = entries.filterNot { ServerItemRef.isServerId(it.parentMetaId) }
         val keys = entries.mapTo(mutableSetOf(), WatchProgressEntry::resolvedProgressKey)
         if (activeSource.providerId != null) {
             clearPendingServerDeletes(profileId, keys)

@@ -3,6 +3,7 @@ package com.nuvio.app.features.home
 import com.nuvio.app.features.addons.ManagedAddon
 import com.nuvio.app.features.collection.Collection
 import com.nuvio.app.features.collection.CollectionRepository
+import com.nuvio.app.features.servers.ServerCatalog
 import com.nuvio.app.features.collection.catalogRouteKey
 import com.nuvio.app.core.i18n.StringKey
 import com.nuvio.app.core.i18n.resourceString
@@ -532,14 +533,16 @@ object HomeCatalogSettingsRepository {
         // no stored preference at all (which default to true), also in relative order. An entry
         // with an explicit stored `false` is never selected by either pass — unchanged from before.
         val selectedKeys = linkedSetOf<String>()
+        // Server libraries are never hero sources: a personal library has no trailers or backdrops
+        // curated for the hero, and it must not take a slot from the add-on catalogs.
         orderedEntries.asSequence()
-            .filterNot { it.isCollection }
+            .filterNot { it.isCollection || ServerCatalog.isServerKey(it.key) }
             .filter { current[it.key]?.heroSourceEnabled == true }
             .forEach { entry ->
                 if (selectedKeys.size < HERO_SOURCE_SELECTION_LIMIT) selectedKeys += entry.key
             }
         orderedEntries.asSequence()
-            .filterNot { it.isCollection }
+            .filterNot { it.isCollection || ServerCatalog.isServerKey(it.key) }
             .filter { current[it.key] == null }
             .forEach { entry ->
                 if (selectedKeys.size < HERO_SOURCE_SELECTION_LIMIT) selectedKeys += entry.key
@@ -598,7 +601,7 @@ object HomeCatalogSettingsRepository {
             if (selectedKeys.isEmpty() && orderedEntries.any { !it.isCollection }) {
                 orderedEntries.forEach { entry ->
                     if (refilled >= HERO_SOURCE_SELECTION_LIMIT) return@forEach
-                    if (entry.isCollection) return@forEach
+                    if (entry.isCollection || ServerCatalog.isServerKey(entry.key)) return@forEach
                     val existing = normalized[entry.key] ?: return@forEach
                     if (existing.heroSourceEnabled) return@forEach
                     normalized[entry.key] = existing.copy(heroSourceEnabled = true)
@@ -756,7 +759,8 @@ object HomeCatalogSettingsRepository {
         ensureLoaded()
         val catalogDefinitionsByKey = definitions.associateBy { it.key }
         val collectionDefinitionsByKey = collectionDefinitions.associateBy { it.key }
-        val items = preferences.values.sortedBy { it.order }.map { pref ->
+        // Server rows are local to this device's connections: they never ride the account's home payload.
+        val items = preferences.values.filterNot { ServerCatalog.isServerKey(it.key) }.sortedBy { it.order }.map { pref ->
             val catalogDefinition = catalogDefinitionsByKey[pref.key]
             val collectionDefinition = collectionDefinitionsByKey[pref.key]
             val isCollection = collectionDefinition != null || pref.key.startsWith("collection_")
@@ -935,7 +939,7 @@ object HomeCatalogSettingsRepository {
         return StoredHomeCatalogPreference(
             key = key,
             enabled = true,
-            heroSourceEnabled = isCatalog &&
+            heroSourceEnabled = isCatalog && !ServerCatalog.isServerKey(key) &&
                 selectedHeroSourceCount(excludingKey = key) < HERO_SOURCE_SELECTION_LIMIT,
             order = _uiState.value.items.firstOrNull { it.key == key }?.order
                 ?: ((preferences.values.maxOfOrNull { it.order } ?: -1) + 1),

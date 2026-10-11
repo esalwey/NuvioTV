@@ -185,6 +185,15 @@ object MediaServersController {
         }
     }
 
+    /**
+     * Indexes the selected libraries in the background, so the first "find this title on my server"
+     * lookup of a session does not wait for the index. Cheap to repeat: an index is reused until it
+     * goes stale or the connections change.
+     */
+    fun warm() {
+        ServerMatcher.warm()
+    }
+
     fun setEnabled(connectionId: String, enabled: Boolean) = ServerRepository.setEnabled(connectionId, enabled)
 
     fun setCatalogMetadata(connectionId: String, enabled: Boolean) = ServerRepository.setCatalogMetadata(connectionId, enabled)

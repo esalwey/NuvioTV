@@ -115,7 +115,12 @@ data class StreamItem(
         get() = isInstalledAddonStream && (needsLocalDebridResolve || isDirectDebridStream)
 
     val hasPlayableSource: Boolean
-        get() = url != null || infoHash != null || externalUrl != null || clientResolve != null
+        get() = url != null || infoHash != null || externalUrl != null || clientResolve != null ||
+            serverTarget != null
+
+    /** A Jellyfin / Emby file whose playback URL (and session) is only minted by `ServerPlayback.prepare`. */
+    val needsServerPreparation: Boolean
+        get() = serverTarget != null && playableDirectUrl == null
 }
 
 data class StreamBadge(

@@ -21,6 +21,10 @@ import com.nuvio.app.features.home.HomeCatalogSettingsRepository
 import com.nuvio.app.features.home.HomeCatalogSection
 import com.nuvio.app.features.home.MetaPreview
 import com.nuvio.app.features.home.filterReleasedItems
+import com.nuvio.app.features.servers.ServerCatalog
+import com.nuvio.app.features.servers.ServerMediaKind
+import com.nuvio.app.features.servers.ServerRepository
+import com.nuvio.app.features.servers.serverMessage
 import com.nuvio.app.features.watchprogress.CurrentDateProvider
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -84,7 +88,9 @@ object SearchRepository {
         val hasPendingAddonManifests = enabledAddons.hasPendingEnabledManifests()
         val addonManifestErrorMessage = enabledAddons.firstEnabledManifestError()
         val activeAddons = enabledAddons.filter { it.manifest != null }
-        if (activeAddons.isEmpty()) {
+        // Jellyfin / Emby libraries are searched once per type alongside the add-on catalogs.
+        val serverSearches = ServerCatalog.searchTargets()
+        if (activeAddons.isEmpty() && serverSearches.isEmpty()) {
             activeJob?.cancel()
             lastRequestKey = null
             _uiState.value = SearchUiState(
@@ -108,7 +114,7 @@ object SearchRepository {
         // just ran (via logSearchSourceFilter), phrased for a human. Computed here so every
         // uiState below — including the early "no catalogs left" return — carries it.
         val fanOutLine = searchFanOutSummary(enumerateSearchCatalogs(activeAddons), disabledCatalogKeys)
-        if (requests.isEmpty()) {
+        if (requests.isEmpty() && serverSearches.isEmpty()) {
             activeJob?.cancel()
             lastRequestKey = null
             _uiState.value = SearchUiState(
@@ -136,7 +142,26 @@ object SearchRepository {
                     "${request.addon.manifestUrl}:${request.key}"
                 },
             )
+            serverSearches.forEach { ref ->
+                append("|server:${ref.connection.id}:${ref.kind.contentType}:")
+                append(ref.connection.selectedLibraries(ref.kind).joinToString(",") { it.id })
+            }
         }
+        val loaders: List<suspend () -> HomeCatalogSection> =
+            requests.map { request -> suspend { request.toSection(forceRefresh = forceRefresh) } } +
+                serverSearches.map { ref ->
+                    suspend {
+                        ServerCatalog.searchSection(ref, normalizedQuery).also { section ->
+                            require(section.items.isNotEmpty()) {
+                                resourceString(
+                                    "No search results returned for ${section.title}.",
+                                    StringKey.search_error_no_results_for_catalog,
+                                    section.title,
+                                )
+                            }
+                        }
+                    }
+                }
         // Upstream (981b8bc7) also refetches a completed same-key search when not forced; tvOS
         // keeps the plain same-key reuse — search here only re-fires from the typing debounce on
         // screen re-entry, where a refetch would just flash-blank retained results.
@@ -148,9 +173,9 @@ object SearchRepository {
 
         activeJob = scope.launch {
             val resultChannel = Channel<IndexedSearchResult>(Channel.UNLIMITED)
-            val jobs = requests.mapIndexed { index, request ->
+            val jobs = loaders.mapIndexed { index, load ->
                 launch {
-                    runCatching { request.toSection(forceRefresh = forceRefresh) }
+                    runCatching { load() }
                         .fold(
                             onSuccess = { section ->
                                 resultChannel.trySend(
@@ -176,7 +201,7 @@ object SearchRepository {
                 jobs.joinAll()
                 resultChannel.close()
             }
-            val results = arrayOfNulls<IndexedSearchResult>(requests.size)
+            val results = arrayOfNulls<IndexedSearchResult>(loaders.size)
 
             try {
                 for (result in resultChannel) {
@@ -197,7 +222,7 @@ object SearchRepository {
 
             val completedResults = results.filterNotNull()
             val sections = results.orderedSections()
-            val firstFailure = completedResults.firstNotNullOfOrNull { it.error?.message }
+            val firstFailure = completedResults.firstNotNullOfOrNull { result -> result.error?.let { it.serverMessage() ?: it.message } }
             val allFailed = completedResults.isNotEmpty() && completedResults.all { it.error != null }
 
             _uiState.value = SearchUiState(
@@ -243,7 +268,8 @@ object SearchRepository {
         val hasPendingAddonManifests = enabledAddons.hasPendingEnabledManifests()
         val addonManifestErrorMessage = enabledAddons.firstEnabledManifestError()
         val activeAddons = enabledAddons.filter { it.manifest != null }
-        if (activeAddons.isEmpty()) {
+        val serverLibraries = ServerCatalog.titleLibraries()
+        if (activeAddons.isEmpty() && serverLibraries.isEmpty()) {
             activeDiscoverJob?.cancel()
             discoverSources = emptyList()
             lastDiscoverHideUnreleasedContent = null
@@ -262,7 +288,21 @@ object SearchRepository {
             return
         }
 
-        val sources = buildDiscoverSources(activeAddons)
+        // A mixed library cannot be browsed as one type, so Discover lists only movie and show libraries.
+        val sources = buildDiscoverSources(activeAddons) + serverLibraries
+            .filter { it.library.kind != ServerMediaKind.MIXED }
+            .map { ref ->
+                DiscoverCatalogOption(
+                    key = ref.target.let { "server:${it.connectionId}:${it.libraryId}" },
+                    addonName = ServerRepository.sourceLabel(ref.connection),
+                    manifestUrl = "",
+                    type = ref.library.kind.contentType,
+                    catalogId = ref.library.id,
+                    catalogName = ref.title,
+                    supportsPagination = true,
+                    server = ref.target,
+                )
+            }
         val current = _discoverUiState.value
         val hideUnreleasedContent = HomeCatalogSettingsRepository.snapshot().hideUnreleasedContent
         // Upstream (981b8bc7) drops canReuseDiscoverState and reuses only while a fetch is in
@@ -769,14 +809,18 @@ object SearchRepository {
         val current = _discoverUiState.value
         val selectedCatalog = current.selectedCatalog ?: return
         val requestedSkip = if (reset) 0 else current.nextSkip ?: return
-        val requestUrl = buildCatalogUrl(
-            manifestUrl = selectedCatalog.manifestUrl,
-            type = selectedCatalog.type,
-            catalogId = selectedCatalog.catalogId,
-            genre = current.selectedGenre,
-            search = null,
-            skip = requestedSkip.takeIf { it > 0 },
-        )
+        val requestUrl = if (selectedCatalog.server != null) {
+            selectedCatalog.key
+        } else {
+            buildCatalogUrl(
+                manifestUrl = selectedCatalog.manifestUrl,
+                type = selectedCatalog.type,
+                catalogId = selectedCatalog.catalogId,
+                genre = current.selectedGenre,
+                search = null,
+                skip = requestedSkip.takeIf { it > 0 },
+            )
+        }
 
         log.d {
             "Discover request reset=$reset addon=${selectedCatalog.addonName} type=${selectedCatalog.type} " +
@@ -795,14 +839,19 @@ object SearchRepository {
 
         activeDiscoverJob = scope.launch {
             runCatching {
-                fetchCatalogPage(
-                    manifestUrl = selectedCatalog.manifestUrl,
-                    type = selectedCatalog.type,
-                    catalogId = selectedCatalog.catalogId,
-                    genre = current.selectedGenre,
-                    skip = requestedSkip.takeIf { it > 0 },
-                    forceRefresh = forceRefresh,
-                ).withUnreleasedFilter()
+                val server = selectedCatalog.server
+                if (server != null) {
+                    ServerCatalog.page(server, skip = requestedSkip)
+                } else {
+                    fetchCatalogPage(
+                        manifestUrl = selectedCatalog.manifestUrl,
+                        type = selectedCatalog.type,
+                        catalogId = selectedCatalog.catalogId,
+                        genre = current.selectedGenre,
+                        skip = requestedSkip.takeIf { it > 0 },
+                        forceRefresh = forceRefresh,
+                    )
+                }.withUnreleasedFilter()
             }.fold(
                 onSuccess = { page ->
                     val latest = _discoverUiState.value
@@ -866,7 +915,7 @@ object SearchRepository {
                         isLoading = holdForManifests,
                         nextSkip = null,
                         emptyStateReason = if (holdForManifests) null else DiscoverEmptyStateReason.RequestFailed,
-                        errorMessage = if (holdForManifests) null else error.message ?: resourceString("The selected catalog failed to return discover items.", StringKey.discover_empty_load_failed_message),
+                        errorMessage = if (holdForManifests) null else error.serverMessage() ?: error.message ?: resourceString("The selected catalog failed to return discover items.", StringKey.discover_empty_load_failed_message),
                     )
                 },
             )

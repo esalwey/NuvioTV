@@ -11,6 +11,11 @@ import com.nuvio.app.features.home.HomeUnreleasedContentPolicyProvider
 import com.nuvio.app.features.home.filterReleasedItems
 import com.nuvio.app.features.mdblist.MdbListMetadataService
 import com.nuvio.app.features.mdblist.MdbListSettingsRepository
+import com.nuvio.app.features.servers.ServerCatalog
+import com.nuvio.app.features.servers.ServerItemRef
+import com.nuvio.app.features.servers.ServerUserStateProjection
+import com.nuvio.app.features.servers.message
+import com.nuvio.app.features.servers.serverFailure
 import com.nuvio.app.features.tmdb.TmdbMetadataService
 import com.nuvio.app.features.tmdb.TmdbService
 import com.nuvio.app.features.tmdb.TmdbSettingsRepository
@@ -78,6 +83,10 @@ object MetaDetailsRepository {
     fun load(type: String, id: String) {
         log.d { "load() called — type=$type id=$id" }
         val requestKey = MetaRequestResolution.requestKey(type, id)
+        ServerItemRef.parse(id)?.let { ref ->
+            loadServerMeta(requestKey, ref)
+            return
+        }
         val currentState = _uiState.value
         val mdbListSettings = MdbListSettingsRepository.snapshot()
         val metaScreenSettingsFingerprint = buildMetaScreenSettingsFingerprint(mdbListSettings)
@@ -282,6 +291,17 @@ object MetaDetailsRepository {
         val requestKey = MetaRequestResolution.requestKey(type, id)
         cachedMetaByRequestKey[requestKey]?.let { return it.baseMeta }
         val generation = cacheGeneration
+        ServerItemRef.parse(id)?.let { ref ->
+            return try {
+                ServerCatalog.details(ref).meta
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                null
+            }?.also { result ->
+                if (cacheResult) putCache(requestKey, generation) { CachedMetaEntry(baseMeta = result) }
+            }
+        }
 
         val metaLookupId = resolveMetaLookupId(itemId = id, itemType = type)
         val manifests = findReadyMetaManifests(type = type, id = metaLookupId)
@@ -302,6 +322,51 @@ object MetaDetailsRepository {
             if (cacheResult) {
                 putCache(requestKey, generation) { CachedMetaEntry(baseMeta = result) }
             }
+        }
+    }
+
+    /**
+     * A Jellyfin / Emby title: the server is the only source of truth, so the add-on meta chain,
+     * TMDB and MDBList enrichment are skipped. The user's played state is projected onto the
+     * watched / progress stores here (when the connection imports watch state).
+     */
+    private fun loadServerMeta(requestKey: String, ref: ServerItemRef) {
+        if (_uiState.value.isLoading && MetaRequestResolution.isActiveRequest(activeRequestKey, requestKey)) return
+        activeRequestKey = requestKey
+        val generation = cacheGeneration
+        _uiState.value = MetaDetailsUiState(
+            isLoading = true,
+            meta = cachedMetaByRequestKey[requestKey]?.baseMeta,
+            requestKey = requestKey,
+        )
+        scope.launch {
+            val result = try {
+                Result.success(withContext(Dispatchers.Default) { ServerCatalog.details(ref) })
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                Result.failure(error)
+            }
+            if (!isLiveRequest(requestKey, generation)) return@launch
+            result.fold(
+                onSuccess = { details ->
+                    ServerUserStateProjection.apply(details)
+                    putCache(requestKey, generation) { CachedMetaEntry(baseMeta = details.meta) }
+                    if (isLiveRequest(requestKey, generation)) {
+                        _uiState.value = MetaDetailsUiState(meta = details.meta, requestKey = requestKey)
+                    }
+                },
+                onFailure = { error ->
+                    log.w { "Server details failed: ${error.serverFailure()}" }
+                    val cached = cachedMetaByRequestKey[requestKey]?.baseMeta
+                    _uiState.value = MetaDetailsUiState(
+                        meta = cached,
+                        errorMessage = if (cached == null) error.serverFailure().message() else null,
+                        requestKey = requestKey,
+                    )
+                    if (cached == null) activeRequestKey = null
+                },
+            )
         }
     }
 
