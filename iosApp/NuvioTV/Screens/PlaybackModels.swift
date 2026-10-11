@@ -113,6 +113,12 @@ struct PlaybackContext: Identifiable {
         return seriesTitle
     }
 
+    /// The link kept with the watch-progress record. Never a Jellyfin / Emby session link: it carries
+    /// the account's access token and is only good for that one playback.
+    var recordedSourceUrl: String? {
+        ServerStreams.shared.isServerSourceId(addonId: providerAddonId) ? nil : url.absoluteString
+    }
+
     // Headers join the identity (Codex 2026-08-20 round 3): two sources for the same episode can
     // share a URL but require different headers; StreamPickerView rebuilds the player and
     // PlayerScreen re-keys its probe on this id, so header changes must re-key too or a stale

@@ -203,6 +203,10 @@ final class MPVTVPlayerViewController: UIViewController {
     /// The error card's "Choose Another Source": back to a stream list for this episode. nil = no
     /// picker behind the player — the button reads "Back" and leaves the player.
     var onChooseAnotherSource: (() -> Void)?
+    /// "Try Again" on a failed Jellyfin / Emby direct play: given the resume position and a way to
+    /// carry on with the plain retry, asks the server for a transcode (the screen then swaps the
+    /// source). true = handled, the plain retry is not run unless the server has nothing to offer.
+    var onServerFallback: ((Double, @escaping () -> Void) -> Bool)?
     /// The error on screen (the card is `errorHost`); nil while playback is healthy.
     private var playbackError: PlayerPlaybackError?
     private var errorHost: PlayerErrorHostController?
@@ -1033,7 +1037,7 @@ final class MPVTVPlayerViewController: UIViewController {
         lastStreamTitle: context.streamTitle,
         lastStreamSubtitle: context.streamSubtitle,
         pauseDescription: context.synopsis,
-        lastSourceUrl: context.url.absoluteString
+        lastSourceUrl: context.recordedSourceUrl
     )
 
     private func saveProgress(flush: Bool = false) {
@@ -1365,6 +1369,12 @@ final class MPVTVPlayerViewController: UIViewController {
             resumeAt = loadStartPositionSec
         } else {
             resumeAt = max(state.positionSec, loadStartPositionSec)
+        }
+        if let onServerFallback,
+           onServerFallback(resumeAt ?? 0, { [weak self] in self?.retryLoad() }) {
+            clearPlaybackError()
+            state.isBuffering = true
+            return
         }
         clearPlaybackError()
         print("[MPV] retrying the stream" + (resumeAt.map { " at \(Int($0))s" } ?? ""))

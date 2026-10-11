@@ -99,7 +99,8 @@ object StreamInsightParser {
             clientResolveCached = resolve?.isCached,
             subtitleLanguages = stream.externalSubtitles.map { it.language },
             isTorrent = stream.isTorrentStream,
-            isDirectLink = stream.playableDirectUrl != null,
+            // A media-server file plays at once: its link is minted the moment it is picked.
+            isDirectLink = stream.playableDirectUrl != null || stream.serverTarget != null,
         )
     }
 

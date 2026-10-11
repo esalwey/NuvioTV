@@ -1202,7 +1202,8 @@ struct StreamPickerView: View {
         // modifier is skipped entirely when no external player is installed, so the long-press
         // stays inert rather than opening an empty menu.
         .modifier(ExternalPlayMenu(
-            players: externalPlayers,
+            // A media-server file cannot be handed to another app: its link only exists in-app.
+            players: ServerStreamPreparer.needsPreparation(stream) ? [] : externalPlayers,
             defaultPlayerId: activeDefaultExternalPlayer?.id,
             onExternal: { player in
                 externalPlay(stream, rowKey: key, playerId: player.id)
@@ -1418,6 +1419,12 @@ struct StreamPickerView: View {
     private func internalPlay(_ stream: StreamItem, rowKey: String) {
         // STAB-03: Back from the player puts focus back on this row.
         lastPlayedRowKey = rowKey
+        // A Jellyfin / Emby file: the server decides how it plays (the original file, or a
+        // transcode) and opens a session, then it is an ordinary link.
+        if ServerStreamPreparer.needsPreparation(stream) {
+            prepareServerStream(stream, rowKey: rowKey)
+            return
+        }
         let direct: String? = stream.playableDirectUrl
         if let direct, !direct.isEmpty, let url = URL(string: direct) {
             // A manual stream pick is user interaction — reset the Still Watching run.
@@ -1434,6 +1441,41 @@ struct StreamPickerView: View {
             }
             NextEpisodeEngine.consecutiveAutoPlays = 0
             selected = context(url: url, stream: resolved)
+        }
+    }
+
+    /// Asks the media server how to play `stream` and opens the player with the answer. Shares the
+    /// debrid resolve's guards: one preparation at a time (`resolvingKey` drives the row spinner),
+    /// and an answer that arrives after the list moved on is dropped and its session closed.
+    private func prepareServerStream(_ stream: StreamItem, rowKey: String) {
+        guard resolvingKey == nil else { return }
+        resolveGeneration += 1
+        let generation = resolveGeneration
+        resolvingKey = rowKey
+        let savedAt = ServerStreamPreparer.savedProgressTimestamp(
+            videoId: videoId, parentMetaId: parentMetaId, season: season, episode: episode)
+        ServerStreamPreparer.prepare(stream, savedAtEpochMs: savedAt) { result in
+            guard generation == resolveGeneration else {
+                // Superseded: nobody will play this session.
+                if case .success(let prepared) = result { ServerPlayback.shared.stop(url: prepared.url.absoluteString) }
+                return
+            }
+            resolvingKey = nil
+            switch result {
+            case .success(let prepared):
+                // A manual stream pick is user interaction — reset the Still Watching run.
+                NextEpisodeEngine.consecutiveAutoPlays = 0
+                var built = context(url: prepared.url, stream: prepared.stream)
+                // The server's own resume point, when it is the more recent one (watched on another
+                // device); Start Over and an explicit start position always win.
+                if !built.resumeFromStart, built.startPositionSec == nil,
+                   let resume = prepared.resumePositionSec, resume > 10 {
+                    built.startPositionSec = resume
+                }
+                selected = built
+            case .failure(let failure):
+                showToast(failure.message)
+            }
         }
     }
 
@@ -1507,6 +1549,12 @@ struct StreamPickerView: View {
     /// asked for Infuse specifically, silently playing elsewhere would be surprising.
     private func externalPlay(_ stream: StreamItem, rowKey: String, playerId: String, fallbackToInternal: Bool = false) {
         lastPlayedRowKey = rowKey
+        // A media-server file has no link to hand over: its URL and session only exist inside the
+        // app's own player.
+        if ServerStreamPreparer.needsPreparation(stream) {
+            internalPlay(stream, rowKey: rowKey)
+            return
+        }
         let direct: String? = stream.playableDirectUrl
         if let direct, !direct.isEmpty {
             openExternally(urlString: direct, stream: stream, playerId: playerId, fallbackToInternal: fallbackToInternal)

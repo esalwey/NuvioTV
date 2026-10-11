@@ -620,6 +620,8 @@ final class StreamsViewModel: ObservableObject {
             let playable = group.streams.filter { stream in
                 let direct: String? = stream.playableDirectUrl
                 if !(direct ?? "").isEmpty { return true }
+                // A Jellyfin / Emby file gets its playback URL (and session) when it is picked.
+                if stream.serverTarget != nil { return true }
                 // Torrent / clientResolve results from installed addons resolve at click time
                 // through the in-app debrid connection (DirectDebridPlaybackResolver).
                 return debridEnabled && stream.isAddonDebridCandidate
@@ -645,7 +647,9 @@ final class StreamsViewModel: ObservableObject {
                 failed.append(FailedGroup(
                     id: group.addonId,
                     addonName: group.addonName,
-                    message: Self.failureMessage(addonName: group.addonName, error: error),
+                    message: ServerStreams.shared.isServerSourceId(addonId: group.addonId)
+                        ? "\(group.addonName): \(ServerFailureText.localized(fallbackMessage: error))"
+                        : Self.failureMessage(addonName: group.addonName, error: error),
                     isRetrying: false
                 ))
             } else if retrying && group.isLoading {

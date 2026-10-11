@@ -12,8 +12,10 @@ import SharedCore
 struct LibraryView: View {
     @StateObject private var model = LibraryViewModel()
     @StateObject private var cloud = CloudLibraryViewModel()
+    @StateObject private var servers = LibraryServerViewModel()
     @Environment(\.posterStyle) private var posterStyle
     @State private var showingCloud = false
+    @State private var showingServers = false
     @State private var filePicker: CloudFilePickerRoute?
 
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
@@ -38,6 +40,7 @@ struct LibraryView: View {
     }
 
     private var showsCloud: Bool { showingCloud && cloud.hasConnectedProvider }
+    private var showsServers: Bool { showingServers && servers.hasLibraries }
 
     var body: some View {
         NavigationStack {
@@ -50,7 +53,9 @@ struct LibraryView: View {
 
                     controlsRow
 
-                    if showsCloud {
+                    if showsServers {
+                        LibraryServerContentView(model: servers)
+                    } else if showsCloud {
                         cloudContent
                     } else if model.items.isEmpty {
                         emptyState
@@ -81,7 +86,10 @@ struct LibraryView: View {
             .reportsScrollToTabBar(tab: "Library")
             .background(Theme.Palette.background.ignoresSafeArea())
             .navigationDestination(for: TitleRoute.self) { route in
-                DetailView(preview: route.preview)
+                TitleDestinationView(preview: route.preview)
+            }
+            .navigationDestination(for: CatalogRoute.self) { route in
+                CatalogGridView(route: route)
             }
             .navigationDestination(for: PersonRoute.self) { route in
                 PersonDetailView(personId: route.id, personName: route.name)
@@ -93,10 +101,15 @@ struct LibraryView: View {
         .onAppear {
             model.start()
             cloud.start()
+            servers.start()
         }
         .onDisappear {
             model.stop()
             cloud.stop()
+            servers.stop()
+        }
+        .onChange(of: showingServers) { _, isOn in
+            servers.setActive(isOn)
         }
         .fullScreenCover(item: $filePicker) { route in
             CloudFilePickerView(item: route.item) { file in
@@ -117,15 +130,25 @@ struct LibraryView: View {
     /// from any control lands in the grid, and Up from the grid comes back here.
     @ViewBuilder
     private var controlsRow: some View {
-        let showsSort = !showsCloud && !model.items.isEmpty && !model.availableSortOptions.isEmpty
-        if cloud.hasConnectedProvider || showsSort {
+        let showsSort = !showsCloud && !showsServers && !model.items.isEmpty && !model.availableSortOptions.isEmpty
+        if cloud.hasConnectedProvider || servers.hasLibraries || showsSort {
             HStack(spacing: Theme.Spacing.md) {
-                if cloud.hasConnectedProvider {
-                    FilterPill(title: String(localized: "Saved"), isSelected: !showingCloud) {
+                if cloud.hasConnectedProvider || servers.hasLibraries {
+                    FilterPill(title: String(localized: "Saved"), isSelected: !showsCloud && !showsServers) {
                         showingCloud = false
+                        showingServers = false
                     }
-                    FilterPill(title: String(localized: "Debrid Cloud"), isSelected: showingCloud) {
+                }
+                if cloud.hasConnectedProvider {
+                    FilterPill(title: String(localized: "Debrid Cloud"), isSelected: showsCloud) {
                         showingCloud = true
+                        showingServers = false
+                    }
+                }
+                if servers.hasLibraries {
+                    FilterPill(title: String(localized: "Servers"), isSelected: showsServers) {
+                        showingServers = true
+                        showingCloud = false
                     }
                 }
                 Spacer(minLength: Theme.Spacing.xl)

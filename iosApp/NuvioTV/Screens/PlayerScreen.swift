@@ -28,6 +28,10 @@ struct PlayerScreen: View {
     var onChooseAnotherSource: (() -> Void)?
 
     @StateObject private var upNext: NextEpisodeEngine
+    /// The Jellyfin / Emby session behind this context (inert for any other source): reports the
+    /// playback to the server, offers its audio / burned-in subtitle tracks and its transcode
+    /// fallback, the same on both engines.
+    @StateObject private var server: ServerPlaybackLink
     @State private var decision: EngineDecision?
     /// Set when the native path fails; pins this context to mpv.
     @State private var forcedMPV = false
@@ -48,6 +52,15 @@ struct PlayerScreen: View {
         self.onPickNextSource = onPickNextSource
         self.onChooseAnotherSource = onChooseAnotherSource
         _upNext = StateObject(wrappedValue: NextEpisodeEngine(context: context, onPlayNext: onPlayNext ?? { _ in }))
+        _server = StateObject(wrappedValue: ServerPlaybackLink(context: context, switchContext: onPlayNext))
+    }
+
+    /// The engine routing note with how the server is delivering the file ("Direct play",
+    /// "Transcoding · Audio codec not supported") appended, for the Stream Info.
+    private var engineNote: String? {
+        let note = [decision?.displayNote, server.summary].compactMap { $0 }.filter { !$0.isEmpty }
+            .joined(separator: " \u{00B7} ")
+        return note.isEmpty ? nil : note
     }
 
     private var nativeDVEnabled: Bool { UserDefaults.standard.bool(forKey: PlayerTuning.nativeDVKey) }
@@ -69,27 +82,39 @@ struct PlayerScreen: View {
                                        fallbackStartSec = position
                                        forcedMPV = true
                                    },
-                                   routingNote: decision?.displayNote,
+                                   routingNote: engineNote,
                                    onExitToDetails: onExitToDetails,
                                    onPickNextSource: onPickNextSource,
                                    canSwitchStreams: onPlayNext != nil,
-                                   onChooseAnotherSource: onChooseAnotherSource)
+                                   onChooseAnotherSource: onChooseAnotherSource,
+                                   serverLink: server)
             case .mpv:
                 MPVPlayerScreen(context: context, upNext: upNext,
                                 canSwitchStreams: onPlayNext != nil,
                                 // The native engine's hand-over position, else a source switch's.
                                 startPositionSec: fallbackStartSec.flatMap { $0 > 1 ? $0 : nil } ?? context.startPositionSec,
-                                routingNote: forcedMPV ? String(localized: "mpv \u{00B7} fallback") : decision?.displayNote,
+                                routingNote: forcedMPV
+                                    ? [String(localized: "mpv \u{00B7} fallback"), server.summary]
+                                        .compactMap { $0 }.joined(separator: " \u{00B7} ")
+                                    : engineNote,
                                 onExitToDetails: onExitToDetails,
                                 onPickNextSource: onPickNextSource,
                                 onChooseAnotherSource: onChooseAnotherSource,
                                 // PLY-A9 (contract C1): a Dolby Vision Profile 5 file on mpv —
                                 // routed there, or after a native fallback — renders with reshaping.
-                                forceDVReshape: decision?.needsDVReshapeOnMPV ?? false)
+                                forceDVReshape: decision?.needsDVReshapeOnMPV ?? false,
+                                serverLink: server)
             case .deciding:
                 PlayerLoadingView()
             }
         }
+        .overlay(alignment: .top) {
+            if let notice = server.notice {
+                ServerNoticeBanner(text: notice)
+                    .transition(.opacity)
+            }
+        }
+        .animation(.easeInOut(duration: 0.25), value: server.notice)
         .environment(\.playerLoadingStartedAt, loadStartedAt)
         .onChange(of: context.id) {
             // Another episode or source in the same player: its own wait starts now.
@@ -106,7 +131,11 @@ struct PlayerScreen: View {
             // engine is still in use under it (the next episode's source may be resolving for its
             // "Next Episode"): stop only on a real exit. The engine's own exits (details, a source
             // pick, a hand-off) release its search and observers, and `deinit` covers the rest.
-            if upNext.endScreen == nil { upNext.stop() }
+            if upNext.endScreen == nil {
+                upNext.stop()
+                // The server gets its stop report with the last position reached.
+                server.stop()
+            }
         }
     }
 

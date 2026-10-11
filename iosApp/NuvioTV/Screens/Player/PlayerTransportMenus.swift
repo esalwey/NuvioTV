@@ -14,7 +14,7 @@ import SwiftUI
 
 /// One button of the transport bar.
 enum PlayerTransportItem: String, CaseIterable, Identifiable, Hashable {
-    case startOver, sources, playbackSpeed, subtitleTiming, subtitles, audio
+    case startOver, sources, playbackSpeed, subtitleTiming, serverSubtitles, serverAudio, subtitles, audio
 
     var id: String { rawValue }
 
@@ -30,6 +30,14 @@ enum PlayerTransportItem: String, CaseIterable, Identifiable, Hashable {
             return String(localized: "player.menu.subtitleTiming",
                           defaultValue: "Subtitle Timing",
                           comment: "Native player transport-bar menu: shift addon subtitles earlier (-) or later (+).")
+        case .serverSubtitles:
+            return String(localized: "player.menu.serverSubtitles",
+                          defaultValue: "Server Subtitles",
+                          comment: "Player transport-bar menu: the media server's own subtitles, burned into the transcoded video.")
+        case .serverAudio:
+            return String(localized: "player.menu.serverAudio",
+                          defaultValue: "Server Audio",
+                          comment: "Player transport-bar menu: the audio tracks the media server can transcode to.")
         case .subtitles: return String(localized: "Subtitles")
         case .audio: return String(localized: "Audio")
         }
@@ -43,6 +51,8 @@ enum PlayerTransportItem: String, CaseIterable, Identifiable, Hashable {
         case .sources: return "rectangle.stack"
         case .playbackSpeed: return "speedometer"
         case .subtitleTiming: return "clock.arrow.circlepath"
+        case .serverSubtitles: return "captions.bubble.fill"
+        case .serverAudio: return "waveform"
         case .subtitles: return "captions.bubble"
         case .audio: return "speaker.wave.2"
         }
@@ -60,18 +70,25 @@ enum PlayerTransportMenus {
 
     /// The app-defined items in transport-bar order (`transportBarCustomMenuItems` on native).
     /// Start Over (PLY-A13) leads: a plain action, available on every title and both engines.
-    static func customItems(canChooseSource: Bool, supportsSubtitleDelay: Bool) -> [PlayerTransportItem] {
+    /// The Jellyfin / Emby entries (a transcode's burned-in subtitles and audio tracks) come last,
+    /// right before the system's own Subtitles and Audio buttons they stand in for.
+    static func customItems(canChooseSource: Bool, supportsSubtitleDelay: Bool,
+                            hasServerSubtitles: Bool = false, hasServerAudio: Bool = false) -> [PlayerTransportItem] {
         var items: [PlayerTransportItem] = [.startOver]
         if canChooseSource { items.append(.sources) }
         items.append(.playbackSpeed)
         if supportsSubtitleDelay { items.append(.subtitleTiming) }
+        if hasServerSubtitles { items.append(.serverSubtitles) }
+        if hasServerAudio { items.append(.serverAudio) }
         return items
     }
 
     /// Everything the bar shows, in the system player's order: the app's items, then the built-in
     /// Subtitles and Audio buttons at the trailing end. The mpv chrome draws exactly this list.
-    static func items(canChooseSource: Bool, supportsSubtitleDelay: Bool) -> [PlayerTransportItem] {
-        customItems(canChooseSource: canChooseSource, supportsSubtitleDelay: supportsSubtitleDelay)
+    static func items(canChooseSource: Bool, supportsSubtitleDelay: Bool,
+                      hasServerSubtitles: Bool = false, hasServerAudio: Bool = false) -> [PlayerTransportItem] {
+        customItems(canChooseSource: canChooseSource, supportsSubtitleDelay: supportsSubtitleDelay,
+                    hasServerSubtitles: hasServerSubtitles, hasServerAudio: hasServerAudio)
             + [.subtitles, .audio]
     }
 

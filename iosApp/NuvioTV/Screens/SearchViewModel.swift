@@ -75,6 +75,10 @@ final class SearchViewModel: ObservableObject {
     private var catalogSettingsWatcher: FlowWatcher?
 
     private var addonWatcher: FlowWatcher?
+    /// Jellyfin / Emby libraries are searched and browsed next to the add-on catalogs; a change in
+    /// which libraries are shown re-arms Discover and re-issues the active search.
+    private var serverWatcher: FlowWatcher?
+    private var serverSignature = ""
     private var searchWatcher: FlowWatcher?
     private var discoverWatcher: FlowWatcher?
     private var historyWatcher: FlowWatcher?
@@ -111,6 +115,7 @@ final class SearchViewModel: ObservableObject {
             let manifestFailure = settledEmpty
                 && state.emptyStateReason == SearchEmptyStateReason.requestfailed
                 && !self.enabledAddons.contains(where: { $0.manifest != nil })
+                && self.serverSignature.isEmpty
             let errorText: String? = state.errorMessage
             self.searchError = manifestFailure ? (errorText ?? String(localized: "Couldn't load your add-ons.")) : nil
             self.emptyMessage = settledEmpty && !manifestFailure && state.emptyStateReason != nil
@@ -154,6 +159,22 @@ final class SearchViewModel: ObservableObject {
             self.researchIfAddonsChanged()
         }
 
+        MediaServersController.shared.ensureLoaded()
+        serverWatcher = FlowWatcherKt.watch(MediaServersController.shared.state) { [weak self] emitted in
+            guard let self, !self.stopped else { return }
+            guard let state = emitted as? MediaServersUiState else { return }
+            let next = state.servers
+                .filter { $0.enabled }
+                .map { server in
+                    "\(server.id):" + server.libraries.filter { $0.selected }.map { $0.id }.joined(separator: ",")
+                }
+                .joined(separator: "|")
+            guard next != self.serverSignature else { return }
+            self.serverSignature = next
+            self.refreshDiscoverIfNeeded()
+            self.researchIfAddonsChanged()
+        }
+
         AddonRepository.shared.initialize()
     }
 
@@ -162,11 +183,13 @@ final class SearchViewModel: ObservableObject {
         stopped = true
         debounce?.cancel()
         addonWatcher?.cancel()
+        serverWatcher?.cancel()
         searchWatcher?.cancel()
         discoverWatcher?.cancel()
         historyWatcher?.cancel()
         catalogSettingsWatcher?.cancel()
         addonWatcher = nil
+        serverWatcher = nil
         searchWatcher = nil
         discoverWatcher = nil
         historyWatcher = nil
@@ -254,7 +277,7 @@ final class SearchViewModel: ObservableObject {
         enabledAddons
             .map { "\($0.manifestUrl)|\($0.manifest != nil ? 1 : 0)|\($0.isRefreshing ? 1 : 0)" }
             .sorted()
-            .joined(separator: ",")
+            .joined(separator: ",") + "#" + serverSignature
     }
 
     /// (Re)build the Discover catalog options when the enabled-addon set changes.
@@ -312,6 +335,7 @@ final class SearchViewModel: ObservableObject {
     deinit {
         debounce?.cancel()
         addonWatcher?.cancel()
+        serverWatcher?.cancel()
         searchWatcher?.cancel()
         discoverWatcher?.cancel()
         historyWatcher?.cancel()

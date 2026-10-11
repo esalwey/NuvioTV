@@ -983,7 +983,7 @@ struct HomeView: View {
                 prefetchHeroArt()
             }
             .navigationDestination(for: TitleRoute.self) { route in
-                DetailView(preview: route.preview)
+                TitleDestinationView(preview: route.preview)
             }
             .navigationDestination(for: CatalogRoute.self) { route in
                 CatalogGridView(route: route)
