@@ -108,6 +108,12 @@ struct AppearanceSettingsPane: View {
         )
     }
 
+    /// The stored Custom theme accent, shown on the Custom swatch (read when the pane builds; a
+    /// change re-identifies the app root, so the pane is always rebuilt with the new value).
+    private var customAccent: UInt32 {
+        CustomAccentColor.parse(hex: ThemeSettingsRepository.shared.currentCustomThemeHex()) ?? 0xEC70A9
+    }
+
     var body: some View {
         Group {
             content
@@ -135,6 +141,7 @@ struct AppearanceSettingsPane: View {
                 .frame(maxWidth: 1100, alignment: .leading)
             ThemePickerRow(
                 selectedName: model.themeName,
+                customAccent: customAccent,
                 pendingFocus: $pendingThemeSwatchFocus
             ) { theme in
                 // Only arm the hint for a REAL change: re-picking the current theme publishes
@@ -146,6 +153,24 @@ struct AppearanceSettingsPane: View {
                     pendingThemeSwatchFocus = theme.name
                 }
                 model.setTheme(theme)
+            }
+
+            // Custom accent: swatches cover the presets; this pushes the editor (presets, hue /
+            // saturation / brightness menus, hex field). The editor commits explicitly because
+            // applying a theme rebuilds the app root, which would pop it mid-edit.
+            SettingsLinkRow(
+                title: String(localized: "Custom Color"),
+                subtitle: String(localized: "Choose your own accent color")
+            ) {
+                CustomThemeEditorPage(initialHex: ThemeSettingsRepository.shared.currentCustomThemeHex()) { hex in
+                    // Arm the focus hint only when the root will really rebuild (see the swatch
+                    // closure above): a no-op re-apply would leave it armed.
+                    if model.themeName != AppTheme.custom.name
+                        || hex.caseInsensitiveCompare(ThemeSettingsRepository.shared.currentCustomThemeHex()) != .orderedSame {
+                        pendingThemeSwatchFocus = AppTheme.custom.name
+                    }
+                    model.setCustomTheme(hex: hex)
+                }
             }
 
             // FEAT-7: Default keeps the sidebar's category icons at normal row height; Minimal
@@ -174,6 +199,8 @@ struct AppearanceSettingsPane: View {
             .accessibilityIdentifier("appearance_row_typeface")
             .focused($appearanceRowFocus, equals: "typeface")
         }
+
+        AppLanguageSettingsSection()
 
         SettingsSection(String(localized: "Poster Style")) {
             PosterStyleControls(
@@ -306,28 +333,38 @@ struct AppearanceSettingsPane: View {
 }
 
 /// A row of theme swatches (one per shared `AppTheme`); the selected one wears a ring. Swatch
-/// colors mirror `AppTheme.nativeAccentHex` (and Theme.Palette.applyTheme's table).
+/// colors are each theme's accent (`Theme.Palette.themeColors(forKey:)`, the same table the palette
+/// applies); the Custom swatch shows the user's stored custom accent.
 private struct ThemePickerRow: View {
     let selectedName: String
+    let customAccent: UInt32
     @Binding var pendingFocus: String?
     let onSelect: (AppTheme) -> Void
 
     @FocusState private var focusedSwatch: String?
 
-    private static let options: [(theme: AppTheme, label: String, colorHex: UInt32)] = [
-        (.crimson, String(localized: "Crimson"), 0xE53935),
-        (.ocean, String(localized: "Ocean"), 0x1E88E5),
-        (.violet, String(localized: "Violet"), 0x8E24AA),
-        (.emerald, String(localized: "Emerald"), 0x43A047),
-        (.amber, String(localized: "Amber"), 0xFB8C00),
-        (.rose, String(localized: "Rose"), 0xD81B60),
-        (.white, String(localized: "White"), 0xF5F5F5),
-    ]
+    private var options: [(theme: AppTheme, label: String, colorHex: UInt32)] {
+        [
+            (.crimson, String(localized: "Crimson"), 0xE53935),
+            (.ocean, String(localized: "Ocean"), 0x1E88E5),
+            (.violet, String(localized: "Violet"), 0x8E24AA),
+            (.emerald, String(localized: "Emerald"), 0x43A047),
+            (.amber, String(localized: "Amber"), 0xFB8C00),
+            (.rose, String(localized: "Rose"), 0xD81B60),
+            (.white, String(localized: "White"), 0xF5F5F5),
+            (.gold, String(localized: "Gold"), Theme.Palette.themeColors(forKey: "GOLD").accent),
+            (.jade, String(localized: "Jade"), Theme.Palette.themeColors(forKey: "JADE").accent),
+            (.roseGold, String(localized: "Rose Gold"), Theme.Palette.themeColors(forKey: "ROSE_GOLD").accent),
+            (.arcticBlue, String(localized: "Arctic Blue"), Theme.Palette.themeColors(forKey: "ARCTIC_BLUE").accent),
+            (.graphite, String(localized: "Graphite"), Theme.Palette.themeColors(forKey: "GRAPHITE").accent),
+            (.custom, String(localized: "Custom"), customAccent),
+        ]
+    }
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: Theme.Spacing.md) {
-                ForEach(Self.options, id: \.label) { option in
+                ForEach(options, id: \.label) { option in
                     Button {
                         onSelect(option.theme)
                     } label: {
@@ -350,7 +387,7 @@ private struct ThemePickerRow: View {
             // unrelated later remount (or a fresh entry into Settings) does not grab focus.
             guard let pending = pendingFocus else { return }
             pendingFocus = nil
-            focusedSwatch = Self.options.first { $0.theme.name == pending }?.label
+            focusedSwatch = options.first { $0.theme.name == pending }?.label
         }
     }
 }

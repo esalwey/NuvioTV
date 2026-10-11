@@ -293,6 +293,11 @@ final class SettingsViewModel: ObservableObject {
         ThemeSettingsRepository.shared.setTheme(theme: theme)
     }
 
+    /// Stores a single-colour Custom theme (`#RRGGBB`) and selects it; an invalid value is ignored.
+    func setCustomTheme(hex: String) {
+        _ = ThemeSettingsRepository.shared.setCustomThemeHex(hex: hex)
+    }
+
     func setSkipIntro(_ enabled: Bool) {
         PlayerSettingsRepository.shared.setSkipIntroEnabled(enabled: enabled)
     }

@@ -35,24 +35,71 @@ enum Theme {
         /// `accentFocus`'s own default above.
         nonisolated(unsafe) static var accentFocusHex = "FF5252"
 
-        /// Retints the palette for a shared `AppTheme` (by enum name). Accents mirror mobile's
-        /// `ThemeColors.kt` (`AppTheme.nativeAccentHex`), with a brighter focus variant per theme.
-        static func applyTheme(named name: String) {
-            let accentHex: UInt32
-            let focusHex: UInt32
-            switch name {
-            case "OCEAN":   accentHex = 0x1E88E5; focusHex = 0x42A5F5
-            case "VIOLET":  accentHex = 0x8E24AA; focusHex = 0xAB47BC
-            case "EMERALD": accentHex = 0x43A047; focusHex = 0x66BB6A
-            case "AMBER":   accentHex = 0xFB8C00; focusHex = 0xFFA726
-            case "ROSE":    accentHex = 0xD81B60; focusHex = 0xEC407A
-            case "WHITE":   accentHex = 0xF5F5F5; focusHex = 0xFFFFFF
-            default:        accentHex = 0xE53935; focusHex = 0xFF5252 // CRIMSON
+        /// Accent / focus pair for a theme key: a shared `AppTheme` enum name, or for the Custom theme
+        /// `CUSTOM:<accent RRGGBB>:<focus RRGGBB>` (the key `ThemeSettingsRepository.currentThemeKey()`
+        /// publishes, so editing the custom color re-identifies the app root). Unknown names fall
+        /// back to Crimson, the app's launch look. Pure — unit-tested.
+        static func themeColors(forKey key: String) -> (accent: UInt32, focus: UInt32) {
+            switch key {
+            case "OCEAN":       return (0x1E88E5, 0x42A5F5)
+            case "VIOLET":      return (0x8E24AA, 0xAB47BC)
+            case "EMERALD":     return (0x43A047, 0x66BB6A)
+            case "AMBER":       return (0xFB8C00, 0xFFA726)
+            case "ROSE":        return (0xD81B60, 0xEC407A)
+            case "WHITE":       return (0xF5F5F5, 0xFFFFFF)
+            case "GOLD":        return (0xE8A91C, 0xFFD45C)
+            case "JADE":        return (0x22D37C, 0x7BF08D)
+            case "ROSE_GOLD":   return (0xEC70A9, 0xFFB37A)
+            case "ARCTIC_BLUE": return (0x3185F5, 0x4DE3FF)
+            case "GRAPHITE":    return (0xAAB2BE, 0xF3F5F7)
+            case "CUSTOM":      return (0xEC70A9, 0xFFB37A) // shared CustomThemeColors.Default
+            default:
+                if key.hasPrefix("CUSTOM:") {
+                    let parts = key.split(separator: ":", omittingEmptySubsequences: false)
+                    if parts.count == 3,
+                       parts[1].count == 6, parts[2].count == 6,
+                       let accent = UInt32(parts[1], radix: 16),
+                       let focus = UInt32(parts[2], radix: 16) {
+                        return (accent, focus)
+                    }
+                    return (0xEC70A9, 0xFFB37A)
+                }
+                return (0xE53935, 0xFF5252) // CRIMSON
             }
+        }
+
+        /// Retints the palette for a theme key (see `themeColors(forKey:)`). Accents mirror mobile's
+        /// `ThemeColors.kt`, with a brighter focus variant per theme.
+        static func applyTheme(named name: String) {
+            let (accentHex, focusHex) = themeColors(forKey: name)
             accent = Color(hex: accentHex)
             accentFocus = Color(hex: focusHex)
             accentFocusHex = String(format: "%06X", focusHex)
-            accentText = onColor(forFillHex: accentHex)
+            accentText = prefersDarkContent(forKey: name, accentHex: accentHex)
+                ? Color(hex: 0x0D0D0D)
+                : onColor(forFillHex: accentHex)
+        }
+
+        /// Themes whose accent is light enough that mobile pairs it with dark text/icons
+        /// (`onSecondary = 0xFF111111` in composeApp's `ThemeColors`): Gold, Jade, Rose Gold and
+        /// Graphite, plus a Custom accent past the WCAG mid-point (linear luminance 0.179, the
+        /// same rule mobile applies to custom colors). Every older theme keeps `onColor`'s rule.
+        static func prefersDarkContent(forKey key: String, accentHex: UInt32) -> Bool {
+            switch key {
+            case "GOLD", "JADE", "ROSE_GOLD", "GRAPHITE":
+                return true
+            default:
+                return key.hasPrefix("CUSTOM") && linearLuminance(ofHex: accentHex) > 0.179
+            }
+        }
+
+        /// WCAG relative luminance of a packed `0xRRGGBB` (linearised sRGB).
+        static func linearLuminance(ofHex hex: UInt32) -> Double {
+            func channel(_ shift: UInt32) -> Double {
+                let c = Double((hex >> shift) & 0xFF) / 255.0
+                return c <= 0.04045 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4)
+            }
+            return 0.2126 * channel(16) + 0.7152 * channel(8) + 0.0722 * channel(0)
         }
 
         /// Picks a legible text/icon color for a solid fill, by simple relative-luminance
