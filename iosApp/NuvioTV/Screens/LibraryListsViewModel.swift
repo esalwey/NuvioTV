@@ -55,6 +55,13 @@ final class LibraryListsViewModel: ObservableObject {
 
     func dismiss() { controller.dismiss() }
 
+    /// Dialog mode checks by name: Kotlin/Native renames enum entries that clash with Objective-C
+    /// keywords (`DELETE`), so Swift never names the cases.
+    var isEditingList: Bool { dialog?.mode.name == "EDIT" }
+    var isDeleteDialog: Bool { dialog?.mode.name == "DELETE" }
+    var deleteFailed: Bool { isDeleteDialog && dialog?.error != nil }
+    var isDeletePending: Bool { isDeleteDialog && dialog?.isPending == true }
+
     func create() { controller.create() }
 
     func edit(_ tab: TrackingLibraryTab) { controller.edit(tab: tab) }

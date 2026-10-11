@@ -15,7 +15,7 @@ struct LibraryListsSheet: View {
     var body: some View {
         NavigationStack {
             Group {
-                if let state = model.dialog, state.mode == .edit {
+                if model.isEditingList, let state = model.dialog {
                     LibraryListEditorView(model: model, state: state) { tab in
                         pendingDelete = tab
                     }
@@ -29,7 +29,7 @@ struct LibraryListsSheet: View {
         }
         .background(Theme.Palette.background.ignoresSafeArea())
         .onExitCommand {
-            if model.dialog?.mode == .edit {
+            if model.isEditingList {
                 model.openManager()
             } else {
                 model.dismiss()
@@ -51,7 +51,7 @@ struct LibraryListsSheet: View {
         .alert(
             String(localized: "Couldn\u{2019}t Delete the List"),
             isPresented: Binding(
-                get: { model.dialog?.mode == .delete && model.dialog?.error != nil },
+                get: { model.deleteFailed },
                 set: { if !$0 { model.dismissDeleteFailure() } }
             )
         ) {
@@ -108,7 +108,7 @@ struct LibraryListsSheet: View {
     }
 
     private var isDeleting: Bool {
-        model.dialog?.mode == .delete && model.dialog?.isPending == true
+        model.isDeletePending
     }
 
     private func listRow(_ tab: TrackingLibraryTab) -> some View {
