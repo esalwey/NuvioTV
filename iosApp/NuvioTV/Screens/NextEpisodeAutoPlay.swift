@@ -337,6 +337,9 @@ final class NextEpisodeEngine: ObservableObject {
     var onExitRequested: (() -> Void)?
     /// Open the stream picker for the next episode ("Choose a Source").
     var onPickSourceRequested: ((MetaVideo) -> Void)?
+    /// An in-player source switch could not be prepared or resolved: the player says why instead of
+    /// leaving the viewer to wonder why picking a source did nothing.
+    var onSourceSwitchFailed: ((String) -> Void)?
     /// Right before a next-episode hand-off: the finished episode must be flushed as completed.
     var onWillHandOff: (() -> Void)?
     /// Right before the next episode's addon subtitles are prefetched (mpv stops side-loading
@@ -1060,6 +1063,10 @@ final class NextEpisodeEngine: ObservableObject {
         // A Jellyfin / Emby file: the server opens a session for it first, then it switches like any link.
         if ServerStreamPreparer.needsPreparation(stream) {
             ServerStreamPreparer.prepare(stream, savedAtEpochMs: 0) { [weak self] result in
+                if case .failure(let failure) = result {
+                    self?.onSourceSwitchFailed?(failure.message)
+                    return
+                }
                 guard case .success(let prepared) = result else { return }
                 guard let self, !self.handedOff else {
                     ServerPlayback.shared.stop(url: prepared.url.absoluteString)
@@ -1081,9 +1088,17 @@ final class NextEpisodeEngine: ObservableObject {
             episode: context.episode.map { KotlinInt(int: Int32($0)) }
         ) { [weak self] result, _ in
             DispatchQueue.main.async {
-                guard let self, let success = result as? DirectDebridPlayableResult.Success else { return }
+                guard let self else { return }
+                guard let success = result as? DirectDebridPlayableResult.Success else {
+                    let message = (result as? DirectDebridPlayableResult.Error)?.message
+                    self.onSourceSwitchFailed?(message ?? String(localized: "Could not open this link."))
+                    return
+                }
                 let resolved: String? = success.stream.playableDirectUrl
-                guard let resolved, !resolved.isEmpty, let url = URL(string: resolved) else { return }
+                guard let resolved, !resolved.isEmpty, let url = URL(string: resolved) else {
+                    self.onSourceSwitchFailed?(String(localized: "Could not open this link."))
+                    return
+                }
                 self.switchToSource(stream: success.stream, url: url)
             }
         }
