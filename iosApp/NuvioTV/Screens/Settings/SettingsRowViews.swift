@@ -200,6 +200,8 @@ struct SettingsSection<Content: View>: View {
                     // the focused Sign Out row). `sm` of extra bottom padding keeps the header clear
                     // of the platter without visibly loosening the section rhythm.
                     .padding(.bottom, Theme.Spacing.sm)
+                    // Settings search jumps here (`SettingsSearchEntry.section`).
+                    .id(SettingsSearchAnchor.id(for: title))
             }
         } footer: {
             if let footer, !footer.isEmpty {
