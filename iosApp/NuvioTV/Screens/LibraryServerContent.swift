@@ -21,6 +21,9 @@ final class LibraryServerViewModel: ObservableObject {
     @Published private(set) var hasLibraries = false
     @Published private(set) var shelves: [Shelf] = []
     @Published private(set) var isLoading = false
+    /// Set when the whole load failed (not one library): shown with a Try Again instead of the
+    /// "No libraries selected" empty state, which would be a lie.
+    @Published private(set) var loadFailureMessage: String?
 
     private var watcher: FlowWatcher?
     private var isActive = false
@@ -53,14 +56,28 @@ final class LibraryServerViewModel: ObservableObject {
 
     func reload() {
         generation += 1
-        let current = generation
+        load(generation: generation, retriesLeft: 1)
+    }
+
+    /// A nil answer means the load itself failed (the connections changed under it, for instance),
+    /// not that there is nothing to show: it is tried once more, then reported.
+    private func load(generation current: Int, retriesLeft: Int) {
         isLoading = true
+        loadFailureMessage = nil
         LibraryServerShelvesKt.loadServerShelves { [weak self] loaded, _ in
             DispatchQueue.main.async {
                 guard let self, self.generation == current else { return }
-                self.isLoading = false
-                let result: [LibraryServerShelf] = loaded ?? []
-                self.shelves = result.map(Self.shelf(from:))
+                if let loaded {
+                    self.isLoading = false
+                    let result: [LibraryServerShelf] = loaded
+                    self.shelves = result.map(Self.shelf(from:))
+                } else if retriesLeft > 0 {
+                    self.load(generation: current, retriesLeft: retriesLeft - 1)
+                } else {
+                    self.isLoading = false
+                    self.shelves = []
+                    self.loadFailureMessage = ServerFailureText.message(failure: "FAILED")
+                }
             }
         }
     }
@@ -103,6 +120,9 @@ struct LibraryServerContentView: View {
             if model.isLoading {
                 ProgressView()
                     .frame(maxWidth: .infinity)
+                    .padding(.top, Theme.Spacing.sectionGap)
+            } else if let message = model.loadFailureMessage {
+                failureRow(title: String(localized: "Servers"), message: message)
                     .padding(.top, Theme.Spacing.sectionGap)
             } else {
                 ContentUnavailableView {

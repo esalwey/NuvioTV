@@ -104,27 +104,43 @@ object ServerRepository {
         return ServerSession(connection, token)
     }
 
+    /**
+     * Runs [block] against a connection. The connections can change while a request is in flight (a
+     * library toggled, a sync landing, a profile load): the answer then belongs to the old
+     * connection list, so the block is run again once against the new one. Only when the scope
+     * moves again does the call fail, with a [ServerException]: that is a failure the callers
+     * reset their loading state on. It is never a [CancellationException], which the callers read
+     * as "somebody cancelled me" and answer by going silent, leaving a spinner behind.
+     */
     suspend fun <T> call(
         connectionId: String,
         block: suspend (ServerProvider, ServerSession) -> T,
     ): T {
-        val startedGeneration = generation
-        val connection = connection(connectionId) ?: throw ServerException(ServerFailure.NOT_FOUND)
-        if (!connection.enabled) throw ServerException(ServerFailure.UNREACHABLE)
-        val session = session(connectionId) ?: throw ServerException(ServerFailure.AUTH_REQUIRED)
-        val provider = provider(session.connection) ?: throw ServerException(ServerFailure.UNSUPPORTED)
-        return try {
-            block(provider, session).also {
-                if (startedGeneration != generation) throw CancellationException("Server scope changed")
+        var attempt = 0
+        while (true) {
+            // Loaded first: the generation must be read after a pending load() has bumped it, or the
+            // very first call on a cold profile would always look invalidated.
+            val connection = connection(connectionId) ?: throw ServerException(ServerFailure.NOT_FOUND)
+            val startedGeneration = generation
+            if (!connection.enabled) throw ServerException(ServerFailure.UNREACHABLE)
+            val session = session(connectionId) ?: throw ServerException(ServerFailure.AUTH_REQUIRED)
+            val provider = provider(session.connection) ?: throw ServerException(ServerFailure.UNSUPPORTED)
+            try {
+                val result = block(provider, session)
+                if (startedGeneration != generation) {
+                    if (attempt++ == 0) continue
+                    throw ServerException(ServerFailure.FAILED, "Server scope changed")
+                }
                 setFailure(connectionId, null)
+                return result
+            } catch (error: ServerException) {
+                if (startedGeneration == generation &&
+                    (error.failure == ServerFailure.AUTH_REQUIRED || error.failure == ServerFailure.UNREACHABLE)
+                ) {
+                    setFailure(connectionId, error.failure)
+                }
+                throw error
             }
-        } catch (error: ServerException) {
-            if (startedGeneration == generation &&
-                (error.failure == ServerFailure.AUTH_REQUIRED || error.failure == ServerFailure.UNREACHABLE)
-            ) {
-                setFailure(connectionId, error.failure)
-            }
-            throw error
         }
     }
 
@@ -154,7 +170,8 @@ object ServerRepository {
         )
         val libraries = provider.libraries(ServerSession(draft, signIn.token))
         if (startedGeneration != generation || profileId != loadedProfileId) {
-            throw CancellationException("Server scope changed")
+            // A failure, not a cancel: the sheet must stop spinning and say the sign-in did not land.
+            throw ServerException(ServerFailure.FAILED, "Server scope changed")
         }
         val connection = draft.copy(libraries = mergeLibraries(existing?.libraries.orEmpty(), libraries))
         store(connection, signIn.token)
