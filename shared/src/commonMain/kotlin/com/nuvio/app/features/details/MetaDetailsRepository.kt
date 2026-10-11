@@ -18,6 +18,9 @@ import com.nuvio.app.features.trakt.TraktAuthRepository
 import com.nuvio.app.features.trakt.TraktConnectionMode
 import com.nuvio.app.features.trakt.TraktRelatedRepository
 import com.nuvio.app.features.trakt.TraktSettingsRepository
+import com.nuvio.app.features.simkl.SimklAuthRepository
+import com.nuvio.app.features.simkl.SimklRelatedRepository
+import com.nuvio.app.features.trakt.shouldUseSimklMoreLikeThis
 import com.nuvio.app.features.trakt.shouldUseTraktMoreLikeThis
 import com.nuvio.app.features.watchprogress.CurrentDateProvider
 import kotlinx.coroutines.CancellationException
@@ -512,6 +515,33 @@ object MetaDetailsRepository {
 
         val traktSettings = TraktSettingsRepository.uiState.value
         val isTraktAuthenticated = TraktAuthRepository.uiState.value.mode == TraktConnectionMode.CONNECTED
+
+        // Simkl source (upstream af1298eb4): only while Simkl is connected.
+        SimklAuthRepository.ensureLoaded()
+        if (shouldUseSimklMoreLikeThis(
+                isAuthenticated = SimklAuthRepository.isAuthenticated.value,
+                source = traktSettings.moreLikeThisSource,
+            ) && supportsMoreLikeThis(meta, fallbackItemType)
+        ) {
+            val items = runCatching {
+                // Bound the related-titles call so a slow Simkl response can't stall enrichment.
+                withTimeoutOrNull(FETCH_TIMEOUT_MS) {
+                    SimklRelatedRepository.getRelated(
+                        meta = meta,
+                        fallbackItemId = fallbackItemId,
+                        fallbackItemType = fallbackItemType,
+                    )
+                } ?: emptyList()
+            }.onFailure { error ->
+                log.w { "Failed to load Simkl related titles for ${meta.id}: ${error.message}" }
+            }.getOrDefault(emptyList())
+
+            return meta.copy(
+                moreLikeThis = items,
+                moreLikeThisSource = MoreLikeThisSource.SIMKL.takeIf { items.isNotEmpty() },
+            )
+        }
+
         val shouldUseTrakt = shouldUseTraktMoreLikeThis(
             isAuthenticated = isTraktAuthenticated,
             source = traktSettings.moreLikeThisSource,
@@ -574,7 +604,11 @@ object MetaDetailsRepository {
         val traktSettings = TraktSettingsRepository.uiState.value
         val isTraktAuthenticated = TraktAuthRepository.uiState.value.mode == TraktConnectionMode.CONNECTED
         val tmdbSettings = TmdbSettingsRepository.snapshot()
-        return shouldUseTraktMoreLikeThis(
+        SimklAuthRepository.ensureLoaded()
+        return shouldUseSimklMoreLikeThis(
+            isAuthenticated = SimklAuthRepository.isAuthenticated.value,
+            source = traktSettings.moreLikeThisSource,
+        ) || shouldUseTraktMoreLikeThis(
             isAuthenticated = isTraktAuthenticated,
             source = traktSettings.moreLikeThisSource,
         ) || !tmdbSettings.enabled || !tmdbSettings.useMoreLikeThis || meta.moreLikeThisSource == null && meta.moreLikeThis.isNotEmpty()
@@ -590,9 +624,10 @@ object MetaDetailsRepository {
         val traktSettings = TraktSettingsRepository.uiState.value
         val traktAuthMode = TraktAuthRepository.uiState.value.mode
         val tmdbSettings = TmdbSettingsRepository.snapshot()
+        SimklAuthRepository.ensureLoaded()
         return buildString {
             append("${settings.enabled}:${settings.apiKey.trim()}:$providers")
-            append("|more_like=${traktSettings.moreLikeThisSource}:$traktAuthMode")
+            append("|more_like=${traktSettings.moreLikeThisSource}:$traktAuthMode:${SimklAuthRepository.isAuthenticated.value}")
             append("|tmdb=${tmdbSettings.enabled}:${tmdbSettings.useMoreLikeThis}:${tmdbSettings.hasApiKey}:${tmdbSettings.language}")
         }
     }

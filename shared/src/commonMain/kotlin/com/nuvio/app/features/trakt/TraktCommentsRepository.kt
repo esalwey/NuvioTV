@@ -38,10 +38,46 @@ object TraktCommentsRepository {
         meta: MetaDetails,
         page: Int = 1,
         forceRefresh: Boolean = false,
+    ): TraktCommentsPage = loadCommentsPage(
+        meta = meta,
+        season = null,
+        episode = null,
+        page = page,
+        forceRefresh = forceRefresh,
+    )
+
+    /**
+     * Comments for one episode of a show (`/shows/{id}/seasons/{s}/episodes/{e}/comments`). Same
+     * paging, cache and error contract as [getCommentsPage]; a movie has no episodes, so it
+     * resolves to an empty page.
+     */
+    suspend fun getEpisodeCommentsPage(
+        meta: MetaDetails,
+        season: Int,
+        episode: Int,
+        page: Int = 1,
+        forceRefresh: Boolean = false,
+    ): TraktCommentsPage = loadCommentsPage(
+        meta = meta,
+        season = season,
+        episode = episode,
+        page = page,
+        forceRefresh = forceRefresh,
+    )
+
+    private suspend fun loadCommentsPage(
+        meta: MetaDetails,
+        season: Int?,
+        episode: Int?,
+        page: Int,
+        forceRefresh: Boolean,
     ): TraktCommentsPage {
         val target = resolveCommentsTarget(meta)
             ?: return TraktCommentsPage(emptyList(), page, 0, 0)
-        val cacheKey = "${target.type.apiValue}|${target.pathId}"
+        if ((season != null || episode != null) && target.type != TraktCommentsType.SHOW) {
+            return TraktCommentsPage(emptyList(), page, 0, 0)
+        }
+        val cacheKey = traktCommentsCacheKey(target.type, target.pathId, season, episode)
 
         if (forceRefresh) {
             cacheMutex.withLock { cache.remove(cacheKey) }
@@ -68,11 +104,9 @@ object TraktCommentsRepository {
         val headers = TraktAuthRepository.authorizedHeaders()
             ?: return TraktCommentsPage(emptyList(), page, 0, 0)
 
-        val endpoint = when (target.type) {
-            TraktCommentsType.MOVIE -> "movies"
-            TraktCommentsType.SHOW -> "shows"
-        }
-        val url = "https://api.trakt.tv/$endpoint/${target.pathId}/comments/$COMMENTS_SORT?page=$page&limit=$COMMENTS_LIMIT"
+        val url = "https://api.trakt.tv/" +
+            traktCommentsPath(target.type, target.pathId, season, episode, COMMENTS_SORT) +
+            "?page=$page&limit=$COMMENTS_LIMIT"
 
         val response = try {
             httpRequestRaw(
@@ -191,6 +225,41 @@ object TraktCommentsRepository {
             null
         }
     }
+}
+
+/** Cache key of one comment thread: a title, or one episode of a show. */
+internal fun traktCommentsCacheKey(
+    type: TraktCommentsType,
+    pathId: String,
+    season: Int?,
+    episode: Int?,
+): String = buildString {
+    append(type.apiValue).append('|').append(pathId)
+    if (season != null && episode != null) append("|s").append(season).append("e").append(episode)
+}
+
+/**
+ * Trakt path (no host, no query) of a comment thread:
+ * `movies/{id}/comments/{sort}`, `shows/{id}/comments/{sort}` or
+ * `shows/{id}/seasons/{s}/episodes/{e}/comments/{sort}`.
+ */
+internal fun traktCommentsPath(
+    type: TraktCommentsType,
+    pathId: String,
+    season: Int?,
+    episode: Int?,
+    sort: String,
+): String {
+    val endpoint = when (type) {
+        TraktCommentsType.MOVIE -> "movies"
+        TraktCommentsType.SHOW -> "shows"
+    }
+    val episodeScope = if (type == TraktCommentsType.SHOW && season != null && episode != null) {
+        "/seasons/$season/episodes/$episode"
+    } else {
+        ""
+    }
+    return "$endpoint/$pathId$episodeScope/comments/$sort"
 }
 
 private data class ResolvedCommentsTarget(

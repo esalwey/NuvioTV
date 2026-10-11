@@ -28,4 +28,25 @@ object TraktCommentsSwiftBridge {
     } catch (e: Exception) {
         null
     }
+
+    /** Episode-scoped twin of [pageOrNull], same null-on-failure contract. */
+    suspend fun episodePageOrNull(
+        meta: MetaDetails,
+        season: Int,
+        episode: Int,
+        page: Int,
+        forceRefresh: Boolean,
+    ): TraktCommentsPage? = try {
+        TraktCommentsRepository.getEpisodeCommentsPage(
+            meta = meta,
+            season = season,
+            episode = episode,
+            page = page,
+            forceRefresh = forceRefresh,
+        )
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        null
+    }
 }

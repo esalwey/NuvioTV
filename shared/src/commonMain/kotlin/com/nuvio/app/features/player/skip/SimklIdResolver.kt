@@ -47,8 +47,13 @@ internal object SimklIdResolver {
     /// Anime-Skip with season 1's MAL/AniList ids — the same season-awareness the removed ARM path had
     /// (`entries[season - 1]`). When [season] is given and more than one entry matches, prefer the
     /// entry whose Simkl `season` equals it; otherwise fall back to the first result as upstream does.
-    suspend fun resolveIds(source: String, id: String, season: Int? = null): ResolvedIds? {
-        val cacheKey = "$source:$id:${season ?: ""}"
+    suspend fun resolveIds(
+        source: String,
+        id: String,
+        season: Int? = null,
+        contentTypeHint: String? = null,
+    ): ResolvedIds? {
+        val cacheKey = "$source:$id:${season ?: ""}" + (contentTypeHint?.let { ":$it" } ?: "")
         idsCache[cacheKey]?.let { return it }
         if (SimklConfig.CLIENT_ID.isBlank()) return null
 
@@ -56,7 +61,9 @@ internal object SimklIdResolver {
             val searchText = httpGetText(buildSimklApiUrl("/search/id", mapOf(source to id)))
             val results = json.parseToJsonElement(searchText).jsonArray
             if (results.isEmpty()) return null
-            val candidates = results.mapNotNull { it as? JsonObject }
+            // Upstream 317bf2dcc: an id shared by a movie and a show (or an anime) resolves to the
+            // entry of the type the caller is looking at, not blindly to the first result.
+            val candidates = results.mapNotNull { it as? JsonObject }.preferSimklType(contentTypeHint)
             val scanForSeason = season != null && candidates.size > 1
             // Codex r4: one candidate's details call failing must not sink the whole lookup —
             // resolve per candidate, keep the first that succeeds as the fallback, and keep scanning.
@@ -190,3 +197,25 @@ internal object SimklIdResolver {
 }
 
 private data class AnimeSeasonEntry(val simklId: Long, val tvdbSeason: Int)
+
+/** Simkl search `type` values that match a caller's content type (`movie`, `series`, `anime`...). */
+internal fun simklTypesForHint(hint: String?): Set<String> = when (hint?.trim()?.lowercase()) {
+    "movie", "film" -> setOf("movie")
+    "series", "tv", "show", "tvshow" -> setOf("show", "tv")
+    "anime" -> setOf("anime")
+    else -> emptySet()
+}
+
+/**
+ * Stable reorder: candidates whose Simkl `type` matches [hint] first, the rest after them in their
+ * original order. No hint (or no match) leaves the list untouched, so an unhinted lookup behaves
+ * exactly as before.
+ */
+internal fun List<JsonObject>.preferSimklType(hint: String?): List<JsonObject> {
+    val expected = simklTypesForHint(hint)
+    if (expected.isEmpty()) return this
+    val (matching, others) = partition { entry ->
+        (entry["type"] as? kotlinx.serialization.json.JsonPrimitive)?.content in expected
+    }
+    return matching + others
+}
