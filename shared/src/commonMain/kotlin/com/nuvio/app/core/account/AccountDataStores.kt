@@ -578,6 +578,19 @@ object AccountDataStores {
             ),
         ),
         AccountDataStore(
+            name = "MdbListAuthPersistence",
+            androidPreferences = "nuvio_mdblist_auth",
+            appleKeys = listOf(AppleKeySpec.ProfileScoped("mdblist_auth_payload")),
+        ),
+        AccountDataStore(
+            name = "MdbListSyncStorage",
+            androidPreferences = "nuvio_mdblist_sync",
+            appleKeys = listOf(
+                AppleKeySpec.FileStore("MdbListSync"),
+                AppleKeySpec.ProfileScoped("mdblist_sync_snapshot"),
+            ),
+        ),
+        AccountDataStore(
             // composeApp-only (phone flavours); tvOS does not ship P2P, but both Apple cleaners
             // already list these keys, so they stay here.
             name = "P2pSettingsStorage",

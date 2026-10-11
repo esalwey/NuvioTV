@@ -16,7 +16,7 @@ import kotlinx.atomicfu.locks.synchronized
 /**
  * Identity of a tracking backend.
  *
- * Both [TRAKT] and [SIMKL] have registered providers (see `ensureTrackingProvidersRegistered`).
+ * [TRAKT], [SIMKL] and [MDBLIST] have registered providers (see `ensureTrackingProvidersRegistered`).
  * The storage ids are upstream-faithful so the parsing in [TrackingMedia]/[TrackingAttribution]
  * round-trips persisted attributions unchanged.
  */
@@ -24,7 +24,8 @@ enum class TrackingProviderId(
     val storageId: String,
 ) {
     TRAKT("trakt"),
-    SIMKL("simkl");
+    SIMKL("simkl"),
+    MDBLIST("mdblist");
 
     companion object {
         fun fromStorage(value: String?): TrackingProviderId? =
@@ -69,6 +70,10 @@ interface TrackingAuthProvider : TrackingProfileStore {
         get() = descriptor.id
 
     fun ensureLoaded()
+
+    /** Bumped whenever the connected account changes (connect, disconnect, revoke). */
+    val accountGeneration: Long
+        get() = 0L
 
     /**
      * Fork-local extension to the upstream port.

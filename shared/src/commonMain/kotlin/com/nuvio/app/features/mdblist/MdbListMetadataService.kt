@@ -9,6 +9,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
@@ -46,8 +48,7 @@ object MdbListMetadataService {
         fallbackItemId: String,
         settings: MdbListSettings,
     ): Boolean {
-        if (!settings.enabled) return false
-        if (settings.apiKey.trim().isBlank()) return false
+        if (!settings.isActive) return false
         if (settings.enabledProvidersInPriorityOrder().isEmpty()) return false
         return extractImdbId(meta.id) != null ||
             extractImdbId(fallbackItemId) != null ||
@@ -62,7 +63,7 @@ object MdbListMetadataService {
         if (!shouldFetchForMeta(meta, fallbackItemId, settings)) {
             return meta.copy(externalRatings = emptyList())
         }
-        val apiKey = settings.apiKey.trim()
+        val credential = settings.credential ?: return meta.copy(externalRatings = emptyList())
 
         val imdbId = extractImdbId(meta.id)
             ?: extractImdbId(fallbackItemId)
@@ -75,7 +76,7 @@ object MdbListMetadataService {
         val ratings = fetchRatings(
             imdbId = imdbId,
             mediaType = mediaType,
-            apiKey = apiKey,
+            credential = credential,
             providers = enabledProviders,
         )
 
@@ -89,10 +90,10 @@ object MdbListMetadataService {
     private suspend fun fetchRatings(
         imdbId: String,
         mediaType: String,
-        apiKey: String,
+        credential: MdbListRatingsCredential,
         providers: List<String>,
     ): List<MetaExternalRating> = withContext(Dispatchers.Default) {
-        val cacheKey = "$mediaType:$imdbId:$apiKey:${providers.joinToString(",")}"
+        val cacheKey = "$mediaType:$imdbId:${credential.cacheId}:${providers.joinToString(",")}"
         ratingsCache[cacheKey]?.let { return@withContext it }
 
         val ratings = coroutineScope {
@@ -102,7 +103,7 @@ object MdbListMetadataService {
                         imdbId = imdbId,
                         mediaType = mediaType,
                         providerId = providerId,
-                        apiKey = apiKey,
+                        credential = credential,
                     )
                 }
             }.awaitAll().filterNotNull()
@@ -116,9 +117,8 @@ object MdbListMetadataService {
         imdbId: String,
         mediaType: String,
         providerId: String,
-        apiKey: String,
+        credential: MdbListRatingsCredential,
     ): MetaExternalRating? {
-        val url = "https://api.mdblist.com/rating/$mediaType/$providerId?apikey=$apiKey"
         val requestBody = json.encodeToString(
             RatingRequest(
                 ids = listOf(imdbId),
@@ -127,12 +127,25 @@ object MdbListMetadataService {
         )
 
         return runCatching {
-            val payload = httpPostJson(url = url, body = requestBody)
+            val payload = when (credential) {
+                is MdbListRatingsCredential.ApiKey -> httpPostJson(
+                    url = "https://api.mdblist.com/rating/$mediaType/$providerId?apikey=${credential.value}",
+                    body = requestBody,
+                )
+                // The connected account is the default; a typed API key (above) overrides it.
+                is MdbListRatingsCredential.Account -> MdbListTracker.api.post(
+                    path = "/rating/$mediaType/$providerId",
+                    body = requestBody,
+                    scope = credential.scope,
+                ).body
+            }
             val parsed = json.decodeFromString<RatingResponse>(payload)
             val rating = parsed.ratings.firstOrNull()?.rating ?: return@runCatching null
             MetaExternalRating(source = providerId, value = rating)
         }.onFailure { error ->
-            if (error is CancellationException) throw error
+            // An account switch cancels the request without cancelling this coroutine: that is
+            // "no ratings", not a cancellation of the caller.
+            if (error is CancellationException) currentCoroutineContext().ensureActive()
             log.w { "MDBList request failed for $providerId/$imdbId: ${error.message}" }
         }.getOrNull()
     }
