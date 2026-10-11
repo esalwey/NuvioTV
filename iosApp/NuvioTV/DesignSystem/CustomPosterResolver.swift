@@ -37,7 +37,7 @@ struct CustomPosterTarget {
         self.init(id: metaId, type: item.type, imdbId: nil, surface: surface)
     }
 
-    init(_ item: LibraryItem, _ surface: CustomPosterSurface) {
+    init(_ item: NuvioLibraryItem, _ surface: CustomPosterSurface) {
         let metaId: String = item.id
         let imdb: String? = item.imdbId
         self.init(id: metaId, type: item.type, imdbId: imdb, surface: surface)

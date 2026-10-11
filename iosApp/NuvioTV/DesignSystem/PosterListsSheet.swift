@@ -1,3 +1,4 @@
+import Combine
 import SharedCore
 import SwiftUI
 
@@ -14,7 +15,7 @@ final class PosterListsModel: ObservableObject {
     @Published private(set) var pendingKey: String?
     @Published private(set) var errorMessage: String?
 
-    private let item: LibraryItem
+    private let item: NuvioLibraryItem
 
     init(preview: MetaPreview) {
         item = preview.toLibraryItem(savedAtEpochMs: 0)
