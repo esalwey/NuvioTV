@@ -21,6 +21,10 @@ data class TrackingLibraryTab(
     val selectionGroup: String? = null,
     val supportedContentTypes: Set<String>? = null,
     val isMembershipDestination: Boolean = true,
+    /** User-facing description of a personal list, when the provider has one. */
+    val description: String? = null,
+    /** Visibility of a personal list on the provider, when it has one. */
+    val privacy: LibraryListPrivacy? = null,
 )
 
 fun TrackingLibraryTab.supportsContentType(contentType: String): Boolean =
@@ -81,6 +85,10 @@ interface TrackingLibraryProvider {
     val providerId: TrackingProviderId
     val changes: Flow<Unit>
     val connectionRefreshIntent: TrackingRefreshIntent
+
+    /** Create / edit / delete / reorder of the user's own lists; null when the provider has none. */
+    val listManager: TrackingListManager?
+        get() = null
 
     fun ensureLoaded()
     fun prepare() = Unit

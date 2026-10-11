@@ -50,6 +50,11 @@ final class LibraryViewModel: ObservableObject {
     }
 
     private var rawItems: [LibraryItem] = []
+    /// Lists as the provider reports them: only the ones that hold titles.
+    private var rawSections: [LibrarySection] = []
+    /// The user's own lists of the active remote library, empty ones included.
+    private var ownLists: [TrackingLibraryTab] = []
+    private var ownListsWatcher: FlowWatcher?
     private var watcher: FlowWatcher?
     private var displayWatcher: FlowWatcher?
     private var traktWatcher: FlowWatcher?
@@ -69,11 +74,21 @@ final class LibraryViewModel: ObservableObject {
                 self.clearFilterSelection()
             }
             self.rawItems = state.items
-            self.sections = state.sections
+            self.rawSections = state.sections
             self.sourceMode = state.sourceMode
+            self.sections = self.sectionsIncludingEmptyLists()
             self.isLoading = state.isLoading
             let error = state.errorMessage ?? ""
             self.errorMessage = error.isEmpty ? nil : error
+            self.republish()
+        }
+        // A list just created is empty, so the provider's sections leave it out; it still has to be
+        // there to pick (and to add titles to). Re-derive when the lists change (create, rename,
+        // delete, reorder).
+        ownListsWatcher = FlowWatcherKt.watch(LibraryListsBridge.shared.managementInfo) { [weak self] emitted in
+            guard let self else { return }
+            self.ownLists = (emitted as? LibraryListManagementInfo)?.lists ?? []
+            self.sections = self.sectionsIncludingEmptyLists()
             self.republish()
         }
         displayWatcher = FlowWatcherKt.watch(LibraryDisplaySettingsRepository.shared.uiState) { [weak self] emitted in
@@ -109,6 +124,8 @@ final class LibraryViewModel: ObservableObject {
         watcher = nil
         displayWatcher?.cancel()
         displayWatcher = nil
+        ownListsWatcher?.cancel()
+        ownListsWatcher = nil
         traktWatcher?.cancel()
         traktWatcher = nil
         simklWatcher?.cancel()
@@ -117,6 +134,20 @@ final class LibraryViewModel: ObservableObject {
         watchedWatcher = nil
         fullyWatchedWatcher?.cancel()
         fullyWatchedWatcher = nil
+    }
+
+    /// The provider's sections, plus an empty section for each of the user's own lists that holds
+    /// nothing yet, in the order the user arranged them (the watchlist and other fixed lists
+    /// first). Unchanged for the local library and for providers without lists of their own.
+    private func sectionsIncludingEmptyLists() -> [LibrarySection] {
+        guard isRemoteSource, !ownLists.isEmpty else { return rawSections }
+        let ownKeys = Set(ownLists.map { $0.key })
+        let byKey = Dictionary(rawSections.map { ($0.type, $0) }, uniquingKeysWith: { first, _ in first })
+        let fixed = rawSections.filter { !ownKeys.contains($0.type) }
+        let own = ownLists.map { tab in
+            byKey[tab.key] ?? LibrarySection(type: tab.key, displayTitle: tab.title, items: [])
+        }
+        return fixed + own
     }
 
     /// Persist a new sort (shared repo: profile-scoped NSUserDefaults) — the watcher republishes.
@@ -199,7 +230,11 @@ final class LibraryViewModel: ObservableObject {
         // Remote sources show one list at a time (the first until the user picks another).
         var base = rawItems
         if isRemoteSource, !sections.isEmpty {
-            let section = sections.first(where: { $0.type == selectedSectionKey }) ?? sections[0]
+            // The chosen list; until one is chosen, the first that has titles (an empty list the
+            // user just created must not become the landing page).
+            let section = sections.first(where: { $0.type == selectedSectionKey })
+                ?? sections.first(where: { !$0.items.isEmpty })
+                ?? sections[0]
             if selectedSectionKey != section.type { selectedSectionKey = section.type }
             base = section.items
         } else if selectedSectionKey != nil {
@@ -247,6 +282,7 @@ final class LibraryViewModel: ObservableObject {
     deinit {
         watcher?.cancel()
         displayWatcher?.cancel()
+        ownListsWatcher?.cancel()
         traktWatcher?.cancel()
         simklWatcher?.cancel()
         watchedWatcher?.cancel()

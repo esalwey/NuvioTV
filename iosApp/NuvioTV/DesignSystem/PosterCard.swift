@@ -1265,14 +1265,20 @@ struct PosterContextMenu: ViewModifier {
     let preview: MetaPreview
     @State private var confirmingSeriesWatched = false
     @State private var seriesWasWatched = false
+    @State private var showingLists = false
 
     func body(content: Content) -> some View {
         content
             .contextMenu {
-                PosterContextMenuItems(preview: preview) { wasWatched in
+                PosterContextMenuItems(preview: preview, confirmSeries: { wasWatched in
                     seriesWasWatched = wasWatched
                     confirmingSeriesWatched = true
-                }
+                }, openLists: {
+                    showingLists = true
+                })
+            }
+            .fullScreenCover(isPresented: $showingLists) {
+                AddToListsSheet(item: preview.toLibraryItem(savedAtEpochMs: 0))
             }
             .alert(copy.title, isPresented: $confirmingSeriesWatched) {
                 Button(copy.confirm, role: .destructive) {
@@ -1314,6 +1320,7 @@ struct PosterContextMenu: ViewModifier {
 private struct PosterContextMenuItems: View {
     let preview: MetaPreview
     let confirmSeries: (_ wasWatched: Bool) -> Void
+    let openLists: () -> Void
 
     var body: some View {
         let saved = PosterContextActions.isSaved(preview)
@@ -1326,6 +1333,15 @@ private struct PosterContextMenuItems: View {
                 Label("Remove from Library", systemImage: "minus.circle")
             } else {
                 Label("Add to Library", systemImage: "plus.circle")
+            }
+        }
+
+        // A connected Trakt / Simkl account has other lists to choose from.
+        if LibraryMembership.shared.hasProviderLists() {
+            Button {
+                openLists()
+            } label: {
+                Label("Add to Lists\u{2026}", systemImage: "text.badge.plus")
             }
         }
 

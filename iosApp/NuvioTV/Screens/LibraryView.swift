@@ -12,6 +12,7 @@ import SharedCore
 struct LibraryView: View {
     @StateObject private var model = LibraryViewModel()
     @StateObject private var cloud = CloudLibraryViewModel()
+    @StateObject private var lists = LibraryListsViewModel()
     @Environment(\.posterStyle) private var posterStyle
     @State private var showingCloud = false
     @State private var filePicker: CloudFilePickerRoute?
@@ -107,10 +108,21 @@ struct LibraryView: View {
         .onAppear {
             model.start()
             cloud.start()
+            lists.start()
         }
         .onDisappear {
             model.stop()
             cloud.stop()
+            // Manage Lists is a full-screen cover over this tab; keep its state flowing while it is up.
+            if lists.dialog == nil { lists.stop() }
+        }
+        .fullScreenCover(
+            isPresented: Binding(
+                get: { lists.dialog != nil },
+                set: { if !$0 { lists.dismiss() } }
+            )
+        ) {
+            LibraryListsSheet(model: lists)
         }
         .fullScreenCover(item: $filePicker) { route in
             CloudFilePickerView(item: route.item) { file in
@@ -136,7 +148,8 @@ struct LibraryView: View {
         let showsSource = !showsCloud && model.hasConnectedProvider
         let showsList = !showsCloud && model.isRemoteSource && model.sections.count > 1
         let showsSync = !showsCloud && model.isRemoteSource
-        if cloud.hasConnectedProvider || showsSort || showsSource || showsList || showsSync {
+        let showsManage = !showsCloud && lists.canManage
+        if cloud.hasConnectedProvider || showsSort || showsSource || showsList || showsSync || showsManage {
             HStack(spacing: Theme.Spacing.md) {
                 if cloud.hasConnectedProvider {
                     FilterPill(title: String(localized: "Saved"), isSelected: !showingCloud) {
@@ -151,6 +164,9 @@ struct LibraryView: View {
                 }
                 if showsList {
                     listMenu
+                }
+                if showsManage {
+                    manageListsButton
                 }
                 Spacer(minLength: Theme.Spacing.xl)
                 if showsSync {
@@ -243,6 +259,19 @@ struct LibraryView: View {
                 }
             }
         }
+    }
+
+    /// Create, rename, delete and reorder the user's own lists (Trakt). Only offered while the
+    /// library on screen has lists of its own.
+    private var manageListsButton: some View {
+        Button {
+            lists.openManager()
+        } label: {
+            Label("Manage Lists", systemImage: "list.bullet.rectangle")
+                .font(Theme.Font.meta)
+        }
+        .buttonStyle(.bordered)
+        .buttonBorderShape(.capsule)
     }
 
     private var syncButton: some View {

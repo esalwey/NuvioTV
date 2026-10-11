@@ -950,6 +950,35 @@ struct DetailView: View {
         } message: {
             Text(playbackUnavailableMessage)
         }
+        // Add to Lists: a provider that would also clear watched history or a rating asks first.
+        .membershipRemovalAlert($model.libraryRemovalPrompt) { prompt in
+            model.confirmLibraryRemoval(prompt)
+        }
+        .alert(
+            model.libraryNotice.map(MembershipText.rewriteTitle) ?? "",
+            isPresented: Binding(
+                get: { model.libraryNotice != nil },
+                set: { if !$0 { model.libraryNotice = nil } }
+            )
+        ) {
+            Button(Self.okCopy, role: .cancel) {}
+        } message: {
+            Text(model.libraryNotice.map(MembershipText.rewriteMessage) ?? "")
+        }
+        .alert(
+            String(localized: "Couldn\u{2019}t Update Your Lists"),
+            isPresented: Binding(
+                get: { model.libraryFailure != nil },
+                set: { if !$0 { model.libraryFailure = nil } }
+            )
+        ) {
+            Button(Self.okCopy, role: .cancel) {}
+        } message: {
+            Text(model.libraryFailure ?? "")
+        }
+        .fullScreenCover(isPresented: $model.showingAddToLists) {
+            AddToListsSheet(item: model.addToListsItem())
+        }
         .fullScreenCover(isPresented: $showStreams) {
             // CW-1: the backdrop (never the poster fallback `backgroundUrl` ends on) and the logo
             // are recorded with the progress entry for Continue Watching and its hero.
@@ -1633,6 +1662,19 @@ struct DetailView: View {
             .accessibilityLabel(Text(model.isSaved ? LocalizedStringKey("In Library") : LocalizedStringKey("Add to Library")))
             .focused($focusedAction, equals: .library)
 
+            // A connected Trakt / Simkl account has lists besides the library: choose them here.
+            if model.hasProviderLists {
+                Button {
+                    model.openAddToLists()
+                } label: {
+                    roundActionIcon("text.badge.plus")
+                }
+                .buttonStyle(.bordered)
+                .buttonBorderShape(.circle)
+                .accessibilityLabel(Text("Add to Lists"))
+                .focused($focusedAction, equals: .lists)
+            }
+
             Button {
                 requestToggleWatched()
             } label: {
@@ -2224,7 +2266,7 @@ struct DetailView: View {
 
 /// F1: the Detail action-row buttons `DetailView.focusedAction` tracks.
 private enum DetailActionFocus: Hashable {
-    case play, startOver, trailer, watched, library
+    case play, startOver, trailer, watched, library, lists
 }
 
 /// One label/value pair in the Detail info block. `id` is the label (unique within the block).

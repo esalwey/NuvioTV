@@ -5,6 +5,7 @@ import co.touchlab.kermit.Logger
 import com.nuvio.app.features.addons.RawHttpResponse
 import com.nuvio.app.features.addons.httpRequestRaw
 import com.nuvio.app.features.library.LibraryItem
+import com.nuvio.app.features.tracking.LibraryListPrivacy
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -14,6 +15,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
@@ -249,6 +251,156 @@ object TraktLibraryRepository {
             throw error
         }
     }
+
+    // region Personal list management (create / edit / delete / reorder)
+
+    /**
+     * Creates a personal list. The new list is appended to the cached tabs straight from Trakt's
+     * response, so it shows up (empty) without refetching every list's items.
+     */
+    suspend fun createPersonalList(name: String, description: String?, privacy: LibraryListPrivacy) {
+        ensureLoaded()
+        require(name.isNotBlank()) { "A list needs a name" }
+        val headers = requireAuthorizedHeaders()
+        val response = sendJsonRequest(
+            method = "POST",
+            url = "$BASE_URL/users/me/lists",
+            body = traktListRequestBody(name, description, privacy, clearEmptyDescription = false),
+            headers = headers,
+            defaultMessage = "Failed to create Trakt list",
+        )
+        val created = runCatching { json.decodeFromString<TraktListSummaryDto>(response.body) }
+            .getOrNull()
+            ?.toPersonalTab()
+        if (created == null) {
+            // Unreadable response: the list exists on Trakt, so let a refresh pick it up.
+            lastListTabsRefreshAtMs = 0L
+            lastRefreshAtMs = 0L
+            refreshNow()
+            return
+        }
+        _uiState.update { state ->
+            rebuildUiState(
+                listTabs = state.listTabs.filterNot { it.key == created.key } + created,
+                entriesByList = state.entriesByList + (created.key to emptyList()),
+            )
+        }
+        afterListStructureChange()
+    }
+
+    suspend fun updatePersonalList(
+        listKey: String,
+        name: String,
+        description: String?,
+        privacy: LibraryListPrivacy,
+    ) {
+        ensureLoaded()
+        require(name.isNotBlank()) { "A list needs a name" }
+        val listId = traktPersonalListId(listKey)
+        val headers = requireAuthorizedHeaders()
+        mutateListStructure(
+            optimistic = { state ->
+                rebuildUiState(
+                    listTabs = state.listTabs.map { tab ->
+                        if (tab.key != listKey) {
+                            tab
+                        } else {
+                            tab.copy(
+                                title = name.trim(),
+                                description = description?.trim()?.takeIf { it.isNotEmpty() },
+                                privacy = TraktListPrivacy.fromApi(privacy.apiValue),
+                            )
+                        }
+                    },
+                    entriesByList = state.entriesByList,
+                )
+            },
+        ) {
+            sendJsonRequest(
+                method = "PUT",
+                url = "$BASE_URL/users/me/lists/$listId",
+                body = traktListRequestBody(name, description, privacy, clearEmptyDescription = true),
+                headers = headers,
+                defaultMessage = "Failed to update Trakt list",
+            )
+        }
+    }
+
+    suspend fun deletePersonalList(listKey: String) {
+        ensureLoaded()
+        val listId = traktPersonalListId(listKey)
+        val headers = requireAuthorizedHeaders()
+        mutateListStructure(
+            optimistic = { state ->
+                rebuildUiState(
+                    listTabs = state.listTabs.filterNot { it.key == listKey },
+                    entriesByList = state.entriesByList - listKey,
+                )
+            },
+        ) {
+            sendJsonRequest(
+                method = "DELETE",
+                url = "$BASE_URL/users/me/lists/$listId",
+                body = "",
+                headers = headers,
+                defaultMessage = "Failed to delete Trakt list",
+            )
+        }
+    }
+
+    /** Persists a new order of the personal lists ([orderedListKeys] is the complete order). */
+    suspend fun reorderPersonalLists(orderedListKeys: List<String>) {
+        ensureLoaded()
+        if (orderedListKeys.isEmpty()) return
+        val body = traktReorderRequestBody(orderedListKeys)
+        val headers = requireAuthorizedHeaders()
+        mutateListStructure(
+            optimistic = { state ->
+                rebuildUiState(
+                    listTabs = reorderedTraktTabs(state.listTabs, orderedListKeys),
+                    entriesByList = state.entriesByList,
+                )
+            },
+        ) {
+            sendJsonRequest(
+                method = "POST",
+                url = "$BASE_URL/users/me/lists/reorder",
+                body = body,
+                headers = headers,
+                defaultMessage = "Failed to reorder Trakt lists",
+            )
+        }
+    }
+
+    private suspend fun requireAuthorizedHeaders(): Map<String, String> =
+        TraktAuthRepository.authorizedHeaders()
+            ?: throw IllegalStateException(
+                resourceString("Trakt authorization expired", StringKey.trakt_error_authorization_expired),
+            )
+
+    /** Applies [optimistic] at once, runs [request], and restores the previous state if it fails. */
+    private suspend fun mutateListStructure(
+        optimistic: (TraktLibraryUiState) -> TraktLibraryUiState,
+        request: suspend () -> Unit,
+    ) {
+        val previous = _uiState.value
+        _uiState.value = optimistic(previous)
+        try {
+            request()
+        } catch (error: Throwable) {
+            _uiState.value = previous
+            throw error
+        }
+        afterListStructureChange()
+    }
+
+    /** The cached tab list is now ahead of the next fetch: persist it and let the TTL lapse. */
+    private fun afterListStructureChange() {
+        lastListTabsRefreshAtMs = 0L
+        persistSnapshot(_uiState.value)
+    }
+
+    // endregion
 
     private fun applyOptimisticMembershipChanges(
         state: TraktLibraryUiState,
@@ -498,23 +650,25 @@ object TraktLibraryRepository {
         val lists = json.decodeFromString<List<TraktListSummaryDto>>(payload)
         return lists
             .filter { it.type.equals("personal", ignoreCase = true) }
-            .mapNotNull { list ->
-                val traktId = list.ids?.trakt
-                val listIdPath = traktId?.toString() ?: list.ids?.slug ?: return@mapNotNull null
-                val fallbackTitle = traktId?.let { resourceString("List $it", StringKey.trakt_list_fallback_title, it) }
-                    ?: "List $listIdPath"
-                TraktListTab(
-                    key = "$PERSONAL_LIST_PREFIX$listIdPath",
-                    title = list.name?.ifBlank { null } ?: fallbackTitle,
-                    type = TraktListType.PERSONAL,
-                    traktListId = traktId,
-                    slug = list.ids?.slug,
-                    description = list.description,
-                    privacy = TraktListPrivacy.fromApi(list.privacy),
-                    sortBy = list.sortBy,
-                    sortHow = list.sortHow,
-                )
-            }
+            .mapNotNull { list -> list.toPersonalTab() }
+    }
+
+    private fun TraktListSummaryDto.toPersonalTab(): TraktListTab? {
+        val traktId = ids?.trakt
+        val listIdPath = traktId?.toString() ?: ids?.slug ?: return null
+        val fallbackTitle = traktId?.let { resourceString("List $it", StringKey.trakt_list_fallback_title, it) }
+            ?: "List $listIdPath"
+        return TraktListTab(
+            key = "$PERSONAL_LIST_PREFIX$listIdPath",
+            title = name?.ifBlank { null } ?: fallbackTitle,
+            type = TraktListType.PERSONAL,
+            traktListId = traktId,
+            slug = ids?.slug,
+            description = description,
+            privacy = TraktListPrivacy.fromApi(privacy),
+            sortBy = sortBy,
+            sortHow = sortHow,
+        )
     }
 
     private suspend fun fetchWatchlistItems(headers: Map<String, String>): List<LibraryItem> {
@@ -638,6 +792,29 @@ object TraktLibraryRepository {
         )
         if (response.status !in 200..299) {
             throw IllegalStateException(errorMessageForStatus(response.status, resourceString("Trakt request failed", StringKey.trakt_error_request_failed)))
+        }
+        return response
+    }
+
+    private suspend fun sendJsonRequest(
+        method: String,
+        url: String,
+        body: String,
+        headers: Map<String, String>,
+        defaultMessage: String,
+    ): RawHttpResponse {
+        val response = httpRequestRaw(
+            method = method,
+            url = url,
+            headers = mapOf(
+                "Accept" to "application/json",
+                "Content-Type" to "application/json",
+            ) + headers,
+            body = body,
+            followRedirects = true,
+        )
+        if (response.status !in 200..299) {
+            throw IllegalStateException(errorMessageForStatus(response.status, defaultMessage))
         }
         return response
     }
