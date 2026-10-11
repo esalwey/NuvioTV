@@ -89,6 +89,8 @@ final class MediaServersViewModel: ObservableObject {
     @Published private(set) var connectGeneration = 0
     @Published private(set) var refreshingServerId: String?
     @Published private(set) var refreshError: String?
+    /// The server `refreshError` belongs to; any other server's page leaves it out.
+    @Published private(set) var refreshErrorServerId: String?
 
     private var watcher: FlowWatcher?
 
@@ -130,6 +132,10 @@ final class MediaServersViewModel: ObservableObject {
 
     func clearConnectFailure() {
         MediaServersController.shared.clearConnectFailure()
+    }
+
+    func clearRefreshError() {
+        MediaServersController.shared.clearRefreshFailure()
     }
 
     func refreshLibraries(_ id: String) {
@@ -194,8 +200,10 @@ final class MediaServersViewModel: ObservableObject {
         let refreshFailure: ServerFailure? = state.refreshFailure
         if let refreshFailure {
             refreshError = Self.refreshMessage(failure: refreshFailure.name)
+            refreshErrorServerId = state.refreshFailureServerId
         } else {
             refreshError = nil
+            refreshErrorServerId = nil
         }
     }
 
