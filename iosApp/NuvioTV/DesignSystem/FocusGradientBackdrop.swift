@@ -1,5 +1,6 @@
 import Combine
 import CoreGraphics
+import SharedCore
 import SwiftUI
 import UIKit
 

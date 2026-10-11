@@ -1162,6 +1162,7 @@ struct FolderDetailView: View {
                         previewLimit: CatalogRowView.homePreviewLimit,
                         onItemFocusChange: { focusedShelfItem = $0 }
                     )
+                    .customPosterSurface(.collections)
                 }
             }
         }
