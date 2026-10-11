@@ -55,6 +55,11 @@ final class SettingsViewModel: ObservableObject {
     @Published private(set) var posterCornerRadiusDp: Int32 = 12
     @Published private(set) var posterHideLabels = false
     @Published private(set) var posterLandscapeRows = false
+    @Published private(set) var posterLandscapeClearlogo = false
+    /// Custom poster URL pattern (synced per profile) and the `CustomPosterSurface` raw values it
+    /// is switched on for.
+    @Published private(set) var customPosterPattern = ""
+    @Published private(set) var customPosterSurfaces = Set(CustomPosterSurface.allCases.map(\.rawValue))
     /// Card-depth styling (master toggle + edge/sheen/coverage strengths + per-surface flags).
     @Published private(set) var cardDepth = CardDepthStyle.default
     /// FEAT-10: every search-capable catalog across the enabled addons — the rows behind
@@ -112,6 +117,7 @@ final class SettingsViewModel: ObservableObject {
     private var tmdbWatcher: FlowWatcher?
     private var mdbListWatcher: FlowWatcher?
     private var posterStyleWatcher: FlowWatcher?
+    private var customPosterWatcher: FlowWatcher?
     private var cardDepthWatcher: FlowWatcher?
     private var trackingSettingsWatcher: FlowWatcher?
     private var searchStateWatcher: FlowWatcher?
@@ -171,6 +177,14 @@ final class SettingsViewModel: ObservableObject {
             self.posterCornerRadiusDp = state.cornerRadiusDp
             self.posterHideLabels = state.hideLabelsEnabled
             self.posterLandscapeRows = state.catalogLandscapeModeEnabled
+            self.posterLandscapeClearlogo = state.alwaysShowLandscapeClearlogo
+        }
+
+        CustomPosterUrlRepository.shared.ensureLoaded()
+        customPosterWatcher = FlowWatcherKt.watch(CustomPosterUrlRepository.shared.uiState) { [weak self] emitted in
+            guard let self, let state = emitted as? CustomPosterUiState else { return }
+            self.customPosterPattern = state.pattern
+            self.customPosterSurfaces = Set(state.enabledScreenKeys)
         }
 
         CardDepthStyleRepository.shared.ensureLoaded()
@@ -261,6 +275,7 @@ final class SettingsViewModel: ObservableObject {
         tmdbWatcher?.cancel(); tmdbWatcher = nil
         mdbListWatcher?.cancel(); mdbListWatcher = nil
         posterStyleWatcher?.cancel(); posterStyleWatcher = nil
+        customPosterWatcher?.cancel(); customPosterWatcher = nil
         cardDepthWatcher?.cancel(); cardDepthWatcher = nil
         trackingSettingsWatcher?.cancel(); trackingSettingsWatcher = nil
         searchStateWatcher?.cancel(); searchStateWatcher = nil
@@ -597,6 +612,18 @@ final class SettingsViewModel: ObservableObject {
         PosterCardStyleRepository.shared.setCatalogLandscapeModeEnabled(enabled: enabled)
     }
 
+    func setPosterLandscapeClearlogo(_ enabled: Bool) {
+        PosterCardStyleRepository.shared.setAlwaysShowLandscapeClearlogo(enabled: enabled)
+    }
+
+    func setCustomPosterPattern(_ pattern: String) {
+        CustomPosterUrlRepository.shared.setPattern(pattern: pattern)
+    }
+
+    func setCustomPosterSurface(_ surface: CustomPosterSurface, enabled: Bool) {
+        CustomPosterUrlRepository.shared.setScreenKeyEnabled(key: surface.rawValue, enabled: enabled)
+    }
+
     func resetPosterStyle() {
         PosterCardStyleRepository.shared.resetToDefaults()
     }
@@ -787,6 +814,7 @@ final class SettingsViewModel: ObservableObject {
         addonWatcher?.cancel()
         tmdbWatcher?.cancel()
         posterStyleWatcher?.cancel()
+        customPosterWatcher?.cancel()
         cardDepthWatcher?.cancel()
         trackingSettingsWatcher?.cancel()
         searchStateWatcher?.cancel()

@@ -25,6 +25,9 @@ struct CachedAsyncImage<Failure: View>: View {
     /// compiling — and rendering — unchanged. Callers with a more meaningful fallback (a title, a
     /// person glyph, a company name) pass their own `failure:` builder instead.
     private let failureContent: () -> Failure
+    /// Custom posters: where to load from when `url` fails (the title's own artwork). Set with
+    /// `fallingBack(toString:)`; nil for every call site that does not use it.
+    private var fallbackURL: URL?
 
     @StateObject private var loader = CachedImageLoader()
     /// 1.0 until (and unless) `ArtworkLetterbox` measures real bars in the loaded image.
@@ -51,6 +54,17 @@ struct CachedAsyncImage<Failure: View>: View {
         self.failureContent = failure
     }
 
+    /// The same image, loading `string` instead when the main URL cannot be loaded.
+    func fallingBack(toString string: String?) -> CachedAsyncImage {
+        var copy = self
+        if let string, !string.isEmpty {
+            copy.fallbackURL = URL(string: string)
+        } else {
+            copy.fallbackURL = nil
+        }
+        return copy
+    }
+
     var body: some View {
         ZStack {
             if let image = loader.image {
@@ -68,8 +82,9 @@ struct CachedAsyncImage<Failure: View>: View {
                 ShimmerView()
             }
         }
-        .onAppear { loader.load(url) }
-        .onChange(of: url) { _, newURL in loader.load(newURL) }
+        .onAppear { loader.load(url, fallback: fallbackURL) }
+        .onChange(of: url) { _, newURL in loader.load(newURL, fallback: fallbackURL) }
+        .onChange(of: fallbackURL) { _, newFallback in loader.load(url, fallback: newFallback) }
         // BUG-59: measure the loaded image's baked bars off-main, once per URL (memoized in
         // `ArtworkLetterbox`). Keyed on the image (NSObject identity) so a URL change that swaps
         // the image re-runs, and a re-render that doesn't, doesn't.
@@ -352,12 +367,17 @@ private final class CachedImageLoader: ObservableObject {
     @Published var image: UIImage?
     @Published var failed = false
 
+    /// URLs that failed while a fallback was available (custom posters).
+    private static var failedPrimaries = Set<URL>()
+
     private var currentURL: URL?
+    private var currentFallback: URL?
     private var task: Task<Void, Never>?
 
-    func load(_ url: URL?) {
-        guard url != currentURL else { return }
+    func load(_ url: URL?, fallback: URL? = nil) {
+        guard url != currentURL || fallback != currentFallback else { return }
         currentURL = url
+        currentFallback = fallback
         task?.cancel()
         failed = false
         image = nil
@@ -370,7 +390,21 @@ private final class CachedImageLoader: ObservableObject {
         }
 
         task = Task { [weak self] in
-            let fetched = try? await ArtworkStore.fetch(url)
+            // A custom poster that fails to load falls back to the title's own artwork. The failed
+            // URL is remembered for the session, so a row that scrolls back does not ask a service
+            // that has no poster for the title again.
+            var fetched: UIImage?
+            if let fallback, fallback != url {
+                if !Self.failedPrimaries.contains(url) {
+                    fetched = try? await ArtworkStore.fetch(url)
+                    if fetched == nil, !Task.isCancelled { Self.failedPrimaries.insert(url) }
+                }
+                if fetched == nil, !Task.isCancelled {
+                    fetched = try? await ArtworkStore.fetch(fallback)
+                }
+            } else {
+                fetched = try? await ArtworkStore.fetch(url)
+            }
             if Task.isCancelled { return }
             guard let self, self.currentURL == url else { return }
             if let fetched {

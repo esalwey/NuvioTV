@@ -398,8 +398,7 @@ struct HomeView: View {
     /// (the synopsis), `releaseInfo` + `genres` (the meta line), `logo` and `banner` (the resolved
     /// artwork), `poster` (`heroBackdropURL`'s last fallback, so it can BE the backdrop), and
     /// `type` (picks "Go to Movie" vs "Go to Show", and is not covered by the id-only `.onChange`).
-    /// `imdbRating` is deliberately absent: `metaLine` does not render it, so including it would
-    /// only buy needless `present` calls.
+    /// `imdbRating` is included: `metaRow` draws it as the rating chip beside the meta line.
     private var heroPayloadSignature: String {
         guard let hero = displayHero else { return "-" }
         let description: String? = hero.description_
@@ -407,11 +406,13 @@ struct HomeView: View {
         let logo: String? = hero.logo
         let poster: String? = hero.poster
         let releaseInfo: String? = hero.releaseInfo
+        let imdbRating: String? = hero.imdbRating
         return [
             hero.name,
             description ?? "",
             hero.genres.joined(separator: ","),
             releaseInfo ?? "",
+            imdbRating ?? "",
             banner ?? "",
             logo ?? "",
             poster ?? "",
@@ -4264,7 +4265,8 @@ struct ContinueWatchingRow: View {
             PosterCard(
                 title: entry.title,
                 imageURL: ContinueWatchingPresentationKt.continueWatchingPosterArtworkUrl(entry: entry),
-                progress: fraction(entry)
+                progress: fraction(entry),
+                customPoster: CustomPosterTarget(id: entry.parentMetaId, type: entry.parentMetaType, surface: .continueWatching)
             )
         } else {
             let artwork = ContinueWatchingPresentationKt.continueWatchingCardArtworkUrl(
@@ -4283,7 +4285,12 @@ struct ContinueWatchingRow: View {
                     blurUnwatched: settings.blurUnwatched,
                     useEpisodeThumbnails: settings.useEpisodeThumbnails,
                     artworkUrl: artwork
-                )
+                ),
+                // An episode still (the setting's choice for episodes) is never replaced by a
+                // show-level custom poster.
+                customPoster: settings.useEpisodeThumbnails && entry.isEpisode
+                    ? nil
+                    : CustomPosterTarget(id: entry.parentMetaId, type: entry.parentMetaType, surface: .continueWatching)
             )
         }
     }
@@ -5204,6 +5211,7 @@ struct HomeHeroForeground: View {
     /// that needs it (Large today; Small/Medium compute 0 and are bit-identical to Wave 9).
     var compression: CGFloat = 0
     @AppStorage("hero_nuvio_style") private var heroNuvioStyle = false
+    @ObservedObject private var ratingSetting = HeroRatingSetting.shared
 
     /// The compression split across the two elastic slots, each bounded by its own floor.
     ///
@@ -5438,10 +5446,9 @@ struct HomeHeroForeground: View {
                         .frame(height: logoSlotHeight, alignment: .bottomLeading)
                         .frame(maxWidth: .infinity, alignment: .leading)
 
-                    Text(metaLine)
+                    metaRow
                         .font(Theme.Font.meta)
                         .foregroundStyle(Theme.Palette.textPrimary.opacity(0.9))
-                        .lineLimit(1)
                         .frame(height: Theme.Size.heroMetaSlotHeight, alignment: .leading)
 
                     Text(synopsis)
@@ -5484,10 +5491,9 @@ struct HomeHeroForeground: View {
                         .frame(height: Theme.Size.heroLogoSlotHeight, alignment: .bottomLeading)
                         .frame(maxWidth: .infinity, alignment: .leading)
 
-                    Text(metaLine)
+                    metaRow
                         .font(Theme.Font.meta)
                         .foregroundStyle(Theme.Palette.textPrimary.opacity(0.9))
-                        .lineLimit(1)
                         .frame(height: Theme.Size.heroMetaSlotHeight, alignment: .leading)
 
                     Text(synopsis)
@@ -5508,6 +5514,37 @@ struct HomeHeroForeground: View {
     private var synopsis: String {
         let description: String? = item.description_
         return description ?? ""
+    }
+
+    /// Rating chip text: nil when the title has no rating or Overall Ratings is off in Settings.
+    private var ratingText: String? {
+        ratingSetting.showOverallRatings ? HeroRatingSetting.displayText(for: item.imdbRating) : nil
+    }
+
+    /// The meta line plus, when the title has a rating, the same star + value the Detail page draws.
+    /// One row in the meta slot's fixed height, so the hero's geometry never moves.
+    private var metaRow: some View {
+        HStack(spacing: Theme.Spacing.sm) {
+            let line = metaLine
+            if !line.isEmpty {
+                Text(line)
+                    .lineLimit(1)
+            }
+            if let ratingText {
+                if !line.isEmpty {
+                    Text(verbatim: "\u{00B7}")
+                        .accessibilityHidden(true)
+                }
+                HStack(spacing: Theme.Spacing.xxs) {
+                    Image(systemName: "star.fill")
+                        .foregroundStyle(Theme.Palette.star)
+                        .accessibilityHidden(true)
+                    Text(verbatim: ratingText)
+                        .lineLimit(1)
+                }
+                .accessibilityElement(children: .combine)
+            }
+        }
     }
 
     private var metaLine: String {

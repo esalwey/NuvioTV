@@ -35,6 +35,7 @@ final class RemoteSetupViewModel: ObservableObject {
     private var tmdbWatcher: FlowWatcher?
     private var mdbListWatcher: FlowWatcher?
     private var badgeWatcher: FlowWatcher?
+    private var customPosterWatcher: FlowWatcher?
 
     // Cached snapshots (updated by the watchers, read when building state JSON + applying diffs).
     private var addons: [ManagedAddon] = []
@@ -43,6 +44,8 @@ final class RemoteSetupViewModel: ObservableObject {
     private var mdbListKeySet = false
     /// Source URLs of currently imported stream badge packs (shown read-only on the web page).
     private var badgePackUrls: [String] = []
+    private var customPosterPattern = ""
+    private var customPosterScreens: [String] = []
 
     // MARK: - Lifecycle
 
@@ -125,6 +128,12 @@ final class RemoteSetupViewModel: ObservableObject {
             self.badgePackUrls = state.rules.imports.map(\.sourceUrl)
             self.pushState()
         }
+        customPosterWatcher = FlowWatcherKt.watch(CustomPosterUrlRepository.shared.uiState) { [weak self] emitted in
+            guard let self, let state = emitted as? CustomPosterUiState else { return }
+            self.customPosterPattern = state.pattern
+            self.customPosterScreens = state.enabledScreenKeys
+            self.pushState()
+        }
         AddonRepository.shared.initialize()
         TmdbSettingsRepository.shared.ensureLoaded()
         MdbListSettingsRepository.shared.ensureLoaded()
@@ -137,11 +146,13 @@ final class RemoteSetupViewModel: ObservableObject {
         tmdbWatcher?.cancel()
         mdbListWatcher?.cancel()
         badgeWatcher?.cancel()
+        customPosterWatcher?.cancel()
         addonWatcher = nil
         rowWatcher = nil
         tmdbWatcher = nil
         mdbListWatcher = nil
         badgeWatcher = nil
+        customPosterWatcher = nil
     }
 
     // MARK: - Confirm / reject
@@ -180,6 +191,8 @@ final class RemoteSetupViewModel: ObservableObject {
         let tmdbKeySet: Bool
         let mdblistKeySet: Bool
         let badgePacks: [String]
+        let customPosterUrl: String
+        let customPosterScreens: [String]
     }
 
     private func pushState() {
@@ -203,7 +216,9 @@ final class RemoteSetupViewModel: ObservableObject {
             },
             tmdbKeySet: tmdbKeySet,
             mdblistKeySet: mdbListKeySet,
-            badgePacks: badgePackUrls
+            badgePacks: badgePackUrls,
+            customPosterUrl: customPosterPattern,
+            customPosterScreens: customPosterScreens
         )
         if let data = try? JSONEncoder().encode(snapshot) {
             server.updateState(data)
@@ -223,6 +238,7 @@ final class RemoteSetupViewModel: ObservableObject {
             MdbListSettingsRepository.shared.setApiKey(value: key)
             MdbListSettingsRepository.shared.setEnabled(value: true)
         }
+        applyCustomPoster(proposal)
         // Badge pack imports (async fetch+parse; the badge watcher refreshes the page state as
         // each one lands). Already-imported URLs are re-fetched/updated by the shared repo.
         for url in proposal.badgeUrls ?? [] {
@@ -230,6 +246,15 @@ final class RemoteSetupViewModel: ObservableObject {
             guard !trimmed.isEmpty else { continue }
             StreamBadgeSettingsRepository.shared.importStreamBadgeRulesFromUrl(url: trimmed) { _, _ in }
         }
+    }
+
+    /// The page always sends the pattern and the surfaces together; either one alone keeps the
+    /// other as it is.
+    private func applyCustomPoster(_ proposal: RemoteSetupServer.Proposal) {
+        guard proposal.customPosterUrl != nil || proposal.customPosterScreens != nil else { return }
+        let pattern = proposal.customPosterUrl?.trimmingCharacters(in: .whitespacesAndNewlines) ?? customPosterPattern
+        let screens = proposal.customPosterScreens ?? customPosterScreens
+        CustomPosterUrlRepository.shared.apply(pattern: pattern, screenKeys: screens)
     }
 
     private func applyAddons(_ proposal: RemoteSetupServer.Proposal) {
@@ -337,6 +362,17 @@ final class RemoteSetupViewModel: ObservableObject {
             if orderChanged || togglesChanged { parts.append(String(localized: "Home rows updated")) }
         }
 
+        if let url = proposal.customPosterUrl?.trimmingCharacters(in: .whitespacesAndNewlines) {
+            if url != customPosterPattern {
+                parts.append(url.isEmpty
+                    ? String(localized: "custom poster URL removed")
+                    : String(localized: "custom poster URL set"))
+            } else if let screens = proposal.customPosterScreens, Set(screens) != Set(customPosterScreens) {
+                parts.append(String(localized: "custom poster screens changed"))
+            }
+        } else if let screens = proposal.customPosterScreens, Set(screens) != Set(customPosterScreens) {
+            parts.append(String(localized: "custom poster screens changed"))
+        }
         if proposal.tmdbKey?.isEmpty == false { parts.append(String(localized: "TMDB key set")) }
         if proposal.mdblistKey?.isEmpty == false { parts.append(String(localized: "MDBList key set")) }
         if let badgeCount = proposal.badgeUrls?.count, badgeCount > 0 {
@@ -365,5 +401,6 @@ final class RemoteSetupViewModel: ObservableObject {
         tmdbWatcher?.cancel()
         mdbListWatcher?.cancel()
         badgeWatcher?.cancel()
+        customPosterWatcher?.cancel()
     }
 }

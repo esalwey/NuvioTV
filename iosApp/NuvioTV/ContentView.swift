@@ -9,6 +9,7 @@ struct ContentView: View {
     @StateObject private var auth = AuthViewModel()
     @StateObject private var profiles = ProfilesViewModel()
     @StateObject private var posterStyle = PosterStyleModel()
+    @StateObject private var customPoster = CustomPosterModel()
     @StateObject private var cardDepth = CardDepthStyleModel()
     @StateObject private var appTheme = AppThemeModel()
     /// H-1B-ii (beta.15): Home's view model lives HERE, above the `.id(appTheme.themeName)` rebuild
@@ -127,6 +128,7 @@ struct ContentView: View {
             }
         }
         .environment(\.posterStyle, posterStyle.style)
+        .environment(\.customPosterConfig, customPoster.config)
         .environment(\.cardDepthStyle, cardDepth.style)
         // NOTE — deliberately NO app-root `.tint(Theme.Palette.accent)`. It looks like the obvious
         // way to make stock controls follow the theme, and it was tried (2026-08-25, sim-verified
@@ -151,6 +153,7 @@ struct ContentView: View {
         .onAppear {
             auth.start()
             posterStyle.start()
+            customPoster.start()
             cardDepth.start()
             appTheme.start()
             #if DEBUG

@@ -867,9 +867,13 @@ struct PosterCard: View {
     /// 0...1 watched fraction drawn as the inset capsule along the artwork's bottom edge (the
     /// portrait Continue Watching card); nil = no bar.
     var progress: Double? = nil
+    /// Which title this is, so the user's custom poster URL pattern can replace the artwork on the
+    /// surfaces it is switched on for. nil = always the artwork passed in `imageURL`.
+    var customPoster: CustomPosterTarget? = nil
 
     @Environment(\.isFocused) private var isFocused
     @Environment(\.posterStyle) private var style
+    @Environment(\.customPosterConfig) private var customPosterConfig
     /// FEAT-14: opt-in accent focus ring, default OFF. Read independently (same UserDefaults key
     /// as `AppearanceSettingsPane`'s toggle) rather than threaded through props, so every card
     /// picks up the setting without a prop-drilling pass through every call site. When OFF the
@@ -894,8 +898,10 @@ struct PosterCard: View {
 
     var body: some View {
         let inset = ringInset(accentFocusRing: accentFocusRing, noZoomOnFocus: noZoomOnFocus) // BUG-64 / 2026-08-30 no-zoom investigation
+        let artwork = customPosterConfig.artwork(for: customPoster, original: imageURL)
         VStack(alignment: .leading, spacing: Theme.Spacing.md) { // UX-5: artwork↔title gap increased to match LandscapeCard and expandedTile
-            CachedAsyncImage(string: imageURL)
+            CachedAsyncImage(string: artwork.primary)
+                .fallingBack(toString: artwork.fallback)
                 .frame(width: resolvedWidth - 2 * inset, height: resolvedHeight - 2 * inset)
                 // BUG-31: CachedAsyncImage is `.fill` with no clip of its own, and this frame is
                 // always exactly 2:3 — so off-ratio artwork overflows it and the hover lift copies
@@ -1034,9 +1040,17 @@ struct LandscapeCard: View {
     /// Continue Watching's "Blur Unwatched Episodes": hides an unwatched episode's still behind a
     /// heavy blur so it cannot spoil. The badges and progress bar stay sharp.
     var blurArtwork: Bool = false
+    /// Catalog rows with "Always Show Logo" on pass the title here: its logo is drawn bottom-leading
+    /// over the artwork. The caption under the card keeps following Hide Titles; the name is only
+    /// drawn on the artwork (as the logo's fallback) when that caption is hidden.
+    var logoOverlayItem: MetaPreview? = nil
+    /// The title, so a custom poster URL pattern with `{shape}` can supply landscape artwork on the
+    /// surfaces it is switched on for. nil = always `imageURL`.
+    var customPoster: CustomPosterTarget? = nil
 
     @Environment(\.isFocused) private var isFocused
     @Environment(\.posterStyle) private var style
+    @Environment(\.customPosterConfig) private var customPosterConfig
     /// FEAT-14: opt-in accent focus ring, default OFF — see `PosterCard`'s copy of this property
     /// for the full rationale (same UserDefaults key, same byte-identical-when-OFF guarantee).
     @AppStorage("accent_focus_ring") private var accentFocusRing = false
@@ -1051,9 +1065,11 @@ struct LandscapeCard: View {
 
     var body: some View {
         let inset = ringInset(accentFocusRing: accentFocusRing, noZoomOnFocus: noZoomOnFocus) // BUG-64 / 2026-08-30 no-zoom investigation
+        let artwork = customPosterConfig.artwork(for: customPoster?.asLandscape, original: imageURL)
         VStack(alignment: .leading, spacing: Theme.Spacing.md) { // UX-5: artwork↔title gap increased to match PosterCard and expandedTile
             ZStack(alignment: .bottom) {
-                CachedAsyncImage(string: imageURL)
+                CachedAsyncImage(string: artwork.primary)
+                    .fallingBack(toString: artwork.fallback)
                     .frame(width: width - 2 * inset, height: height - 2 * inset)
                     // Spoiler blur: applied before the clip below so the soft edge is cropped.
                     .blur(radius: blurArtwork ? 28 : 0, opaque: blurArtwork)
@@ -1074,6 +1090,21 @@ struct LandscapeCard: View {
                     // BUG-91 gate: same outer-box marker as PosterCard's, so an armed probe run
                     // leaves the landscape cards' button frames unperturbed too.
                     .modifier(DebugAXIdentifier("landscape_card"))
+
+                if let logoOverlayItem {
+                    // Static artwork decoration inside the same fixed frame: never focusable, never
+                    // hit-testable, and clipped to the artwork's own corners so the scrim cannot
+                    // poke past the rounded edge.
+                    InlineTrailerTitleOverlay(
+                        item: logoOverlayItem,
+                        tileWidth: width - 2 * inset,
+                        tileHeight: height - 2 * inset,
+                        nameFallback: !titleVisible
+                    )
+                    .clipShape(RoundedRectangle(cornerRadius: max(0, style.cornerRadius - inset)))
+                    .frame(width: width, height: height)
+                    .allowsHitTesting(false)
+                }
 
                 if overlayLeading != nil || overlayTrailing != nil {
                     // Upcoming/CW artwork badges: sit above the progress bar (when present) and
@@ -1282,14 +1313,22 @@ struct PosterContextMenu: ViewModifier {
     let preview: MetaPreview
     @State private var confirmingSeriesWatched = false
     @State private var seriesWasWatched = false
+    @State private var showingLists = false
 
     func body(content: Content) -> some View {
         content
             .contextMenu {
-                PosterContextMenuItems(preview: preview) { wasWatched in
-                    seriesWasWatched = wasWatched
-                    confirmingSeriesWatched = true
-                }
+                PosterContextMenuItems(
+                    preview: preview,
+                    confirmSeries: { wasWatched in
+                        seriesWasWatched = wasWatched
+                        confirmingSeriesWatched = true
+                    },
+                    openLists: { showingLists = true }
+                )
+            }
+            .sheet(isPresented: $showingLists) {
+                PosterListsSheet(preview: preview)
             }
             .alert(copy.title, isPresented: $confirmingSeriesWatched) {
                 Button(copy.confirm, role: .destructive) {
@@ -1331,6 +1370,7 @@ struct PosterContextMenu: ViewModifier {
 private struct PosterContextMenuItems: View {
     let preview: MetaPreview
     let confirmSeries: (_ wasWatched: Bool) -> Void
+    let openLists: () -> Void
 
     var body: some View {
         let saved = PosterContextActions.isSaved(preview)
@@ -1359,6 +1399,15 @@ private struct PosterContextMenuItems: View {
                 Label("Mark Watched", systemImage: "checkmark.circle")
             }
         }
+
+        // Only with a connected tracking account (Trakt, ...) that offers lists for this title.
+        if PosterContextActions.hasLists(preview) {
+            Button {
+                openLists()
+            } label: {
+                Label("Lists…", systemImage: "list.bullet")
+            }
+        }
     }
 }
 
@@ -1377,6 +1426,11 @@ enum PosterContextActions {
     /// Mirrors `DetailView.requestToggleWatched`: anything that is not a movie may be a series.
     static func isSeriesLike(_ preview: MetaPreview) -> Bool {
         preview.type != "movie"
+    }
+
+    /// True when a connected tracking provider offers lists this title can be put on.
+    static func hasLists(_ preview: MetaPreview) -> Bool {
+        LibraryListActions.shared.isAvailable(item: preview.toLibraryItem(savedAtEpochMs: 0))
     }
 
     static func toggleLibrary(_ preview: MetaPreview) {

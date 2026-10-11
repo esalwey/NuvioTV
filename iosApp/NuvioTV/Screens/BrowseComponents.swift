@@ -4353,8 +4353,13 @@ struct SeeAllCard: View {
 /// (cached artwork, shimmer, brand focus ring, focus-aware title).
 struct PosterCardView: View {
     let item: MetaPreview
+    @Environment(\.customPosterSurface) private var customPosterSurface
 
     var body: some View {
-        PosterCard(title: item.name, imageURL: item.poster)
+        PosterCard(
+            title: item.name,
+            imageURL: item.poster,
+            customPoster: CustomPosterTarget(item, customPosterSurface)
+        )
     }
 }

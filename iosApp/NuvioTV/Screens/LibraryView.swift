@@ -62,7 +62,8 @@ struct LibraryView: View {
                                         title: item.name,
                                         imageURL: item.poster,
                                         width: accessibilityLayout ? cardWidth : nil,
-                                        height: accessibilityLayout ? cardHeight : nil
+                                        height: accessibilityLayout ? cardHeight : nil,
+                                        customPoster: CustomPosterTarget(item, .library)
                                     )
                                 }
                                 .cardFocusButtonStyle()

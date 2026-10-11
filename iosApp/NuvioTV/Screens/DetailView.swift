@@ -1762,7 +1762,8 @@ struct DetailView: View {
                                     title: item.name,
                                     imageURL: item.poster,
                                     width: Theme.Size.miniPosterWidth,
-                                    height: Theme.Size.miniPosterHeight
+                                    height: Theme.Size.miniPosterHeight,
+                                    customPoster: CustomPosterTarget(item, .details)
                                 )
                             }
                             .cardFocusButtonStyle()
