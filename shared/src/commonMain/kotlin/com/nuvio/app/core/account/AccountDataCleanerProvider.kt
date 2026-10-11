@@ -18,3 +18,17 @@ object AccountDataCleanerProvider {
     @Volatile
     var cleaner: AccountDataCleaner = AccountDataCleaner { /* no-op default */ }
 }
+
+/**
+ * Erases what one profile slot keeps in local profile-scoped storage (settings, auth, caches).
+ * Deleting a profile calls it so a profile created later at the same index starts empty instead of
+ * inheriting the deleted one's data. Installed by the Apple host; the default does nothing.
+ */
+fun interface ProfileDataEraser {
+    fun erase(profileIndex: Int)
+}
+
+object ProfileDataEraserProvider {
+    @Volatile
+    var eraser: ProfileDataEraser = ProfileDataEraser { /* no-op default */ }
+}
