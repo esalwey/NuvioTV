@@ -1118,6 +1118,7 @@ final class NextEpisodeEngine: ObservableObject {
         countdownTask = nil
         tearDownSearch()
         releaseObservers()
+        BingeGroupMemory.remember(parentMetaId: context.parentMetaId, bingeGroup: switched.bingeGroup)
         onPlayNext(switched)
     }
 
@@ -1246,6 +1247,7 @@ final class NextEpisodeEngine: ObservableObject {
         // `endScreen` is left as it is on purpose: the presenter replaces this whole player (and
         // an end-screen cover on it) in one transition — dismissing the cover here as well would
         // race that swap.
+        BingeGroupMemory.remember(parentMetaId: context.parentMetaId, bingeGroup: nextContext.bingeGroup)
         onPlayNext(nextContext)
     }
 
@@ -1285,24 +1287,32 @@ final class NextEpisodeEngine: ObservableObject {
             self.handleStreams(state, settings: settings)
         }
 
-        // Bounded auto-select timeout (mobile default 3s, clamped 1–30).
-        let timeoutSeconds = min(max(Int(settings.streamAutoPlayTimeoutSeconds), 1), 30)
+        // Selection timeout (Settings > Playback; the phone's default is 3 s): a bounded wait for the
+        // add-ons, or none at all (Instant, Unlimited) — see `StreamSelectionTimeout`.
+        let timeout = StreamSelectionTimeout(settingSeconds: Int(settings.streamAutoPlayTimeoutSeconds))
         timeoutTask = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: UInt64(timeoutSeconds) * 1_000_000_000)
-            guard let self, !Task.isCancelled, generation == self.searchGeneration,
-                  self.selectedStream == nil, !self.cancelled else { return }
-            // At timeout: pick from whatever has arrived so far; if nothing yet and addons are
-            // still responding, let the watcher finish the job when loading completes.
-            let state = self.latestStreamsState
-            let groups = state?.groups ?? []
-            print("[UpNext] timeout(\(timeoutSeconds)s): groups=\(groups.count) loading=\(state?.isAnyLoading ?? false)")
-            if !groups.isEmpty {
-                self.attemptSelection(groups: groups, settings: settings, loadFinished: !(state?.isAnyLoading ?? false))
+            if let softSeconds = timeout.softTimeoutSec {
+                try? await Task.sleep(nanoseconds: UInt64(softSeconds) * 1_000_000_000)
+                guard let self, !Task.isCancelled, generation == self.searchGeneration,
+                      self.selectedStream == nil, !self.cancelled else { return }
+                // At timeout: pick from whatever has arrived so far; if nothing yet and addons are
+                // still responding, let the watcher finish the job when loading completes.
+                let state = self.latestStreamsState
+                let groups = state?.groups ?? []
+                print("[UpNext] timeout(\(softSeconds)s): groups=\(groups.count) loading=\(state?.isAnyLoading ?? false)")
+                if !groups.isEmpty {
+                    self.attemptSelection(groups: groups, settings: settings, loadFinished: !(state?.isAnyLoading ?? false))
+                }
+                // Grace window past the soft timeout for stragglers (below).
+                try? await Task.sleep(nanoseconds: UInt64(StreamSelectionTimeout.graceSec) * 1_000_000_000)
+            } else {
+                // Instant / Unlimited: `handleStreams` chooses as responses arrive; only the hard
+                // stop is left to wait for.
+                try? await Task.sleep(nanoseconds: UInt64(timeout.hardStopSec) * 1_000_000_000)
             }
-            // Hard deadline: a hung addon can leave the flow "loading" forever. Give stragglers a
-            // grace window past the soft timeout, then resolve with whatever exists (or "no stream").
-            try? await Task.sleep(nanoseconds: 12_000_000_000)
-            guard !Task.isCancelled, generation == self.searchGeneration,
+            // Hard deadline: a hung addon can leave the flow "loading" forever. Resolve with
+            // whatever exists (or "no stream").
+            guard let self, !Task.isCancelled, generation == self.searchGeneration,
                   self.selectedStream == nil, !self.cancelled else { return }
             let late = self.latestStreamsState
             print("[UpNext] hard deadline: groups=\(late?.groups.count ?? 0) loading=\(late?.isAnyLoading ?? false) — resolving")
@@ -1332,6 +1342,13 @@ final class NextEpisodeEngine: ObservableObject {
             // source scope — once every in-scope source has finished, an out-of-scope source still
             // fetching must neither delay the pick nor be picked.
             guard selectedStream == nil, !cancelled else { return }
+            // Instant / Unlimited (Settings > Playback): no waiting period, so a suitable stream is
+            // taken from whichever add-ons have answered. Nothing suitable yet keeps waiting.
+            if StreamSelectionTimeout(settingSeconds: Int(settings.streamAutoPlayTimeoutSeconds)).choosesOnEveryResponse {
+                attemptSelection(groups: groups, settings: settings, loadFinished: false,
+                                 installedAddonIds: state.installedAddonIds)
+                guard selectedStream == nil, !cancelled else { return }
+            }
             let scope = effectiveAutoPlaySource(settings)
             if StreamAutoPlayLoadingPolicyKt.areAutoPlaySourcesLoaded(groups, source: scope, installedAddonIds: state.installedAddonIds) {
                 print("[UpNext] in-scope sources loaded (\(scope)) while others still fetch — selecting now")
@@ -1359,8 +1376,10 @@ final class NextEpisodeEngine: ObservableObject {
     /// The current stream's binge group, when the user prefers it; nil = no preference.
     private func preferredBingeGroup(_ settings: PlayerSettingsUiState) -> String? {
         guard settings.streamAutoPlayPreferBingeGroup else { return nil }
-        let group = (context.bingeGroup ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        return group.isEmpty ? nil : group
+        // The playing stream's own group, else — with "Remember the Source Group" on — the one kept
+        // for the series (a start from Continue Watching has none of its own).
+        return BingeGroupMemory.preferred(playing: context.bingeGroup, parentMetaId: context.parentMetaId,
+                                          reuseRemembered: settings.streamAutoPlayReuseBingeGroup)
     }
 
     private func attemptBingeGroupOnlySelection(groups: [AddonStreamGroup], settings: PlayerSettingsUiState) {

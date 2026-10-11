@@ -181,7 +181,7 @@ private struct PlayerBarSurface: ViewModifier {
                 .overlay(shape.strokeBorder(Color.white.opacity(contrast == .increased ? 0.5 : 0.15), lineWidth: 1))
         } else {
             content
-                .glassEffect(.regular.tint(PlayerChipStyle.glassTint), in: shape)
+                .glassEffect(PlayerChipStyle.glass, in: shape)
                 .overlay {
                     if contrast == .increased {
                         shape.strokeBorder(Color.white.opacity(0.5), lineWidth: 1.5)
@@ -346,16 +346,24 @@ enum PlayerChromeLayout {
     static let barBottomInset: CGFloat = Theme.Spacing.xl
 }
 
-/// Bottom dim behind the bar so the glass reads over any scene; deeper while a content tab is open.
+/// Bottom dim behind the bar. The tvOS 26 system player floats its glass controls over the picture
+/// with only a faint shade at the very bottom (it used to be 25 % / 50 % black, which visibly
+/// darkened the whole lower half of the video on every skip or click, where the native engine
+/// does not). Deeper only while a content tab (Info / Episodes / Chapters) is open, as on the
+/// native engine's content panel.
 struct PlayerChromeScrim: View {
     var deep = false
+
+    /// Opacity of the shade at the bottom edge, at rest: light enough that the picture keeps its
+    /// brightness, enough for the secondary labels to stay legible over a white frame.
+    static let restBottomOpacity: Double = 0.22
 
     var body: some View {
         LinearGradient(
             stops: [
-                .init(color: .black.opacity(0), location: deep ? 0.2 : 0.55),
-                .init(color: .black.opacity(deep ? 0.55 : 0.25), location: deep ? 0.55 : 0.8),
-                .init(color: .black.opacity(deep ? 0.8 : 0.5), location: 1),
+                .init(color: .black.opacity(0), location: deep ? 0.2 : 0.7),
+                .init(color: .black.opacity(deep ? 0.55 : 0.08), location: deep ? 0.55 : 0.88),
+                .init(color: .black.opacity(deep ? 0.8 : Self.restBottomOpacity), location: 1),
             ],
             startPoint: .top, endPoint: .bottom)
             .ignoresSafeArea()
@@ -414,7 +422,7 @@ private struct ProgressBar: View {
                             .foregroundStyle(.white)
                             .padding(.horizontal, Theme.Spacing.sm)
                             .padding(.vertical, Theme.Spacing.xxs)
-                            .background(Capsule().fill(.black.opacity(0.6)))
+                            .background(.ultraThinMaterial, in: Capsule())
                             .fixedSize()
                             .position(x: labelX(scrubFraction, width: width), y: -Self.headSize.height - 14)
                     }

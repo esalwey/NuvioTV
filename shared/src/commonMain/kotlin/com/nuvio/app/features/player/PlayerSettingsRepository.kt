@@ -1,6 +1,7 @@
 package com.nuvio.app.features.player
 
 import com.nuvio.app.core.build.FeaturePolicyProvider
+import com.nuvio.app.features.player.skip.AutoSkipSegmentType
 import com.nuvio.app.features.player.skip.NextEpisodeThresholdMode
 import com.nuvio.app.features.streams.StreamAutoPlayMode
 import com.nuvio.app.features.streams.StreamAutoPlaySource
@@ -34,6 +35,7 @@ fun snapToAllowedTimeout(value: Int): Int {
 data class PlayerSettingsUiState(
     val showLoadingOverlay: Boolean = true,
     val showParentalGuide: Boolean = true,
+    val osdClockEnabled: Boolean = true,
     val resizeMode: PlayerResizeMode = PlayerResizeMode.Fit,
     val holdToSpeedEnabled: Boolean = true,
     val holdToSpeedValue: Float = 2f,
@@ -67,6 +69,7 @@ data class PlayerSettingsUiState(
     val animeSkipClientId: String = "",
     val introDbApiKey: String = "",
     val introSubmitEnabled: Boolean = false,
+    val autoSkipSegmentTypes: Set<AutoSkipSegmentType> = emptySet(),
     val streamAutoPlayNextEpisodeEnabled: Boolean = false,
     val streamAutoPlayNextEpisodeFallbackEnabled: Boolean = true,
     val streamAutoPlayPreferBingeGroup: Boolean = true,
@@ -92,7 +95,14 @@ data class PlayerSettingsUiState(
     val iosContrast: Int = 0,
     val iosSaturation: Int = 0,
     val iosGamma: Int = 0,
-)
+) {
+    /**
+     * [autoSkipSegmentTypes] as stored values ("intro", "recap", "outro"), for the tvOS players that
+     * match them against a skip interval's type without bridging the enum.
+     */
+    val autoSkipSegmentTypeValues: Set<String>
+        get() = autoSkipSegmentTypes.mapTo(linkedSetOf()) { it.storedValue }
+}
 
 object PlayerSettingsRepository {
     private val _uiState = MutableStateFlow(PlayerSettingsUiState())
@@ -101,6 +111,7 @@ object PlayerSettingsRepository {
     private var hasLoaded = false
     private var showLoadingOverlay = true
     private var showParentalGuide = true
+    private var osdClockEnabled = true
     private var resizeMode = PlayerResizeMode.Fit
     private var holdToSpeedEnabled = true
     private var holdToSpeedValue = 2f
@@ -134,6 +145,7 @@ object PlayerSettingsRepository {
     private var animeSkipClientId = ""
     private var introDbApiKey = ""
     private var introSubmitEnabled = false
+    private var autoSkipSegmentTypes: Set<AutoSkipSegmentType> = emptySet()
     private var streamAutoPlayNextEpisodeEnabled = false
     private var streamAutoPlayNextEpisodeFallbackEnabled = true
     private var streamAutoPlayPreferBingeGroup = true
@@ -172,6 +184,7 @@ object PlayerSettingsRepository {
         hasLoaded = false
         showLoadingOverlay = true
         showParentalGuide = true
+        osdClockEnabled = true
         resizeMode = PlayerResizeMode.Fit
         holdToSpeedEnabled = true
         holdToSpeedValue = 2f
@@ -205,6 +218,7 @@ object PlayerSettingsRepository {
         animeSkipClientId = ""
         introDbApiKey = ""
         introSubmitEnabled = false
+        autoSkipSegmentTypes = emptySet()
         streamAutoPlayNextEpisodeEnabled = false
         streamAutoPlayNextEpisodeFallbackEnabled = true
         streamAutoPlayPreferBingeGroup = true
@@ -236,6 +250,7 @@ object PlayerSettingsRepository {
         hasLoaded = true
         showLoadingOverlay = PlayerSettingsStorage.loadShowLoadingOverlay() ?: true
         showParentalGuide = PlayerSettingsStorage.loadShowParentalGuide() ?: true
+        osdClockEnabled = PlayerSettingsStorage.loadOsdClockEnabled() ?: true
         resizeMode = PlayerSettingsStorage.loadResizeMode()
             ?.let { runCatching { PlayerResizeMode.valueOf(it) }.getOrNull() }
             ?: PlayerResizeMode.Fit
@@ -328,6 +343,8 @@ object PlayerSettingsRepository {
         animeSkipClientId = PlayerSettingsStorage.loadAnimeSkipClientId() ?: ""
         introDbApiKey = PlayerSettingsStorage.loadIntroDbApiKey() ?: ""
         introSubmitEnabled = PlayerSettingsStorage.loadIntroSubmitEnabled() ?: false
+        autoSkipSegmentTypes = PlayerSettingsStorage.loadAutoSkipSegmentTypes()
+            ?.mapNotNull(AutoSkipSegmentType::fromStoredValue)?.toSet() ?: emptySet()
         streamAutoPlayNextEpisodeEnabled = PlayerSettingsStorage.loadStreamAutoPlayNextEpisodeEnabled() ?: false
         streamAutoPlayNextEpisodeFallbackEnabled = PlayerSettingsStorage.loadStreamAutoPlayNextEpisodeFallbackEnabled() ?: true
         streamAutoPlayPreferBingeGroup = PlayerSettingsStorage.loadStreamAutoPlayPreferBingeGroup() ?: true
@@ -381,6 +398,14 @@ object PlayerSettingsRepository {
         showParentalGuide = enabled
         publish()
         PlayerSettingsStorage.saveShowParentalGuide(enabled)
+    }
+
+    fun setOsdClockEnabled(enabled: Boolean) {
+        ensureLoaded()
+        if (osdClockEnabled == enabled) return
+        osdClockEnabled = enabled
+        publish()
+        PlayerSettingsStorage.saveOsdClockEnabled(enabled)
     }
 
     fun setResizeMode(mode: PlayerResizeMode) {
@@ -673,6 +698,15 @@ object PlayerSettingsRepository {
         PlayerSettingsStorage.saveIntroSubmitEnabled(enabled)
     }
 
+    fun setAutoSkipSegmentTypeEnabled(segmentType: AutoSkipSegmentType, enabled: Boolean) {
+        ensureLoaded()
+        val updated = if (enabled) autoSkipSegmentTypes + segmentType else autoSkipSegmentTypes - segmentType
+        if (autoSkipSegmentTypes == updated) return
+        autoSkipSegmentTypes = updated
+        publish()
+        PlayerSettingsStorage.saveAutoSkipSegmentTypes(updated.mapTo(linkedSetOf()) { it.storedValue })
+    }
+
     fun setStreamAutoPlayNextEpisodeEnabled(enabled: Boolean) {
         ensureLoaded()
         if (streamAutoPlayNextEpisodeEnabled == enabled) return
@@ -916,6 +950,7 @@ object PlayerSettingsRepository {
         _uiState.value = PlayerSettingsUiState(
             showLoadingOverlay = showLoadingOverlay,
             showParentalGuide = showParentalGuide,
+            osdClockEnabled = osdClockEnabled,
             resizeMode = resizeMode,
             holdToSpeedEnabled = holdToSpeedEnabled,
             holdToSpeedValue = holdToSpeedValue,
@@ -949,6 +984,7 @@ object PlayerSettingsRepository {
             animeSkipClientId = animeSkipClientId,
             introDbApiKey = introDbApiKey,
             introSubmitEnabled = introSubmitEnabled,
+            autoSkipSegmentTypes = autoSkipSegmentTypes,
             streamAutoPlayNextEpisodeEnabled = streamAutoPlayNextEpisodeEnabled,
             streamAutoPlayNextEpisodeFallbackEnabled = streamAutoPlayNextEpisodeFallbackEnabled,
             streamAutoPlayPreferBingeGroup = streamAutoPlayPreferBingeGroup,

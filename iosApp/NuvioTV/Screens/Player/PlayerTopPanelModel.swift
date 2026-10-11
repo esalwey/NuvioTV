@@ -1,4 +1,5 @@
 import Combine
+import SharedCore
 import SwiftUI
 
 // Engine-agnostic backing model for the swipe-down top panel (Info · Subtitles · Audio). The native
@@ -18,6 +19,8 @@ struct PlayerPanelOption: Identifiable, Equatable {
     /// Language code of the track (ISO 639 / BCP 47, any form the engine has; nil = unknown).
     /// The Subtitles tab groups addon rows by it; rows without one stay ungrouped.
     var language: String? = nil
+    /// The add-on an `.addon` row came from (nil for the file's own tracks, or when unknown).
+    var addonName: String? = nil
     let group: Group
     var isSelected: Bool
 }
@@ -44,6 +47,9 @@ final class PlayerTopPanelModel: ObservableObject {
     /// Subtitles tab rows in display order: Off first (like the system panel), then the file's own
     /// tracks, then addon-fetched ones. Empty while nothing is known yet.
     @Published var subtitles: [PlayerPanelOption] = []
+    /// The viewer's subtitle languages, most wanted first (preferred, secondary, the audio's): the
+    /// order "By Language" lists its groups in. Empty = order of appearance.
+    @Published var subtitleLanguagePriority: [String] = []
     /// True until the addon subtitle fetch has finished — drives the "Searching…" empty state.
     @Published var subtitlesSearching = true
     /// Addon subtitles that arrived after playback had already started (LANG-08). The Subtitles
@@ -86,6 +92,17 @@ final class PlayerTopPanelModel: ObservableObject {
 
     /// Audio delay bound (±10 s), the range the old Playback-tab row allowed.
     static let audioDelayLimitMs = 10_000
+
+    /// The Subtitles menu's blocks under `organization` (Settings > Playback > Subtitle List).
+    func subtitleSections(_ organization: SubtitleOrganization) -> [PlayerSubtitleSection] {
+        let targets = subtitleLanguagePriority
+        return SubtitleOrganizer.sections(subtitles, organization: organization) { language in
+            guard let language else { return targets.count }
+            return targets.firstIndex { target in
+                PlayerLanguagePreferencesKt.languageMatchesPreference(trackLanguage: language, targetLanguage: target)
+            } ?? targets.count
+        }
+    }
 
     init(info: PlayerPanelInfo) {
         self.info = info

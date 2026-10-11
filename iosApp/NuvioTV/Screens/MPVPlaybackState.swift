@@ -48,11 +48,19 @@ final class MPVPlaybackState: ObservableObject {
 
     /// Active skip prompt ("Skip Intro"/"Skip Outro") when playback is inside a known segment.
     @Published var skipPrompt: SkipPrompt?
+    /// "Intro skipped": the confirmation shown for a moment after Automatic Skipping skipped a segment.
+    @Published var autoSkipToast: AutoSkipToast?
 
     /// Playback-settings panel state (speed, subtitle/audio delay, diagnostics).
     @Published var playbackSpeed: Double = 1.0
+    /// How the picture fills the screen (the transport bar's Aspect Ratio menu).
+    @Published var aspectMode: PlayerAspectMode = .fit
     @Published var subtitleDelaySec: Double = 0
     @Published var audioDelaySec: Double = 0
+    /// Volume boost (dB, 0 = off) and dialogue boost (dB, 0 = off) of the Audio menu, remembered
+    /// between playbacks (`MPVAudioSettings`).
+    @Published var audioGainDb: Int = MPVAudioSettings.current.gainDb
+    @Published var dialogueBoostDb: Int = MPVAudioSettings.current.dialogueDb
     @Published var showStreamInfo: Bool = false
     @Published var streamInfo: StreamInfoSnapshot?
     /// Engine routing decision from `PlayerEngineRouter`, shown as the Stream Info "Engine" row.
@@ -73,14 +81,20 @@ final class MPVPlaybackState: ObservableObject {
     var selectAudio: ((Int) -> Void)?
     var selectSubtitle: ((Int) -> Void)?
     var setSpeed: ((Double) -> Void)?
+    var setAspectMode: ((PlayerAspectMode) -> Void)?
     var setSubtitleDelay: ((Double) -> Void)?
     var setAudioDelay: ((Double) -> Void)?
+    var setAudioGain: ((Int) -> Void)?
+    var setDialogueBoost: ((Int) -> Void)?
     var replay: (() -> Void)?
     var reclaimFocus: (() -> Void)?
     /// Exact seek to an absolute time (the Chapters tab).
     var seekTo: ((Double) -> Void)?
     /// Start Over (PLY-A13, the transport bar): back to 0:00, dropping any resume still pending.
     var startOver: (() -> Void)?
+    /// Engine switch: write the playing audio and subtitle tracks to the title's track memory, so the
+    /// other engine opens on them.
+    var rememberTracks: (() -> Void)?
 
     /// Wired by `MPVPlayerScreen` to the `NextEpisodeEngine`; each returns true when the Up Next
     /// card consumed the press (PLY-A4/F5). Select → play the next episode now ("Choose a Source"

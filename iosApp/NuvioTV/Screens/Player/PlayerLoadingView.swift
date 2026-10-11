@@ -8,6 +8,9 @@ import SwiftUI
 /// quickly as possible, and a loading screen that looks like content reads as a hang once it stays
 /// up. Most starts never show more than black.
 ///
+/// With Settings > Playback > Player Interface > Show Loading Screen off, it stays plain black: no
+/// spinner and no caption.
+///
 /// The delays count from the moment playback was asked for (`playerLoadingStartedAt`, set by
 /// `PlayerScreen`), not from this view's appearance: the router's probe and then the engine's own
 /// preparation each show this view in turn, and the spinner must not restart its wait between them.
@@ -23,6 +26,7 @@ struct PlayerLoadingView: View {
 
     @Environment(\.playerLoadingStartedAt) private var startedAt
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @ObservedObject private var settings = PlayerOverlaySettings.shared
     @State private var showsSpinner = false
     @State private var showsCaption = false
 
@@ -33,13 +37,13 @@ struct PlayerLoadingView: View {
             VStack(spacing: Theme.Spacing.lg) {
                 ProgressView()
                     .scaleEffect(1.5)
-                    .opacity(showsSpinner ? 1 : 0)
+                    .opacity(spinnerVisible ? 1 : 0)
                 if let caption {
                     Text(verbatim: caption)
                         .font(Theme.Font.caption)
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
-                        .opacity(showsCaption ? 1 : 0)
+                        .opacity(showsCaption && settings.showLoadingOverlay ? 1 : 0)
                 }
             }
             .accessibilityElement(children: .ignore)
@@ -47,12 +51,15 @@ struct PlayerLoadingView: View {
                 localized: "player.loading.accessibilityLabel",
                 defaultValue: "Loading",
                 comment: "VoiceOver label of the player's loading spinner.")))
-            .accessibilityHidden(!showsSpinner)
+            .accessibilityHidden(!spinnerVisible)
         }
         // Drawn before any video, whatever the system appearance.
         .environment(\.colorScheme, .dark)
         .task { await reveal() }
     }
+
+    /// The spinner is up: its delay has passed and the viewer has not turned the loading screen off.
+    private var spinnerVisible: Bool { showsSpinner && settings.showLoadingOverlay }
 
     /// Fades the spinner, then the caption, in at their delays from `startedAt`.
     private func reveal() async {

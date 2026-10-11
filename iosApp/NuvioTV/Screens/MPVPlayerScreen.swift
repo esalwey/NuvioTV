@@ -23,6 +23,9 @@ private struct MPVPlayerRepresentable: UIViewControllerRepresentable {
     let onChooseAnotherSource: (() -> Void)?
     /// DV Profile 5 forced onto mpv: the session renders through `gpu-next` (contract C1, PLY-A9).
     let forceDVReshape: Bool
+    /// Error card's "Try Native Player" (hands the stream to the native engine at a position);
+    /// nil = not offered.
+    let onSwitchToNative: ((Double) -> Void)?
     /// Chapter ticks for the transport bar (read from the file once it is loaded).
     let chromeModel: MPVChromeModel
 
@@ -33,6 +36,7 @@ private struct MPVPlayerRepresentable: UIViewControllerRepresentable {
         controller.forceDVReshape = forceDVReshape
         controller.onExit = onExit
         controller.onChooseAnotherSource = onChooseAnotherSource
+        controller.onSwitchToNative = onSwitchToNative
         let state = state, makeChromeView = makeChromeView
         controller.onOpenChrome = { [weak controller] entry in
             guard let controller, controller.presentedViewController == nil else { return }
@@ -96,6 +100,9 @@ struct MPVPlayerScreen: View {
     var onChooseAnotherSource: (() -> Void)? = nil
     /// DV Profile 5 forced onto mpv (contract C1): passed through to the libmpv controller.
     var forceDVReshape: Bool = false
+    /// The "Player Engine" item of the transport bar and the error card's "Try Native Player".
+    /// nil = no engine switch offered.
+    var engineSwitch: PlayerEngineSwitch? = nil
 
     @StateObject private var state: MPVPlaybackState
     @Environment(\.dismiss) private var dismiss
@@ -111,6 +118,11 @@ struct MPVPlayerScreen: View {
     @StateObject private var chromeModel = MPVChromeModel()
     /// The first frame is on screen: until then the shared loading view stands in (PLY-A12).
     @State private var firstFrameShown = false
+    /// `state.isBuffering` has lasted past `stallSpinnerDelay`.
+    @State private var stallSpinnerShown = false
+    private static let stallSpinnerDelay: Duration = .milliseconds(500)
+    /// The parental guide shown as playback starts (Settings > Playback > Player Interface).
+    @StateObject private var parental = ParentalGuidePresenter()
 
     init(context: PlaybackContext,
          upNext: NextEpisodeEngine,
@@ -120,8 +132,10 @@ struct MPVPlayerScreen: View {
          onExitToDetails: (() -> Void)? = nil,
          onPickNextSource: ((MetaVideo) -> Void)? = nil,
          onChooseAnotherSource: (() -> Void)? = nil,
-         forceDVReshape: Bool = false) {
+         forceDVReshape: Bool = false,
+         engineSwitch: PlayerEngineSwitch? = nil) {
         self.context = context
+        self.engineSwitch = engineSwitch
         summary = PlayerInfoSummary(context: context)
         _upNext = ObservedObject(wrappedValue: upNext)
         self.canSwitchStreams = canSwitchStreams
@@ -145,6 +159,7 @@ struct MPVPlayerScreen: View {
                 onExit: { dismiss() },
                 onChooseAnotherSource: onChooseAnotherSource,
                 forceDVReshape: forceDVReshape,
+                onSwitchToNative: switchToNative,
                 chromeModel: chromeModel
             )
             .ignoresSafeArea()
@@ -153,8 +168,10 @@ struct MPVPlayerScreen: View {
                 // Opening the file: the player's one loading view (black, then a spinner, PLY-A12).
                 PlayerLoadingView()
                     .transition(.opacity)
-            } else if state.isBuffering {
-                // A stall mid-playback: the spinner alone, over the frozen frame.
+            } else if stallSpinnerShown {
+                // A stall mid-playback: the spinner alone, over the frozen frame. Held back by half
+                // a second (`stallSpinnerDelay`) so a ±10 s skip, which re-fills the decoder for a
+                // few frames, never flashes it (AVPlayer shows its own indicator only on a real stall).
                 ProgressView()
                     .scaleEffect(1.5)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -167,7 +184,8 @@ struct MPVPlayerScreen: View {
                 summary: summary,
                 chapterTicks: chromeModel.tickTimes,
                 items: MPVChromeContent.items(panelModel: panelModel,
-                                              canChooseSource: onChooseAnotherSource != nil),
+                                              canChooseSource: onChooseAnotherSource != nil,
+                                              canSwitchEngine: engineSwitch?.canSwitch ?? false),
                 tabs: MPVChromeContent.tabs(
                     hasEpisodes: context.season != nil && !upNext.episodes.isEmpty,
                     hasChapters: !chromeModel.chapters(durationSec: state.durationSec).isEmpty),
@@ -206,6 +224,20 @@ struct MPVPlayerScreen: View {
                     .padding(.bottom, promptBottomInset)
                     .transition(.opacity)
             }
+
+            // "Intro skipped" — Automatic Skipping's confirmation (same capsule as the native screen).
+            AutoSkipToastOverlay(toast: state.autoSkipToast) { expired in
+                if state.autoSkipToast?.id == expired.id { state.autoSkipToast = nil }
+            }
+
+            // The time and when the video ends, with the transport chrome (same pill as the
+            // native screen).
+            PlayerClockOverlay(chromeVisible: clockShown,
+                               remainingSec: state.durationSec > 0 ? max(state.durationSec - state.positionSec, 0) : nil,
+                               rate: state.playbackSpeed)
+
+            // The parental guide, top-leading, once the first frame is up and the chrome is away.
+            ParentalGuideHost(presenter: parental, chromeVisible: clockShown)
         }
         .animation(PlayerChipStyle.animation, value: state.skipPrompt)
         .animation(PlayerChipStyle.animation, value: upNext.phase)
@@ -228,6 +260,7 @@ struct MPVPlayerScreen: View {
                 panelAdapter = MPVPlayerPanelAdapter(state: state, model: panelModel, context: context)
             }
             wireUpNext()
+            parental.prepare(context: context)
             // libmpv renders into a bare Metal layer, so tvOS doesn't know video is playing and
             // its idle timer fires the screensaver mid-movie (device report). Hold the idle timer
             // while playback is active — mirroring AVPlayerViewController, which does this
@@ -242,6 +275,18 @@ struct MPVPlayerScreen: View {
         .onChange(of: state.isBuffering) { _, buffering in
             guard !buffering, !firstFrameShown else { return }
             withAnimation(.easeInOut(duration: 0.25)) { firstFrameShown = true }
+            parental.firstFrameShown()
+        }
+        // The stall spinner: only for a stall that outlasts a short seek (cancelled and restarted on
+        // every change of the buffering flag).
+        .task(id: state.isBuffering) {
+            guard state.isBuffering else {
+                stallSpinnerShown = false
+                return
+            }
+            try? await Task.sleep(for: Self.stallSpinnerDelay)
+            guard !Task.isCancelled else { return }
+            stallSpinnerShown = true
         }
         .onChange(of: state.positionSec) { _, position in
             upNext.onProgress(positionSec: position, durationSec: state.durationSec)
@@ -278,12 +323,25 @@ struct MPVPlayerScreen: View {
             && (state.controlsVisible || state.pauseChromeShown)
     }
 
+    /// The clock pill rides with the chrome, including the focus layer that replaces the passive bar.
+    private var clockShown: Bool {
+        firstFrameShown && !state.playbackErrorShown
+            && (state.controlsVisible || state.pauseChromeShown || state.panelOpen)
+    }
+
     /// Bottom inset of the bottom-trailing prompts (Up Next card, skip chip): the screen-edge inset,
     /// or — while the transport chrome shows — its measured height plus a gap, so they sit just
     /// above it instead of on it.
     private var promptBottomInset: CGFloat {
         guard chromeShown else { return PlayerChipStyle.edgePadding }
         return max(PlayerChipStyle.edgePadding, transportHeight + Theme.Spacing.lg)
+    }
+
+    /// Hands the stream to the native engine at a position, when the native engine can take it over.
+    private var switchToNative: ((Double) -> Void)? {
+        guard let engineSwitch, engineSwitch.current == .mpv, engineSwitch.nativeAvailable else { return nil }
+        let perform = engineSwitch.perform
+        return { position in perform(.native, position) }
     }
 
     /// Builds the chrome's focus layer. Built from values, not from this view: the controller keeps
@@ -295,6 +353,7 @@ struct MPVPlayerScreen: View {
         let canSwitchStreams = self.canSwitchStreams
         let chooseSource = self.onChooseAnotherSource
         let pickSource = self.pickSourceAction
+        let switchToNative = self.switchToNative
         return { entry, closer in
             let actions = MPVChromeActions(
                 close: { closer.close() },
@@ -322,6 +381,16 @@ struct MPVPlayerScreen: View {
                 startOver: {
                     closer.close()
                     state.startOver?()
+                },
+                switchEngine: switchToNative.map { handOver -> (PlaybackEngine) -> Void in
+                    { [weak state] engine in
+                        // The layer goes first, then the dispatcher plays the stream on the other
+                        // engine from here, with the audio and subtitle selection carried across.
+                        guard engine == .native, let state else { return }
+                        let position = state.positionSec
+                        state.rememberTracks?()
+                        closer.close { handOver(position) }
+                    }
                 })
             return AnyView(MPVTransportFocusView(
                 state: state, panelModel: panelModel, chromeModel: chromeModel, upNext: upNext,

@@ -370,6 +370,7 @@ object AccountDataStores {
             appleKeys = listOf(
                 AppleKeySpec.ProfileScoped("show_loading_overlay"),
                 AppleKeySpec.ProfileScoped("show_parental_guide"),
+                AppleKeySpec.ProfileScoped("osd_clock_enabled"),
                 AppleKeySpec.ProfileScoped("resize_mode"),
                 AppleKeySpec.ProfileScoped("hold_to_speed_enabled"),
                 AppleKeySpec.ProfileScoped("hold_to_speed_value"),
@@ -414,6 +415,7 @@ object AccountDataStores {
                 AppleKeySpec.ProfileScoped("animeskip_client_id"),
                 AppleKeySpec.ProfileScoped("introdb_api_key"),
                 AppleKeySpec.ProfileScoped("intro_submit_enabled"),
+                AppleKeySpec.ProfileScoped("auto_skip_segment_types"),
                 AppleKeySpec.ProfileScoped("stream_auto_play_next_episode_enabled"),
                 AppleKeySpec.ProfileScoped("stream_auto_play_prefer_binge_group"),
                 AppleKeySpec.ProfileScoped("stream_auto_play_reuse_binge_group"),
@@ -458,6 +460,7 @@ object AccountDataStores {
                 AppleKeySpec.DynamicPrefix("audio_name|"),
                 AppleKeySpec.DynamicPrefix("audio_track_id|"),
                 AppleKeySpec.DynamicPrefix("subtitle_delay_ms|"),
+                AppleKeySpec.DynamicPrefix("playback_speed|"),
             ),
         ),
 

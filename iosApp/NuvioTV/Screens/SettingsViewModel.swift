@@ -326,11 +326,9 @@ final class SettingsViewModel: ObservableObject {
     @Published var matchFrameRate: Bool = UserDefaults.standard.bool(forKey: PlayerTuning.matchFrameRateKey)
     /// Use mpv's `gpu-next` (libplacebo) renderer for better HDR (real Apple TV only).
     @Published var enhancedRenderer: Bool = UserDefaults.standard.bool(forKey: PlayerTuning.enhancedRendererKey)
-    /// Route Dolby Vision / native-friendly files to the AVPlayer engine for true DV output (beta).
-    @Published var nativeDolbyVision: Bool = UserDefaults.standard.bool(forKey: PlayerTuning.nativeDVKey)
-    /// Native-DV sub-setting: keep DV Profile 7 FEL files on mpv (full-fidelity data path) instead
-    /// of converting them to Profile 8.1 for the native player.
-    @Published var dvP7FelMpv: Bool = UserDefaults.standard.bool(forKey: PlayerTuning.dvP7FelMpvKey)
+    /// How Dolby Vision files are played (native player, Profile 7 handling, HDR10 only, or off).
+    /// Replaces the old native-DV and keep-FEL-on-mpv switches; stored through their keys.
+    @Published var dolbyVisionMode: DolbyVisionMode = DolbyVisionMode.current
 
     func setBufferMB(_ value: Int) {
         bufferMB = value
@@ -352,14 +350,9 @@ final class SettingsViewModel: ObservableObject {
         UserDefaults.standard.set(value, forKey: PlayerTuning.enhancedRendererKey)
     }
 
-    func setNativeDolbyVision(_ value: Bool) {
-        nativeDolbyVision = value
-        UserDefaults.standard.set(value, forKey: PlayerTuning.nativeDVKey)
-    }
-
-    func setDvP7FelMpv(_ value: Bool) {
-        dvP7FelMpv = value
-        UserDefaults.standard.set(value, forKey: PlayerTuning.dvP7FelMpvKey)
+    func setDolbyVisionMode(_ mode: DolbyVisionMode) {
+        dolbyVisionMode = mode
+        mode.store()
     }
 
     // MARK: - Up Next (Settings → Playback → Next Episode)
@@ -597,6 +590,22 @@ final class SettingsViewModel: ObservableObject {
     func setSubtitleOutline(_ enabled: Bool) {
         updateSubtitleStyle {
             SubtitleStyleState(textColor: $0.textColor, backgroundColor: $0.backgroundColor, outlineColor: $0.outlineColor, outlineEnabled: enabled, outlineWidth: $0.outlineWidth, bold: $0.bold, fontSizeSp: $0.fontSizeSp, bottomOffset: $0.bottomOffset, stripSdh: $0.stripSdh, useForcedSubtitles: $0.useForcedSubtitles, showOnlyPreferredLanguages: $0.showOnlyPreferredLanguages)
+        }
+    }
+
+    /// Outline colour, a `SubtitleColor` argb long (mpv draws it; the native player's caption edge
+    /// has no colour of its own).
+    func setSubtitleOutlineColor(_ argb: Int64) {
+        updateSubtitleStyle {
+            SubtitleStyleState(textColor: $0.textColor, backgroundColor: $0.backgroundColor, outlineColor: argb, outlineEnabled: $0.outlineEnabled, outlineWidth: $0.outlineWidth, bold: $0.bold, fontSizeSp: $0.fontSizeSp, bottomOffset: $0.bottomOffset, stripSdh: $0.stripSdh, useForcedSubtitles: $0.useForcedSubtitles, showOnlyPreferredLanguages: $0.showOnlyPreferredLanguages)
+        }
+    }
+
+    /// Outline width, 1 to 5 (the range the phone's slider offers).
+    func setSubtitleOutlineWidth(_ width: Int32) {
+        let clamped = min(max(width, 1), 5)
+        updateSubtitleStyle {
+            SubtitleStyleState(textColor: $0.textColor, backgroundColor: $0.backgroundColor, outlineColor: $0.outlineColor, outlineEnabled: $0.outlineEnabled, outlineWidth: clamped, bold: $0.bold, fontSizeSp: $0.fontSizeSp, bottomOffset: $0.bottomOffset, stripSdh: $0.stripSdh, useForcedSubtitles: $0.useForcedSubtitles, showOnlyPreferredLanguages: $0.showOnlyPreferredLanguages)
         }
     }
 

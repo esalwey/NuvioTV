@@ -109,6 +109,11 @@ struct DeveloperSettingsPane: View {
     /// can be set with a launch argument (`-debug.searchLegacyField YES`, `-debug.pinLegacyPad YES`).
     @AppStorage("debug.searchLegacyField") private var searchLegacyField = false
     @AppStorage(PinEntryView.legacyPadKey) private var pinLegacyPad = false
+    /// Player look A/B (polish pass): both OFF = the corrected look (neutral glass, readable mpv
+    /// layer). Turned on, each brings the previous behaviour back so the difference can be judged
+    /// on the device. Both are logged at player start (`[MPV] metal layer framebufferOnly=`).
+    @AppStorage(PlayerTuning.darkGlassTintKey) private var darkPlayerGlass = false
+    @AppStorage(PlayerTuning.framebufferOnlyKey) private var framebufferOnlyLayer = false
 
     private var trailerZoomCacheCount: Int {
         _ = trailerZoomCacheGeneration // dependency only — see the property's doc comment
@@ -596,6 +601,31 @@ struct DeveloperSettingsPane: View {
                 )
             }
 
+            SettingsSection(
+                String(localized: "settings.developer.player.title", defaultValue: "Player Look",
+                       comment: "Developer settings section with A/B switches for how the player's glass controls render"),
+                footer: String(localized: "settings.developer.player.footer",
+                               defaultValue: "Both off is the intended look: see-through glass over the picture on both players. Turn one on to compare with the previous look. Applies to the next playback.",
+                               comment: "Footer under the developer player look switches")
+            ) {
+                SettingsToggleRow(
+                    title: String(localized: "settings.developer.player.darkGlass", defaultValue: "Dark Player Glass",
+                                  comment: "Developer switch: tint the player's glass controls dark like before"),
+                    subtitle: String(localized: "settings.developer.player.darkGlass.subtitle",
+                                     defaultValue: "Old black tint under the transport bar and the player cards",
+                                     comment: "Subtitle of the dark player glass developer switch"),
+                    isOn: $darkPlayerGlass
+                )
+                SettingsToggleRow(
+                    title: String(localized: "settings.developer.player.framebufferOnly", defaultValue: "Opaque Video Layer",
+                                  comment: "Developer switch: keep the mpv video layer framebuffer-only, which glass cannot see through"),
+                    subtitle: String(localized: "settings.developer.player.framebufferOnly.subtitle",
+                                     defaultValue: "Old setting: the glass cannot show the picture behind it on the mpv player",
+                                     comment: "Subtitle of the opaque video layer developer switch"),
+                    isOn: $framebufferOnlyLayer
+                )
+            }
+
             SettingsSection(nil, footer: String(localized: "settings.developer.hide.footer", defaultValue: "Turns every diagnostic above off and hides this pane. Press Version in About seven times to show it again.", comment: "Footer under the button that hides the developer pane")) {
                 SettingsDestructiveRow(
                     title: String(localized: "settings.developer.hide", defaultValue: "Hide Developer Settings", comment: "Button that hides the developer pane and turns its diagnostics off"),
@@ -651,6 +681,8 @@ enum DeveloperMode {
         "debug.collectionFocusAB",
         "debug.cwDiagnostics",
         "debug.searchLegacyField",
+        PlayerTuning.darkGlassTintKey,
+        PlayerTuning.framebufferOnlyKey,
         PinEntryView.legacyPadKey,
         PinnedRowTitle.noZoomReachHoldsLiftKey,
     ]

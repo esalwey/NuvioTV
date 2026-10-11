@@ -25,4 +25,10 @@ expect object PlayerTrackPreferenceStorage {
     fun save(contentId: String, preference: PersistedPlayerTrackPreference)
     fun loadSubtitleDelayMs(videoId: String): Int?
     fun saveSubtitleDelayMs(videoId: String, delayMs: Int)
+
+    /** The playback speed remembered for a title (keyed by its parent meta id); null = normal speed. */
+    fun loadPlaybackSpeed(contentId: String): Float?
+
+    /** Remembers [speed] for a title; normal speed (1x) forgets it (`PlaybackSpeedPolicy`). */
+    fun savePlaybackSpeed(contentId: String, speed: Float)
 }

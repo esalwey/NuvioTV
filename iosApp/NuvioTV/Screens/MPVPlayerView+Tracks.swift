@@ -188,6 +188,7 @@ extension MPVTVPlayerViewController {
             if self.state.audioTracks != audio { self.state.audioTracks = audio }
             if self.state.subtitleTracks != newSubs { self.state.subtitleTracks = newSubs }
             self.lastSubtitleInfos = subInfos
+            self.lastAudioInfos = audioInfos
             // VERIFIED-LANGUAGES: remember the file's own tracks for the stream it was picked from.
             PlayedTrackRecorder.record(
                 url: self.context.url,
@@ -507,6 +508,30 @@ extension MPVTVPlayerViewController {
         }
     }
 
+    /// Engine switch (the "Player Engine" menu, the error card's "Try Native Player"): write the
+    /// live audio and subtitle selection to the title's track memory, the one both engines restore
+    /// from when they open a file, so the native engine opens on the tracks playing now — whether
+    /// the viewer picked them or the language plan did.
+    func rememberTracksForEngineSwitch() {
+        guard mpv != nil, fileLoaded else { return }
+        if let selected = lastSubtitleInfos.first(where: { $0.selected }) {
+            persistSubtitleChoice(trackId: selected.id)
+        } else if subtitleSelectionResolved, !lastSubtitleInfos.isEmpty {
+            persistSubtitleChoice(trackId: -1)
+        }
+        if lastAudioInfos.count > 1, let audio = lastAudioInfos.first(where: { $0.selected }) {
+            persistedTrackPreference = PlayerSubtitleMemory.saveAudio(
+                parentMetaId: context.parentMetaId,
+                language: audio.lang.isEmpty
+                    ? PlayerLanguagePreferencesKt.languageFromTrackText(text: audio.title)
+                    : audio.lang,
+                name: audio.title.isEmpty ? (audio.lang.isEmpty ? nil : audio.lang) : audio.title,
+                trackId: String(audio.id),
+                keeping: persistedTrackPreference
+            )
+        }
+    }
+
     /// LANG-04: the walk's structured fields for one track (see `MPVTrackFields`).
     nonisolated static func trackFields(_ info: TrackInfo, isAudio: Bool, addon: AddonSubtitle?) -> MPVTrackFields {
         MPVTrackFields(
@@ -614,6 +639,12 @@ extension MPVTVPlayerViewController {
         if let storedMs = PlayerTrackPreferenceStorage.shared.loadSubtitleDelayMs(videoId: context.videoId) {
             setSubtitleDelay(Double(storedMs.intValue) / 1000.0)
         }
+        // The title's remembered speed (1x is never stored) and the chosen aspect ratio.
+        if let storedSpeed = PlayerTrackPreferenceStorage.shared.loadPlaybackSpeed(contentId: context.parentMetaId)?.floatValue,
+           storedSpeed > 0 {
+            setSpeed(Double(storedSpeed))
+        }
+        applyAspectMode(state.aspectMode)
         // LANG-13: the audio delay is a property of this Apple TV's sound setup (soundbar, AV
         // receiver), so one value is kept per device and applied to every file.
         let storedAudioDelay = UserDefaults.standard.double(forKey: Self.audioDelayDefaultsKey)
@@ -644,45 +675,27 @@ extension MPVTVPlayerViewController {
 
     // MARK: - Subtitle appearance (mirrors the mobile libmpv mapping)
 
-    /// Push the user's subtitle style into libmpv. Colors are `SubtitleColor` argb longs (0xAARRGGBB);
-    /// the size/outline/border-style formulas match `PlayerEngine.android`'s `applySubtitleStyle`.
+    /// Push the user's subtitle style into libmpv, through the `SubtitleRenderStyle` the native
+    /// engine builds its `AVTextStyleRule` from (one mapping for both, so they cannot drift).
+    /// Colors are `SubtitleColor` argb longs (0xAARRGGBB). `sub-ass-override=no` keeps styled ASS
+    /// events as authored; the style applies to plain-text cues, which is what AVPlayer's
+    /// text-style rule covers as well.
     func applySubtitleStyle() {
-        guard mpv != nil, let style = playerSettings?.subtitleStyle else { return }
+        guard mpv != nil, let state = playerSettings?.subtitleStyle else { return }
+        let style = SubtitleRenderStyle(state)
         setMpvString("sub-ass-override", "no")
-        setMpvString("sub-color", mpvColorString(style.textColor))
-        setMpvString("sub-back-color", mpvColorString(style.backgroundColor))
-        setMpvString("sub-outline-color", mpvColorString(style.outlineColor))
-        setMpvString("sub-border-color", mpvColorString(style.outlineColor))
-        setMpvString("sub-border-style", subtitleBorderStyle(style))
+        setMpvString("sub-color", SubtitleRenderStyle.mpvColor(style.textARGB))
+        setMpvString("sub-back-color", SubtitleRenderStyle.mpvColor(style.backgroundARGB))
+        setMpvString("sub-outline-color", SubtitleRenderStyle.mpvColor(style.outlineARGB))
+        setMpvString("sub-border-color", SubtitleRenderStyle.mpvColor(style.outlineARGB))
+        setMpvString("sub-border-style", style.mpvBorderStyle)
         setMpvString("sub-bold", style.bold ? "yes" : "no")
-        setMpvInt("sub-font-size", subtitleFontSize(style))
-        let outline = subtitleOutlineSize(style)
-        setMpvInt("sub-outline-size", outline)
-        setMpvInt("sub-border-size", outline)
-        setMpvInt("sub-pos", Int64(max(0, min(100, 100 - Int(style.bottomOffset) / 10))))
-        setMpvString("sub-filter-sdh", style.stripSdh ? "yes" : "no")
-        setMpvString("sub-filter-sdh-harder", style.stripSdh ? "yes" : "no")
-    }
-
-    private func mpvColorString(_ argb: Int64) -> String {
-        let a = (argb >> 24) & 0xFF, r = (argb >> 16) & 0xFF, g = (argb >> 8) & 0xFF, b = argb & 0xFF
-        return String(format: "#%02X%02X%02X%02X", a, r, g, b)
-    }
-
-    private func subtitleFontSize(_ s: SubtitleStyleState) -> Int64 {
-        let scaled = Int(Double(s.fontSizeSp) * (55.0 / 18.0))
-        return Int64(max(36, min(122, scaled)))
-    }
-
-    private func subtitleOutlineSize(_ s: SubtitleStyleState) -> Int64 {
-        guard s.outlineEnabled else { return 0 }
-        return Int64(max(1, Int(Double(s.outlineWidth) * 1.5)))
-    }
-
-    private func subtitleBorderStyle(_ s: SubtitleStyleState) -> String {
-        if s.outlineEnabled { return "outline-and-shadow" }
-        let backgroundAlpha = (s.backgroundColor >> 24) & 0xFF
-        return backgroundAlpha > 0 ? "opaque-box" : "outline-and-shadow"
+        setMpvInt("sub-font-size", style.mpvFontSize)
+        setMpvInt("sub-outline-size", style.mpvOutlineSize)
+        setMpvInt("sub-border-size", style.mpvOutlineSize)
+        setMpvInt("sub-pos", style.mpvSubPos)
+        setMpvString("sub-filter-sdh", state.stripSdh ? "yes" : "no")
+        setMpvString("sub-filter-sdh-harder", state.stripSdh ? "yes" : "no")
     }
 
     #if DEBUG
@@ -725,6 +738,7 @@ extension MPVTVPlayerViewController {
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.skipSegments = segments
+                self.autoSkipTracker.reset()
                 // The outro also times the Up Next card (credits-aware trigger).
                 self.state.onSkipSegmentsLoaded?(segments)
             }
@@ -775,15 +789,30 @@ extension MPVTVPlayerViewController {
                 self.eventQueue.async { [weak self] in
                     // The track walk maps the local copy back to the addon URL (subtitle memory).
                     self?.externalSubtitleSources[local.path] = url
-                    self?.command("sub-add", args: [local.path, "auto", title, lang])
+                    self?.addSubtitleFile(local.path, title: title, lang: lang)
                 }
             }.resume()
             return
         }
         // sub-add downloads/probes the file synchronously inside the core — never on main.
         eventQueue.async { [weak self] in
-            self?.command("sub-add", args: [url, "auto", title, lang])
+            self?.addSubtitleFile(url, title: title, lang: lang)
         }
+    }
+
+    /// `eventQueue` only: `sub-add`, reading the file in the legacy code page its language is
+    /// written in when it is not UTF-8 (`SubtitleCharset.mpvCodepage`: a Russian SRT is Windows-1251,
+    /// a Chinese one GBK…). `sub-add` opens and decodes the file before it returns, so the option
+    /// only needs to hold for the call; mpv's own detection comes back after it. A language with no
+    /// legacy code page of its own keeps that detection.
+    private func addSubtitleFile(_ path: String, title: String, lang: String) {
+        guard let codepage = SubtitleCharset.mpvCodepage(forLanguage: lang) else {
+            command("sub-add", args: [path, "auto", title, lang])
+            return
+        }
+        setMpvString("sub-codepage", codepage)
+        command("sub-add", args: [path, "auto", title, lang])
+        setMpvString("sub-codepage", "auto")
     }
 
     func selectSubtitle(_ id: Int) {
@@ -807,10 +836,31 @@ extension MPVTVPlayerViewController {
 
     // MARK: - Playback speed & A/V-subtitle timing
 
+    /// Applies a speed picked in the transport bar and remembers it for this title (normal speed
+    /// forgets it); `onFileLoaded()` replays it on the next playback of the title. The replay's
+    /// own save is a same-value no-op.
     func setSpeed(_ speed: Double) {
         guard mpv != nil else { return }
         setMpvDouble("speed", speed)
         state.playbackSpeed = speed
+        PlayerTrackPreferenceStorage.shared.savePlaybackSpeed(contentId: context.parentMetaId, speed: Float(speed))
+    }
+
+    // MARK: - Aspect ratio
+
+    /// Aspect Ratio menu: applies the mode to the running core and remembers Fit / Fill.
+    func setAspectMode(_ mode: PlayerAspectMode) {
+        state.aspectMode = mode
+        mode.remember()
+        applyAspectMode(mode)
+    }
+
+    /// Fit, Fill and Stretch through mpv's own `panscan` and `keepaspect`: the Metal layer keeps
+    /// filling the view, so the drawable size (and HDR output) is untouched.
+    func applyAspectMode(_ mode: PlayerAspectMode) {
+        guard mpv != nil else { return }
+        setMpvDouble("panscan", mode.mpvPanscan)
+        setFlag("keepaspect", mode.mpvKeepsAspect)
     }
 
     /// Single source of truth for subtitle re-timing on the mpv path: applies to the running core,
@@ -833,6 +883,29 @@ extension MPVTVPlayerViewController {
         setMpvDouble("audio-delay", seconds)
         state.audioDelaySec = seconds
         UserDefaults.standard.set(seconds, forKey: Self.audioDelayDefaultsKey)
+    }
+
+    // MARK: - Volume boost & dialogue boost
+
+    /// Volume boost from the Audio menu: mpv's software volume (unity at 0 dB), remembered for the
+    /// next playbacks. `eventQueue` like the other live changes to the audio chain.
+    func setAudioGain(_ db: Int) {
+        guard mpv != nil else { return }
+        state.audioGainDb = db
+        MPVAudioSettings(output: .current, gainDb: db, dialogueDb: state.dialogueBoostDb).storeBoosts()
+        let percent = db > 0 ? MPVAudioSettings.volumePercent(gainDb: db) : 100
+        eventQueue.async { [weak self] in self?.setMpvDouble("volume", percent) }
+    }
+
+    /// Dialogue boost from the Audio menu: replaces mpv's audio filter with the centre-weighted
+    /// stereo downmix (or clears it at 0), remembered for the next playbacks.
+    func setDialogueBoost(_ db: Int) {
+        guard mpv != nil else { return }
+        state.dialogueBoostDb = db
+        MPVAudioSettings(output: .current, gainDb: state.audioGainDb, dialogueDb: db).storeBoosts()
+        let filter = MPVAudioSettings.audioFilter(dialogueDb: db,
+                                                  stereoOutput: MPVAudioSettings.isStereoOutput(.current))
+        eventQueue.async { [weak self] in self?.setMpvString("af", filter) }
     }
 
     private func setMpvDouble(_ name: String, _ value: Double) {

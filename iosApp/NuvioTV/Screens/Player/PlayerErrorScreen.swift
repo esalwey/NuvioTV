@@ -119,6 +119,9 @@ struct PlayerErrorScreen: View {
     let onChooseSource: () -> Void
     let onRetry: () -> Void
     let onKeepWaiting: () -> Void
+    /// Hand the stream to the native player (the other engine: this card is the mpv player's).
+    /// nil = not offered: the native engine can't take this stream, or the dispatcher offers none.
+    var onSwitchEngine: (() -> Void)? = nil
     /// Leave the player (the same as Menu). With a picker behind the player it adds a Back button
     /// after the others; nil = Menu only.
     var onBack: (() -> Void)? = nil
@@ -126,7 +129,7 @@ struct PlayerErrorScreen: View {
     /// Focus targets (internal, not private: it types the `@FocusState` below, and the memberwise
     /// initializer must stay internal for the player controller).
     enum Target: Hashable {
-        case chooseSource, retry, keepWaiting, details, back
+        case chooseSource, retry, switchEngine, keepWaiting, details, back
     }
 
     @FocusState private var focus: Target?
@@ -204,6 +207,14 @@ struct PlayerErrorScreen: View {
                 Label(String(localized: "Try Again"), systemImage: "arrow.clockwise")
             }
             .focused($focus, equals: .retry)
+            if let onSwitchEngine {
+                Button(action: onSwitchEngine) {
+                    Label(String(localized: "player.error.tryNative", defaultValue: "Try Native Player",
+                                 comment: "Player error button: play the same source in the native Apple player instead of mpv."),
+                          systemImage: "arrow.left.arrow.right")
+                }
+                .focused($focus, equals: .switchEngine)
+            }
             if error.kind == .timedOut {
                 Button(action: onKeepWaiting) {
                     Label(String(localized: "Keep Waiting"), systemImage: "hourglass")

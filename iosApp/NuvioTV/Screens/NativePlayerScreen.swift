@@ -47,14 +47,28 @@ struct NativePlayerScreen: View {
     /// The transport bar's "Sources" item: close the player onto this episode's stream list.
     /// nil → no Sources item.
     var onChooseAnotherSource: (() -> Void)?
+    /// The "Player Engine" item of the transport bar: hands the stream to mpv on request. nil = no
+    /// item (the dispatcher offers none).
+    var engineSwitch: PlayerEngineSwitch?
 
     @StateObject private var coordinator: NativePlaybackCoordinator
     @StateObject private var panelModel: PlayerTopPanelModel
     @State private var panelAdapter: NativePlayerPanelAdapter?
     @State private var skipSegments: [SkipSegment] = []
     @State private var skipPrompt: SkipPrompt?
+    /// Automatic Skipping: which segments were already skipped (or left to the viewer's seeks).
+    /// A reference, so its per-tick bookkeeping never invalidates this view.
+    @State private var autoSkip = AutoSkipTrackerBox()
+    /// "Intro skipped": the confirmation shown for a moment after a segment was skipped on its own.
+    @State private var autoSkipToast: AutoSkipToast?
     /// Playback speed picked in the transport bar (1 = normal).
-    @State private var playbackRate: Float = 1
+    @State private var playbackRate: Float
+    /// How the picture fills the screen (the transport bar's Aspect Ratio menu).
+    @State private var aspectMode: PlayerAspectMode
+    /// Feeds the clock pill (remaining time, system transport bar visibility).
+    @StateObject private var clock = PlayerClockModel()
+    /// The parental guide shown as playback starts (Settings > Playback > Player Interface).
+    @StateObject private var parental = ParentalGuidePresenter()
     /// The end screen's cover was closed with Menu: leave for the details page once it's gone.
     @State private var endScreenClosedByMenu = false
     @Environment(\.dismiss) private var dismiss
@@ -66,8 +80,10 @@ struct NativePlayerScreen: View {
          onExitToDetails: (() -> Void)? = nil,
          onPickNextSource: ((MetaVideo) -> Void)? = nil,
          canSwitchStreams: Bool = false,
-         onChooseAnotherSource: (() -> Void)? = nil) {
+         onChooseAnotherSource: (() -> Void)? = nil,
+         engineSwitch: PlayerEngineSwitch? = nil) {
         self.context = context
+        self.engineSwitch = engineSwitch
         _upNext = ObservedObject(wrappedValue: upNext)
         self.onFallback = onFallback
         self.routingNote = routingNote
@@ -75,6 +91,10 @@ struct NativePlayerScreen: View {
         self.onPickNextSource = onPickNextSource
         self.canSwitchStreams = canSwitchStreams
         self.onChooseAnotherSource = onChooseAnotherSource
+        // The title's remembered speed (1x is never stored) and the remembered aspect choice.
+        _playbackRate = State(initialValue: PlayerTrackPreferenceStorage.shared
+            .loadPlaybackSpeed(contentId: context.parentMetaId)?.floatValue ?? 1)
+        _aspectMode = State(initialValue: PlayerOverlaySettings.shared.aspectMode)
         _coordinator = StateObject(wrappedValue: NativePlaybackCoordinator(context: context, engineNote: routingNote))
         // Still the source of the Stream Info rows and of the subtitle-timing support flag, now
         // that the swipe-down panel it used to feed is gone on this engine (D3).
@@ -103,14 +123,18 @@ struct NativePlayerScreen: View {
                         menu: TransportMenuState(
                             canChooseSource: onChooseAnotherSource != nil,
                             rate: playbackRate,
+                            aspect: aspectMode,
                             supportsSubtitleDelay: panelModel.supportsSubtitleDelay,
-                            subtitleDelayMs: coordinator.subtitleDelayMs),
+                            subtitleDelayMs: coordinator.subtitleDelayMs,
+                            canSwitchEngine: engineSwitch?.canSwitch ?? false),
                         chapters: skipSegments,
                         makeInfoViewControllers: makeInfoViewControllers,
                         onSkip: { [weak coordinator, weak upNext] prompt in
                             // Skip Outro on credits that run to the end of the file = the next
-                            // episode now (Up Next), not a seek onto the last frame.
-                            if prompt.isCredits, upNext?.skipCreditsToNext(creditsEndSec: prompt.targetSec) == true {
+                            // episode now (Up Next), not a seek onto the last frame. Credits
+                            // followed by a scene seek to the scene instead.
+                            if prompt.isCredits, !prompt.skipsToPostCredits,
+                               upNext?.skipCreditsToNext(creditsEndSec: prompt.targetSec) == true {
                                 return
                             }
                             coordinator?.player?.seek(to: CMTime(seconds: prompt.targetSec, preferredTimescale: 600))
@@ -120,12 +144,15 @@ struct NativePlayerScreen: View {
                             Self.perform(action, on: upNext)
                         },
                         onSetRate: { rate in setPlaybackRate(rate) },
+                        onSetAspect: { mode in setAspectMode(mode) },
+                        onTransportBarVisibility: { [weak clock] visible in clock?.transportBarVisible = visible },
                         onSetSubtitleDelay: { [weak coordinator] ms in coordinator?.setSubtitleDelay(ms: ms) },
                         onStartOver: { [weak coordinator] in coordinator?.startOver() },
                         onChooseSource: { [weak upNext] in
                             upNext?.cancelForSourceSwitch()
                             onChooseAnotherSource?()
                         },
+                        onSwitchEngine: { engine in switchEngine(to: engine) },
                         onDownPress: { [weak upNext] in upNext?.handleDown() ?? false },
                         downPressClaimed: { [weak upNext] in (upNext?.phase ?? .hidden) != .hidden },
                         onMenuPress: { [weak upNext] in upNext?.handleMenu() ?? false },
@@ -158,6 +185,17 @@ struct NativePlayerScreen: View {
                     .padding(.bottom, PlayerChipStyle.edgePadding + Self.contextualActionClearance)
                     .transition(.opacity)
                     .allowsHitTesting(false)
+            }
+
+            // "Intro skipped" — Automatic Skipping's confirmation (same capsule as the mpv screen).
+            AutoSkipToastOverlay(toast: autoSkipToast) { expired in
+                if autoSkipToast?.id == expired.id { autoSkipToast = nil }
+            }
+
+            // The time and when the video ends, with the system transport bar (same pill as mpv).
+            if coordinator.phase == .playing {
+                NativeClockOverlay(model: clock, isPaused: coordinator.isPaused, rate: Double(playbackRate))
+                NativeParentalGuideOverlay(presenter: parental, clock: clock, isPaused: coordinator.isPaused)
             }
         }
         .animation(PlayerChipStyle.animation, value: upNext.phase)
@@ -193,10 +231,13 @@ struct NativePlayerScreen: View {
             coordinator.onTick = { [weak adapter] _, _ in
                 adapter?.onTick()
             }
-            coordinator.onPositionTick = { [weak upNext] position, duration in
+            coordinator.onPositionTick = { [weak upNext, weak clock, weak parental] position, duration in
+                clock?.update(position: position, duration: duration)
+                parental?.firstFrameShown()
                 upNext?.onProgress(positionSec: position, durationSec: duration)
                 updateSkipPrompt(position: position, durationSec: duration)
             }
+            parental.prepare(context: context)
             upNext.playerAttached()
             upNext.setPaused(false)
             upNext.onExitRequested = exitAction
@@ -228,9 +269,28 @@ struct NativePlayerScreen: View {
     /// switches at once.
     private func setPlaybackRate(_ rate: Float) {
         playbackRate = rate
+        // Remembered for this title; normal speed forgets it.
+        PlayerTrackPreferenceStorage.shared.savePlaybackSpeed(contentId: context.parentMetaId, speed: rate)
         guard let player = coordinator.player else { return }
         player.defaultRate = rate
         if player.rate != 0 { player.rate = rate }
+    }
+
+    /// Player Engine menu: hand the stream to mpv at the current position. The selection of audio
+    /// and subtitle tracks is written to the title's memory first, so mpv opens on the same ones.
+    private func switchEngine(to engine: PlaybackEngine) {
+        guard engine != .native, let engineSwitch, engineSwitch.current == .native else { return }
+        coordinator.rememberTracksForEngineSwitch()
+        let live = coordinator.player.map { CMTimeGetSeconds($0.currentTime()) }
+        let position = live.flatMap { $0.isFinite && $0 > 0 ? $0 : nil } ?? coordinator.lastPositionSec
+        engineSwitch.perform(engine, position)
+    }
+
+    /// Aspect Ratio menu: the picture's gravity follows (`AVPlayerContainer`); Fit / Fill are
+    /// remembered.
+    private func setAspectMode(_ mode: PlayerAspectMode) {
+        aspectMode = mode
+        mode.remember()
     }
 
     /// The content tabs under the scrubber, built once per player controller (their SwiftUI views
@@ -369,33 +429,49 @@ struct NativePlayerScreen: View {
             guard !segments.isEmpty else { return }
             DispatchQueue.main.async {
                 self.skipSegments = segments
+                self.autoSkip.tracker.reset()
                 self.upNext.setSkipSegments(segments)
             }
         }
     }
 
     /// Offer the skip while inside a segment; the last second is excluded so the action
-    /// disappears cleanly at the end (same rule as the mpv screen).
+    /// disappears cleanly at the end (same rule as the mpv screen). A segment the viewer picked under
+    /// Automatic Skipping is skipped here instead, once, without ever offering the action.
     private func updateSkipPrompt(position: Double, durationSec: Double) {
         // Upstream 80860602f: an error/placeholder clip (shared short-placeholder rule) offers no skip.
         let placeholder = WatchingPoliciesKt.isShortPlaceholderDuration(durationMs: Int64(durationSec * 1000))
-        let active = placeholder ? nil
-            : skipSegments.first(where: { position >= $0.start && position < $0.end - PlayerChipStyle.lastSecondExclusion })
-        let prompt = active.map {
-            SkipPrompt(label: Self.skipLabel(for: $0.type), targetSec: $0.end,
-                       isCredits: UpNextTrigger.outroTypes.contains($0.type.lowercased()))
+        if !placeholder, autoSkipIfNeeded(position: position, durationSec: durationSec) {
+            if skipPrompt != nil { skipPrompt = nil }
+            return
         }
+        let prompt = placeholder ? nil
+            : SkipPlanner.prompt(position: position, durationSec: durationSec, segments: skipSegments)
         if prompt != skipPrompt { skipPrompt = prompt }
     }
 
-    private static func skipLabel(for type: String) -> String {
-        let type = type.lowercased()
-        // Every credits type Up Next knows (AniSkip "ed"/"mixed-ed", IntroDB "outro", …).
-        if UpNextTrigger.outroTypes.contains(type) { return String(localized: "Skip Outro") }
-        return type == "recap"
-            ? String(localized: "Skip Recap")
-            : String(localized: "player.skip.intro", defaultValue: "Skip Intro",
-                     comment: "Player skip button shown during an episode's intro (both engines).")
+    /// Automatic Skipping: skips the segment the tracker picks for this tick, shows the "Intro
+    /// skipped" confirmation, and reports whether it did. Same rules, tracker and confirmation as the
+    /// mpv screen.
+    private func autoSkipIfNeeded(position: Double, durationSec: Double) -> Bool {
+        guard let skip = autoSkip.tracker.evaluate(
+            position: position,
+            durationSec: durationSec,
+            now: ProcessInfo.processInfo.systemUptime,
+            isPlaying: !coordinator.isPaused && !coordinator.isEnded,
+            segments: skipSegments,
+            enabledKinds: AutoSkipSettings.enabledKinds()
+        ) else { return false }
+        let isCredits = UpNextTrigger.outroTypes.contains(SkipPlanner.normalized(skip.segment.type))
+        // Credits that run to the end of the file = the next episode now (Up Next), not a seek onto
+        // the last frame; credits followed by a scene seek to the scene.
+        let handedToUpNext = isCredits && !skip.action.skipsToPostCredits
+            && upNext.skipCreditsToNext(creditsEndSec: skip.action.targetSec)
+        if !handedToUpNext {
+            coordinator.player?.seek(to: CMTime(seconds: skip.action.targetSec, preferredTimescale: 600))
+        }
+        autoSkipToast = AutoSkipToast(text: SkipPlanner.autoSkipMessage(forKind: skip.kind))
+        return true
     }
 }
 
@@ -427,8 +503,11 @@ enum UpNextAction: String {
 private struct TransportMenuState: Equatable {
     var canChooseSource: Bool
     var rate: Float
+    var aspect: PlayerAspectMode
     var supportsSubtitleDelay: Bool
     var subtitleDelayMs: Int
+    /// The "Player Engine" item is offered (native is the engine playing here).
+    var canSwitchEngine: Bool
 
     // Choices, titles and symbols come from `PlayerTransportMenus` / `PlayerTransportItem`, the
     // description the mpv chrome draws from too.
@@ -456,10 +535,14 @@ private struct AVPlayerContainer: UIViewControllerRepresentable {
     let onSkip: (SkipPrompt) -> Void
     let onUpNextAction: (UpNextAction) -> Void
     let onSetRate: (Float) -> Void
+    let onSetAspect: (PlayerAspectMode) -> Void
+    let onTransportBarVisibility: (Bool) -> Void
     let onSetSubtitleDelay: (Int) -> Void
     /// Start Over (PLY-A13): back to 0:00.
     let onStartOver: () -> Void
     let onChooseSource: () -> Void
+    /// Player Engine menu: the engine picked (the one playing is a no-op for the screen).
+    let onSwitchEngine: (PlaybackEngine) -> Void
     /// Down press while the Up Next card is up → play now (returns true).
     let onDownPress: () -> Bool
     /// True while the Up Next card is up and would take a Down press; otherwise Down and the down
@@ -478,6 +561,7 @@ private struct AVPlayerContainer: UIViewControllerRepresentable {
     func makeUIViewController(context: Context) -> NativePlayerHostController {
         let host = NativePlayerHostController()
         host.playerVC.player = player
+        host.playerVC.videoGravity = menu.aspect.videoGravity
         player.defaultRate = menu.rate
         // Decision D3: the system content tabs replace the app's swipe-down panel on this engine —
         // `onOpenPanel` stays nil, so Down and the down swipe belong to the system player (and to
@@ -489,6 +573,7 @@ private struct AVPlayerContainer: UIViewControllerRepresentable {
         host.claimsDownPress = downPressClaimed
         host.onSelectPress = onSelectPress
         host.onSelectSettled = onSelectSettled
+        host.onTransportBarVisibility = onTransportBarVisibility
         return host
     }
 
@@ -507,6 +592,9 @@ private struct AVPlayerContainer: UIViewControllerRepresentable {
             context.coordinator.allowedSubtitleLanguages = allowedSubtitleLanguages
             controller.allowedSubtitleOptionLanguages = allowedSubtitleLanguages
         }
+        if controller.videoGravity != menu.aspect.videoGravity {
+            controller.videoGravity = menu.aspect.videoGravity
+        }
         if context.coordinator.menu != menu {
             context.coordinator.menu = menu
             controller.transportBarCustomMenuItems = transportMenuItems()
@@ -522,7 +610,8 @@ private struct AVPlayerContainer: UIViewControllerRepresentable {
     /// Audio, which are the system's own buttons here).
     private func transportMenuItems() -> [UIMenuElement] {
         PlayerTransportMenus.customItems(canChooseSource: menu.canChooseSource,
-                                         supportsSubtitleDelay: menu.supportsSubtitleDelay)
+                                         supportsSubtitleDelay: menu.supportsSubtitleDelay,
+                                         canSwitchEngine: menu.canSwitchEngine)
             .compactMap { menuElement(for: $0) }
     }
 
@@ -543,6 +632,13 @@ private struct AVPlayerContainer: UIViewControllerRepresentable {
                          state: abs(rate - current) < 0.01 ? .on : .off) { _ in setRate(rate) }
             }
             return UIMenu(title: item.title, image: image, options: [.singleSelection], children: speeds)
+        case .aspect:
+            let setAspect = onSetAspect
+            let current = menu.aspect
+            let modes = PlayerAspectMode.allCases.map { mode in
+                UIAction(title: mode.title, state: mode == current ? .on : .off) { _ in setAspect(mode) }
+            }
+            return UIMenu(title: item.title, image: image, options: [.singleSelection], children: modes)
         case .subtitleTiming:
             let setDelay = onSetSubtitleDelay
             let selected = menu.subtitleDelayMs
@@ -552,6 +648,15 @@ private struct AVPlayerContainer: UIViewControllerRepresentable {
                 }
             }
             return UIMenu(title: item.title, image: image, options: [.singleSelection], children: actions)
+        case .engine:
+            let switchEngine = onSwitchEngine
+            let choices = [PlaybackEngine.native, .mpv].map { engine in
+                // The engine playing here is Native; picking it again changes nothing.
+                UIAction(title: engine.menuTitle, state: engine == .native ? .on : .off) { _ in
+                    if engine != .native { switchEngine(engine) }
+                }
+            }
+            return UIMenu(title: item.title, image: image, options: [.singleSelection], children: choices)
         case .subtitles, .audio:
             // The system player's own buttons.
             return nil

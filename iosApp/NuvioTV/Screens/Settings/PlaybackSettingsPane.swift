@@ -30,6 +30,22 @@ struct PlaybackSettingsPane: View {
     /// STREAM-INSIGHT: the stream-recommendation preferences (shared `StreamRankingSettingsRepository`).
     @StateObject private var streamRanking = StreamRankingPreferencesModel()
 
+    /// Automatic Skipping, Anime Skip and the IntroDB key (shared `PlayerSettingsRepository`).
+    @StateObject private var skip = SkipSettingsModel()
+
+    /// Loading screen, parental guide and clock switches (shared `PlayerSettingsRepository`).
+    @ObservedObject private var playerInterface = PlayerOverlaySettings.shared
+
+    /// Audio output layout and video tuning of the mpv player (device-local).
+    @StateObject private var mpvTuning = MPVTuningSettingsModel()
+
+    /// How the Subtitles menu groups its rows (this Apple TV's own setting, read by both players).
+    @AppStorage(SubtitleOrganization.storageKey) private var subtitleOrganizationRaw = SubtitleOrganization.ungrouped.rawValue
+
+    /// Up Next's timeout, allow lists and source group, the last-link window and the external
+    /// player's subtitle forwarding (shared `PlayerSettingsRepository`).
+    @StateObject private var streamSelection = StreamSelectionSettingsModel()
+
     var body: some View {
         Group {
             sections
@@ -37,6 +53,8 @@ struct PlaybackSettingsPane: View {
         .onAppear {
             secondaryLanguages.start()
             streamRanking.start()
+            skip.start()
+            streamSelection.start()
         }
         .onDisappear {
             secondaryLanguages.stop()
@@ -49,7 +67,7 @@ struct PlaybackSettingsPane: View {
         SettingsSection(String(localized: "Playback")) {
             // Hidden entirely unless an external player (Infuse) is installed —
             // see DefaultPlayerRow.
-            DefaultPlayerRow()
+            DefaultPlayerRow(selection: streamSelection)
             // VIS-02 (settings half): its own key, so the setting's name and the player's "Skip
             // Intro" button (`player.skip.intro`) can be translated independently.
             SettingsToggleRow(
@@ -57,6 +75,10 @@ struct PlaybackSettingsPane: View {
                 subtitle: String(localized: "Show a Skip button during intros and outros"),
                 isOn: Binding(get: { model.skipIntroEnabled }, set: { model.setSkipIntro($0) })
             )
+            // Skipping needs the segments Skip Intro looks up, so the rows below only exist with it on.
+            if model.skipIntroEnabled {
+                AutoSkipSettingsLinkRow(skip: skip)
+            }
             SettingsToggleRow(
                 title: String(localized: "Match Content Frame Rate"),
                 subtitle: String(localized: "Switch the display mode to the video's native frame rate and dynamic range. Also enable Match Content in tvOS Settings \u{2192} Video and Audio."),
@@ -67,18 +89,13 @@ struct PlaybackSettingsPane: View {
                 subtitle: String(localized: "Use the gpu-next (libplacebo) renderer for better HDR tone-mapping. Experimental \u{2014} Apple TV hardware only (ignored on the Simulator). Applies to the next video."),
                 isOn: Binding(get: { model.enhancedRenderer }, set: { model.setEnhancedRenderer($0) })
             )
-            SettingsToggleRow(
-                title: String(localized: "Native player (Dolby Vision & HDR)"),
-                subtitle: String(localized: "Play Dolby Vision, HDR10 and other compatible MKVs through the native AVPlayer engine for true DV output on Apple TV 4K; everything else stays on the mpv player. Profile 7 discs convert to 8.1 on the fly, and TrueHD/DTS-only audio plays as AAC 5.1."),
-                isOn: Binding(get: { model.nativeDolbyVision }, set: { model.setNativeDolbyVision($0) })
+            SettingsPickerRow(
+                title: String(localized: "Dolby Vision"),
+                subtitle: model.dolbyVisionMode.detail,
+                selection: Binding(get: { model.dolbyVisionMode }, set: { model.setDolbyVisionMode($0) }),
+                options: DolbyVisionMode.allCases,
+                label: { $0.title }
             )
-            if model.nativeDolbyVision {
-                SettingsToggleRow(
-                    title: String(localized: "Keep Profile 7 FEL on mpv"),
-                    subtitle: String(localized: "Profile 7 FEL releases carry enhancement data the 8.1 conversion must discard. Turn on to keep those files on the mpv player (plays as HDR10, nothing discarded) instead of native Dolby Vision. MEL releases convert losslessly and always play native."),
-                    isOn: Binding(get: { model.dvP7FelMpv }, set: { model.setDvP7FelMpv($0) })
-                )
-            }
             // FEAT-11
             SettingsToggleRow(
                 title: String(localized: "Trailer Sound by Default"),
@@ -109,6 +126,39 @@ struct PlaybackSettingsPane: View {
                 .font(Theme.Font.caption)
                 .foregroundStyle(Theme.Palette.textSecondary)
                 .frame(maxWidth: 1100, alignment: .leading)
+        }
+
+        if model.skipIntroEnabled {
+            SkipSourcesSection(skip: skip)
+        }
+
+        SettingsSection(String(localized: "Player Interface")) {
+            SettingsToggleRow(
+                title: String(localized: "Show Loading Screen"),
+                subtitle: String(localized: "Show a spinner while a video opens. When off, the screen stays black until the first frame."),
+                isOn: Binding(get: { playerInterface.showLoadingOverlay },
+                              set: { playerInterface.setShowLoadingOverlay($0) })
+            )
+            SettingsToggleRow(
+                title: String(localized: "Show Parental Guide"),
+                subtitle: String(localized: "Briefly list the content advisories at the start of a video, when the title has any."),
+                isOn: Binding(get: { playerInterface.showParentalGuide },
+                              set: { playerInterface.setShowParentalGuide($0) })
+            )
+            SettingsToggleRow(
+                title: String(localized: "Show Clock and End Time"),
+                subtitle: String(localized: "Show the time and when the video will end while the playback controls are on screen."),
+                isOn: Binding(get: { playerInterface.osdClockEnabled },
+                              set: { playerInterface.setOsdClockEnabled($0) })
+            )
+        }
+
+        SettingsSection(
+            String(localized: "Audio and Video"),
+            footer: String(localized: "These apply to the mpv player, from the next video. The native player follows Audio Format in tvOS Settings \u{2192} Video and Audio. Volume Boost and Dialogue Boost are in the player's Audio menu.")
+        ) {
+            AudioOutputSettingsRow(tuning: mpvTuning)
+            VideoTuningSettingsLinkRow(tuning: mpvTuning)
         }
 
         // Up Next (NE-6/SET-1). Every row is this Apple TV's own (the phone's synced auto-play
@@ -179,7 +229,11 @@ struct PlaybackSettingsPane: View {
                 )
                 RegexPatternEntryRow { model.setStreamAutoPlayRegex($0) }
             }
+            NextEpisodeSourceRows(model: streamSelection, mode: model.streamAutoPlayMode,
+                                  source: model.streamAutoPlaySource)
         }
+
+        LastLinkSettingsSection(model: streamSelection)
 
         SettingsSection(String(localized: "Subtitles")) {
             if let style = model.subtitleStyle {
@@ -190,6 +244,8 @@ struct PlaybackSettingsPane: View {
                     onBackground: { model.setSubtitleBackground($0) },
                     onBold: { model.setSubtitleBold($0) },
                     onOutline: { model.setSubtitleOutline($0) },
+                    onOutlineColor: { model.setSubtitleOutlineColor($0) },
+                    onOutlineWidth: { model.setSubtitleOutlineWidth($0) },
                     onStripSdh: { model.setSubtitleStripSdh($0) },
                     onBottomOffset: { offset in updateSubtitleStyle(bottomOffset: offset) }
                 )
@@ -240,6 +296,15 @@ struct PlaybackSettingsPane: View {
                 options: LanguageOptions.secondarySubtitleCodes(including: secondaryLanguages.subtitle),
                 label: { LanguageOptions.trackLabel($0) }
             )
+            SettingsPickerRow(
+                title: String(localized: "settings.subtitleList.title", defaultValue: "Subtitle List",
+                              comment: "Playback settings picker: how the player's Subtitles menu groups its subtitles."),
+                subtitle: subtitleOrganization.detail,
+                selection: Binding(get: { subtitleOrganization },
+                                   set: { subtitleOrganizationRaw = $0.rawValue }),
+                options: SubtitleOrganization.allCases,
+                label: { $0.title }
+            )
             if let style = model.subtitleStyle {
                 SettingsToggleRow(
                     title: String(localized: "settings.subtitles.forcedOnly", defaultValue: "Forced Subtitles Only", comment: "Playback settings toggle: when the audio is in the subtitle language, show only forced subtitles"),
@@ -255,6 +320,10 @@ struct PlaybackSettingsPane: View {
         }
 
         streamRecommendationSection
+    }
+
+    private var subtitleOrganization: SubtitleOrganization {
+        SubtitleOrganization(rawValue: subtitleOrganizationRaw) ?? .ungrouped
     }
 
     // MARK: - Stream recommendations (STREAM-INSIGHT)
@@ -466,6 +535,8 @@ struct PlaybackSettingsPane: View {
 /// pill for free with system-inverted label colour, so the custom row chrome is gone.
 private struct DefaultPlayerRow: View {
     @AppStorage("default_external_player_id") private var defaultExternalPlayerId = ""
+    /// Carries the subtitle forwarding switch (shared `PlayerSettingsRepository`).
+    @ObservedObject var selection: StreamSelectionSettingsModel
     /// Probed at init, NOT in `.onAppear`: with no players this row renders nothing, and
     /// SwiftUI never fires `onAppear` for a view that renders empty — an onAppear probe
     /// therefore deadlocks the row into permanent invisibility (found on a real Apple TV with
@@ -505,6 +576,17 @@ private struct DefaultPlayerRow: View {
                     defaultExternalPlayerId = ""
                 }
             }
+            // The external players take subtitle URLs, so the add-on subtitles can go along: those
+            // in the preferred and secondary subtitle language, fetched when the stream is handed
+            // over. A subtitle the stream itself comes with is always sent.
+            SettingsToggleRow(
+                title: String(localized: "settings.external.forwardSubtitles", defaultValue: "Send Subtitles to External Players",
+                              comment: "Playback settings toggle: pass add-on subtitles in the preferred languages to Infuse, VLC and the other external players."),
+                subtitle: String(localized: "settings.external.forwardSubtitles.subtitle",
+                                 defaultValue: "Fetch subtitles from your add-ons in your preferred and secondary subtitle languages and pass them to the external player. Not used when Subtitles is set to None.",
+                                 comment: "Explanation under the Send Subtitles to External Players toggle."),
+                isOn: Binding(get: { selection.forwardSubtitles }, set: { selection.setForwardSubtitles($0) })
+            )
         }
     }
 }
@@ -560,6 +642,8 @@ private struct SubtitleAppearanceControls: View {
     let onBackground: (Int64) -> Void
     let onBold: (Bool) -> Void
     let onOutline: (Bool) -> Void
+    let onOutlineColor: (Int64) -> Void
+    let onOutlineWidth: (Int32) -> Void
     let onStripSdh: (Bool) -> Void
     let onBottomOffset: (Int32) -> Void
 
@@ -570,12 +654,25 @@ private struct SubtitleAppearanceControls: View {
         (String(localized: "Small"), 14), (String(localized: "Medium"), 18),
         (String(localized: "Large"), 24), (String(localized: "X-Large"), 30)
     ]
+    /// Outline colours: black (the default) and a few that stay legible on light and dark pictures.
+    private let outlineColors: [(name: String, argb: Int64)] = [
+        ("Black", 0xFF000000), ("White", 0xFFFFFFFF), ("Yellow", 0xFFFFFF00), ("Red", 0xFFFF5C5C), ("Blue", 0xFF3B82F6)
+    ]
+    /// Outline widths: the phone's 1 to 5. mpv draws an outline of `width * 1.5` points.
+    private let outlineWidths: [(name: String, width: Int32)] = [
+        (String(localized: "settings.subtitles.outline.thin", defaultValue: "Thin", comment: "Subtitle outline width 1"), 1),
+        (String(localized: "Default"), 2),
+        (String(localized: "settings.subtitles.outline.medium", defaultValue: "Medium", comment: "Subtitle outline width 3"), 3),
+        (String(localized: "settings.subtitles.outline.thick", defaultValue: "Thick", comment: "Subtitle outline width 4"), 4),
+        (String(localized: "settings.subtitles.outline.heavy", defaultValue: "Heavy", comment: "Subtitle outline width 5"), 5),
+    ]
     private let backgrounds: [(name: String, argb: Int64)] = [
         (String(localized: "Off"), 0x00000000), (String(localized: "Semi"), 0x80000000), (String(localized: "Solid"), 0xFF000000)
     ]
     /// LANG-11 Subtitle Position: `SubtitleStyleState.bottomOffset` presets (shared default 20,
-    /// the phone's slider runs 0-200 in steps of 5). mpv maps it to `sub-pos` = 100 - offset/10
-    /// (MPVPlayerView+Tracks `applySubtitleStyle`); a value set on the phone between presets is
+    /// the phone's slider runs 0-200 in steps of 5). mpv maps it to `sub-pos` through
+    /// `SubtitleRenderStyle.mpvSubPos` (a 5 % bottom margin at the default, one point per 10
+    /// units); a value set on the phone between presets is
     /// shown as its number.
     private let positions: [(name: String, offset: Int32)] = [
         (String(localized: "settings.subtitles.position.lowest", defaultValue: "Lowest", comment: "Subtitle position preset: at the bottom edge"), 0),
@@ -635,11 +732,44 @@ private struct SubtitleAppearanceControls: View {
             subtitle: String(localized: "Draw an outline around text for readability"),
             isOn: Binding(get: { style.outlineEnabled }, set: { onOutline($0) })
         )
+        if style.outlineEnabled {
+            // The native (AVPlayer) engine draws its own caption edge: colour and width are the mpv
+            // player's. Said once, under the colour row, rather than left to surprise.
+            controlRow(String(localized: "settings.subtitles.outlineColor", defaultValue: "Outline Color",
+                              comment: "Subtitle settings row: the colour of the outline around the text (mpv player only).")) {
+                ForEach(outlineColors, id: \.argb) { entry in
+                    Button { onOutlineColor(entry.argb) } label: {
+                        SubtitleColorSwatch(
+                            fill: color(entry.argb),
+                            colorHex: UInt32(entry.argb & 0xFFFFFF),
+                            isSelected: style.outlineColor == entry.argb
+                        )
+                    }
+                    .buttonStyle(.borderless)
+                }
+            }
+            SettingsPickerRow(
+                title: String(localized: "settings.subtitles.outlineWidth", defaultValue: "Outline Width",
+                              comment: "Subtitle settings picker: how thick the outline around the text is (mpv player only)."),
+                subtitle: String(localized: "settings.subtitles.outline.subtitle",
+                                 defaultValue: "Outline color and width apply to the mpv player. The native player draws the system caption edge.",
+                                 comment: "Note under Outline Width: the settings have no effect on the native player."),
+                selection: Binding(get: { style.outlineWidth }, set: { onOutlineWidth($0) }),
+                options: outlineWidthOptions,
+                label: { width in outlineWidths.first { $0.width == width }?.name ?? "\(width)" }
+            )
+        }
         SettingsToggleRow(
             title: String(localized: "Strip SDH Subtitles"),
             subtitle: String(localized: "Hide sound descriptions and speaker labels from text subtitles."),
             isOn: Binding(get: { style.stripSdh }, set: { onStripSdh($0) })
         )
+    }
+
+    /// 1 to 5, plus the current width when it is off the list.
+    private var outlineWidthOptions: [Int32] {
+        let widths = outlineWidths.map(\.width)
+        return widths.contains(style.outlineWidth) ? widths : (widths + [style.outlineWidth]).sorted()
     }
 
     /// The presets, plus the current value when the phone set one between them.
@@ -654,6 +784,8 @@ private struct SubtitleAppearanceControls: View {
             Text("The quick brown fox")
                 .font(style.bold ? Theme.Font.sectionTitle : Theme.Font.body)
                 .foregroundStyle(color(style.textColor))
+                .modifier(SubtitlePreviewOutline(enabled: style.outlineEnabled, color: color(style.outlineColor),
+                                                 width: CGFloat(style.outlineWidth)))
                 .padding(.horizontal, Theme.Spacing.md)
                 .padding(.vertical, Theme.Spacing.xs)
                 .background(color(style.backgroundColor))
@@ -680,6 +812,27 @@ private struct SubtitleAppearanceControls: View {
             blue: Double(argb & 0xFF) / 255.0,
             opacity: Double((argb >> 24) & 0xFF) / 255.0
         )
+    }
+}
+
+/// The outline of the settings preview: four hard shadows, one per side, as wide as the setting
+/// (a preview of the mpv player's outline, not a render of it).
+private struct SubtitlePreviewOutline: ViewModifier {
+    let enabled: Bool
+    let color: Color
+    let width: CGFloat
+
+    func body(content: Content) -> some View {
+        if enabled {
+            let offset = max(width * 0.5, 0.5)
+            content
+                .shadow(color: color, radius: 0, x: offset, y: 0)
+                .shadow(color: color, radius: 0, x: -offset, y: 0)
+                .shadow(color: color, radius: 0, x: 0, y: offset)
+                .shadow(color: color, radius: 0, x: 0, y: -offset)
+        } else {
+            content
+        }
     }
 }
 

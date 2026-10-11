@@ -18,7 +18,7 @@ enum StreamDisplayCapabilities {
     /// Dolby Vision plays as Dolby Vision: an HDR path AND the native (AVPlayer) DV engine on —
     /// the mpv engine shows DV as HDR10, or with wrong colours for profile 5.
     static var supportsDolbyVision: Bool {
-        supportsHdr && UserDefaults.standard.bool(forKey: PlayerTuning.nativeDVKey)
+        supportsHdr && DolbyVisionMode.current.playsDolbyVision
     }
 }
 

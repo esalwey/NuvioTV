@@ -515,32 +515,14 @@ final class DetailViewModel: ObservableObject {
     private func fetchParentalGuideIfNeeded(_ meta: MetaDetails) {
         guard !didRequestGuide else { return }
         let addonImdbId: String? = meta.imdbId
-        guard let imdbId = ParentalGuideRepositoryKt.extractParentalGuideImdbId(value: meta.id)
-            ?? ParentalGuideRepositoryKt.extractParentalGuideImdbId(value: id)
-            ?? ParentalGuideRepositoryKt.extractParentalGuideImdbId(value: addonImdbId) else { return }
+        guard let imdbId = ParentalGuideLoader.imdbId(from: [meta.id, id, addonImdbId]) else { return }
         didRequestGuide = true
 
-        ParentalGuideRepository.shared.getParentalGuide(imdbId: imdbId) { [weak self] result, _ in
-            DispatchQueue.main.async {
-                guard let self, let result else { return }
-                self.parentalWarnings = ParentalGuideRepositoryKt.buildParentalWarnings(
-                    guide: result,
-                    labels: Self.parentalGuideLabels
-                )
-            }
+        ParentalGuideLoader.fetchWarnings(imdbId: imdbId) { [weak self] warnings in
+            guard let self, !warnings.isEmpty else { return }
+            self.parentalWarnings = warnings
         }
     }
-
-    static let parentalGuideLabels = ParentalGuideLabels(
-        nudity: String(localized: "Nudity"),
-        violence: String(localized: "Violence"),
-        profanity: String(localized: "Profanity"),
-        alcohol: String(localized: "Alcohol & Drugs"),
-        frightening: String(localized: "Frightening Scenes"),
-        severe: String(localized: "Severe"),
-        moderate: String(localized: "Moderate"),
-        mild: String(localized: "Mild")
-    )
 
     // MARK: - Actions
 

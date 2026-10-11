@@ -8,7 +8,7 @@ import SharedCore
 
 /// UserDefaults keys for device-local player tuning (Settings > Playback). Device-specific
 /// hardware knobs, deliberately NOT synced.
-enum PlayerTuning {
+nonisolated enum PlayerTuning {
     static let bufferMBKey = "player.bufferMB"
     static let readaheadSecKey = "player.readaheadSec"
     static let matchFrameRateKey = "player.matchFrameRate"
@@ -23,6 +23,26 @@ enum PlayerTuning {
     /// them to 8.1 (the conversion discards FEL enhancement data; MEL converts losslessly and is
     /// unaffected by this preference).
     static let dvP7FelMpvKey = "player.dvP7FelPreferMpv"
+    /// Dolby Vision picker value that the two keys above cannot express: play Dolby Vision files as
+    /// HDR10 on mpv (see `DolbyVisionMode.hdr10Only`). `DolbyVisionMode.store` keeps all three in step.
+    static let dvHdr10OnlyKey = "player.dvHdr10Only"
+    /// mpv audio output layout (`AudioOutputMode` raw value). Absent = Auto. Applies to the next playback.
+    static let audioOutputKey = "player.audio.output"
+    /// Software volume boost in dB (0, 3, 6, 10), remembered between playbacks (mpv engine).
+    static let audioGainDbKey = "player.audio.gainDb"
+    /// Dialogue boost in dB (0, 3, 6, 9): the centre channel's extra level in a stereo downmix (mpv engine).
+    static let dialogueBoostDbKey = "player.audio.dialogueDb"
+    /// mpv video tuning (Settings > Playback > Video). Device-local like the buffer knobs; absent
+    /// keys read as the defaults of `MPVVideoSettings`. Applies to the next playback.
+    static let videoToneMappingKey = "player.video.toneMapping"
+    static let videoHardwareDecodingKey = "player.video.hwdec"
+    static let videoHdrPeakKey = "player.video.hdrPeak"
+    static let videoDebandKey = "player.video.deband"
+    static let videoInterpolationKey = "player.video.interpolation"
+    static let videoBrightnessKey = "player.video.brightness"
+    static let videoContrastKey = "player.video.contrast"
+    static let videoSaturationKey = "player.video.saturation"
+    static let videoGammaKey = "player.video.gamma"
     /// Up Next (Settings → Playback → Next Episode) — device-local on purpose, see
     /// `UpNextPreferences` for the sync policy. Absent keys read as the tvOS defaults.
     /// Automatic next episode (default ON).
@@ -40,6 +60,20 @@ enum PlayerTuning {
     /// debrid redirect plus TLS plus the Matroska header on a cold link, so Dolby Vision files fell
     /// back to mpv (no true DV) for no reason. The loading view's spinner shows from 2 s either way.
     static let probeTimeoutSec: Double = 4
+
+    // MARK: - Player look A/B (Developer pane)
+
+    /// Developer A/B (hidden pane): put the old dark tint (black 45 %) back under every player glass
+    /// surface. OFF by default: the tvOS 26 system bar is neutral Liquid Glass over the video, so the
+    /// app-drawn surfaces (mpv transport bar, chips, Up Next and pause cards) match it.
+    static let darkGlassTintKey = "debug.player.darkGlassTint"
+    /// Developer A/B: keep the mpv `CAMetalLayer` framebuffer-only (the old, faster setting). OFF by
+    /// default: a framebuffer-only layer cannot be read by the backdrop of `.glassEffect`, so the
+    /// glass over the mpv picture rendered as a dark block instead of the blurred video.
+    static let framebufferOnlyKey = "debug.player.framebufferOnly"
+
+    static var darkGlassTint: Bool { UserDefaults.standard.bool(forKey: darkGlassTintKey) }
+    static var framebufferOnly: Bool { UserDefaults.standard.bool(forKey: framebufferOnlyKey) }
 }
 
 /// Everything the player needs to render a stream and record watch progress for it.
@@ -224,7 +258,7 @@ struct PlayerTrack: Identifiable, Equatable {
 }
 
 /// A skippable segment (intro/recap/outro) resolved from `SkipIntroRepository`.
-struct SkipSegment {
+struct SkipSegment: Equatable {
     let start: Double
     let end: Double
     let type: String
@@ -236,6 +270,10 @@ struct SkipPrompt: Equatable {
     let targetSec: Double   // absolute seek target (segment end)
     /// The segment is the credits (outro/ED): skipping them can mean "next episode" (Up Next).
     var isCredits: Bool = false
+    /// A post-credits scene follows (an explicit "post-credits" segment, or a tail longer than
+    /// `UpNextTrigger.postCreditsGapSec`): the chip reads "Skip to Post-Credits" and the skip never
+    /// hands the credits over to Up Next.
+    var skipsToPostCredits: Bool = false
 }
 
 /// Live stream diagnostics read from libmpv properties (shown by the Stream Info overlay).

@@ -460,6 +460,8 @@ struct SettingsDestructiveRow: View {
 struct DebridKeyEntryRow: View {
     let providerName: String
     var placeholder: String?
+    /// The save button's title; nil = "Save Key". For a credential that is not an API key.
+    var saveTitle: String?
     /// DEB-2: false when the caller checks the key asynchronously before saving it — the typed key
     /// then stays in the field (a rejected key can be corrected) and the row disappears on its own
     /// once the key is saved.
@@ -494,6 +496,9 @@ struct DebridKeyEntryRow: View {
                         Text("Checking the key\u{2026}")
                             .font(SettingsRowFont.subtitle)
                     }
+                } else if let saveTitle {
+                    Label(saveTitle, systemImage: "checkmark")
+                        .font(SettingsRowFont.subtitle)
                 } else {
                     Label("Save Key", systemImage: "checkmark")
                         .font(SettingsRowFont.subtitle)

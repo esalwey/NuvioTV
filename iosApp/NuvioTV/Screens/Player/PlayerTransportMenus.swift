@@ -14,7 +14,7 @@ import SwiftUI
 
 /// One button of the transport bar.
 enum PlayerTransportItem: String, CaseIterable, Identifiable, Hashable {
-    case startOver, sources, playbackSpeed, subtitleTiming, subtitles, audio
+    case startOver, sources, playbackSpeed, aspect, subtitleTiming, engine, subtitles, audio
 
     var id: String { rawValue }
 
@@ -26,10 +26,18 @@ enum PlayerTransportItem: String, CaseIterable, Identifiable, Hashable {
                           comment: "Player transport-bar button: go back to the beginning of the video (0:00).")
         case .sources: return String(localized: "Sources")
         case .playbackSpeed: return String(localized: "Playback Speed")
+        case .aspect:
+            return String(localized: "player.menu.aspect",
+                          defaultValue: "Aspect Ratio",
+                          comment: "Player transport-bar menu: how the picture fills the screen (Fit, Fill, Stretch).")
         case .subtitleTiming:
             return String(localized: "player.menu.subtitleTiming",
                           defaultValue: "Subtitle Timing",
                           comment: "Native player transport-bar menu: shift addon subtitles earlier (-) or later (+).")
+        case .engine:
+            return String(localized: "player.menu.engine",
+                          defaultValue: "Player Engine",
+                          comment: "Player transport-bar menu: switch between the native player and mpv (Native, mpv).")
         case .subtitles: return String(localized: "Subtitles")
         case .audio: return String(localized: "Audio")
         }
@@ -42,7 +50,9 @@ enum PlayerTransportItem: String, CaseIterable, Identifiable, Hashable {
         case .startOver: return "backward.end"
         case .sources: return "rectangle.stack"
         case .playbackSpeed: return "speedometer"
+        case .aspect: return "aspectratio"
         case .subtitleTiming: return "clock.arrow.circlepath"
+        case .engine: return "arrow.left.arrow.right"
         case .subtitles: return "captions.bubble"
         case .audio: return "speaker.wave.2"
         }
@@ -53,25 +63,33 @@ enum PlayerTransportItem: String, CaseIterable, Identifiable, Hashable {
 }
 
 enum PlayerTransportMenus {
-    /// Speeds offered, the system player's range.
-    static let rates: [Float] = [0.5, 0.75, 1, 1.25, 1.5, 2]
+    /// Speeds offered: 0.25x to 2x in eight steps (the shared `PlaybackSpeedPolicy.steps`, which
+    /// also bounds what is remembered per title).
+    static let rates: [Float] = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2]
     /// Timing offsets offered (ms; positive = later), subtitles and — mpv only — audio.
     static let delays: [Int] = [-2000, -1000, -500, -250, 0, 250, 500, 1000, 2000]
 
     /// The app-defined items in transport-bar order (`transportBarCustomMenuItems` on native).
     /// Start Over (PLY-A13) leads: a plain action, available on every title and both engines.
-    static func customItems(canChooseSource: Bool, supportsSubtitleDelay: Bool) -> [PlayerTransportItem] {
+    static func customItems(canChooseSource: Bool, supportsSubtitleDelay: Bool,
+                            canSwitchEngine: Bool = false) -> [PlayerTransportItem] {
         var items: [PlayerTransportItem] = [.startOver]
         if canChooseSource { items.append(.sources) }
         items.append(.playbackSpeed)
+        items.append(.aspect)
         if supportsSubtitleDelay { items.append(.subtitleTiming) }
+        // Last of the app's items, next to the system's own Subtitles and Audio: a rarely needed
+        // override, kept out of the way of the everyday ones.
+        if canSwitchEngine { items.append(.engine) }
         return items
     }
 
     /// Everything the bar shows, in the system player's order: the app's items, then the built-in
     /// Subtitles and Audio buttons at the trailing end. The mpv chrome draws exactly this list.
-    static func items(canChooseSource: Bool, supportsSubtitleDelay: Bool) -> [PlayerTransportItem] {
-        customItems(canChooseSource: canChooseSource, supportsSubtitleDelay: supportsSubtitleDelay)
+    static func items(canChooseSource: Bool, supportsSubtitleDelay: Bool,
+                      canSwitchEngine: Bool = false) -> [PlayerTransportItem] {
+        customItems(canChooseSource: canChooseSource, supportsSubtitleDelay: supportsSubtitleDelay,
+                    canSwitchEngine: canSwitchEngine)
             + [.subtitles, .audio]
     }
 
