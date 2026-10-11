@@ -422,7 +422,7 @@ private struct ProgressBar: View {
                             .foregroundStyle(.white)
                             .padding(.horizontal, Theme.Spacing.sm)
                             .padding(.vertical, Theme.Spacing.xxs)
-                            .background(Capsule().fill(.black.opacity(0.6)))
+                            .background(.ultraThinMaterial, in: Capsule())
                             .fixedSize()
                             .position(x: labelX(scrubFraction, width: width), y: -Self.headSize.height - 14)
                     }

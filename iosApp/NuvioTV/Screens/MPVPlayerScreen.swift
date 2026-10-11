@@ -118,6 +118,9 @@ struct MPVPlayerScreen: View {
     @StateObject private var chromeModel = MPVChromeModel()
     /// The first frame is on screen: until then the shared loading view stands in (PLY-A12).
     @State private var firstFrameShown = false
+    /// `state.isBuffering` has lasted past `stallSpinnerDelay`.
+    @State private var stallSpinnerShown = false
+    private static let stallSpinnerDelay: Duration = .milliseconds(500)
     /// The parental guide shown as playback starts (Settings > Playback > Player Interface).
     @StateObject private var parental = ParentalGuidePresenter()
 
@@ -165,8 +168,10 @@ struct MPVPlayerScreen: View {
                 // Opening the file: the player's one loading view (black, then a spinner, PLY-A12).
                 PlayerLoadingView()
                     .transition(.opacity)
-            } else if state.isBuffering {
-                // A stall mid-playback: the spinner alone, over the frozen frame.
+            } else if stallSpinnerShown {
+                // A stall mid-playback: the spinner alone, over the frozen frame. Held back by half
+                // a second (`stallSpinnerDelay`) so a ±10 s skip, which re-fills the decoder for a
+                // few frames, never flashes it (AVPlayer shows its own indicator only on a real stall).
                 ProgressView()
                     .scaleEffect(1.5)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -271,6 +276,17 @@ struct MPVPlayerScreen: View {
             guard !buffering, !firstFrameShown else { return }
             withAnimation(.easeInOut(duration: 0.25)) { firstFrameShown = true }
             parental.firstFrameShown()
+        }
+        // The stall spinner: only for a stall that outlasts a short seek (cancelled and restarted on
+        // every change of the buffering flag).
+        .task(id: state.isBuffering) {
+            guard state.isBuffering else {
+                stallSpinnerShown = false
+                return
+            }
+            try? await Task.sleep(for: Self.stallSpinnerDelay)
+            guard !Task.isCancelled else { return }
+            stallSpinnerShown = true
         }
         .onChange(of: state.positionSec) { _, position in
             upNext.onProgress(positionSec: position, durationSec: state.durationSec)

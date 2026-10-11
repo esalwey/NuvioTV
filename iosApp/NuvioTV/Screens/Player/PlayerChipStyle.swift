@@ -51,7 +51,7 @@ extension View {
     /// The one drop shadow under every floating player surface: the panels above, the swipe-down
     /// panel (its own bottom-rounded glass shape) and the mpv action chip.
     func playerPanelShadow() -> some View {
-        shadow(color: .black.opacity(0.4), radius: 14, y: 6)
+        shadow(color: .black.opacity(0.2), radius: 12, y: 5)
     }
 }
 
