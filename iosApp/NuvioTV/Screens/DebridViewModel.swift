@@ -103,6 +103,13 @@ final class DebridViewModel: ObservableObject {
 
     var hasAnyKey: Bool { settings?.hasAnyApiKey ?? false }
     var resolverEnabled: Bool { settings?.enabled ?? false }
+    /// Resolving is on AND a resolve-capable provider is connected — the gate for every debrid
+    /// stream preference (filters, sorting, link preparation, formatting): none of them applies
+    /// otherwise.
+    var canResolvePlayableLinks: Bool { settings?.canResolvePlayableLinks ?? false }
+    /// A connected provider that has a cloud library (Torbox, Premiumize).
+    var hasCloudLibraryProvider: Bool { settings?.hasCloudLibraryProvider ?? false }
+    var cloudLibraryEnabled: Bool { settings?.cloudLibraryEnabled ?? true }
 
     var activeResolverId: String? {
         guard let settings else { return nil }
@@ -119,6 +126,11 @@ final class DebridViewModel: ObservableObject {
 
     func setResolverEnabled(_ value: Bool) {
         DebridSettingsRepository.shared.setEnabled(value: value)
+    }
+
+    /// The shared repository refuses to turn this on without a cloud-capable provider.
+    func setCloudLibraryEnabled(_ value: Bool) {
+        DebridSettingsRepository.shared.setCloudLibraryEnabled(value: value)
     }
 
     func setPreferredResolver(_ providerId: String) {
