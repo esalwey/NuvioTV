@@ -112,46 +112,52 @@ fun sortLibraryItems(
     items: List<LibraryItem>,
     selected: LibrarySortOption,
     sourceMode: LibrarySourceMode,
-): List<LibraryItem> =
-    when (effectiveLibrarySortOption(selected, sourceMode)) {
-        LibrarySortOption.DEFAULT -> items.sortedWith(
-            compareBy<LibraryItem> { it.traktRank ?: Int.MAX_VALUE }
-                .thenByDescending { it.savedAtEpochMs }
-                .thenBy { libraryTitleTieBreakKey(it) }
-                .thenBy { it.id },
-        )
-        LibrarySortOption.ADDED_DESC -> items.sortedWith(
-            compareByDescending<LibraryItem> { it.savedAtEpochMs }
-                .thenBy { libraryTitleTieBreakKey(it) }
-                .thenBy { it.id },
-        )
-        LibrarySortOption.ADDED_ASC -> items.sortedWith(
-            compareBy<LibraryItem> { it.savedAtEpochMs }
-                .thenBy { libraryTitleTieBreakKey(it) }
-                .thenBy { it.id },
-        )
+): List<LibraryItem> {
+    // The sort keys (lowercase, trim, article regex, release-year regex) are computed once per item
+    // here, not once per comparison: a comparator calls them 2 n log n times, which froze the UI on
+    // libraries of a few thousand titles.
+    val rows = items.map(::LibrarySortRow)
+    val comparator: Comparator<LibrarySortRow> = when (effectiveLibrarySortOption(selected, sourceMode)) {
+        LibrarySortOption.DEFAULT ->
+            compareBy<LibrarySortRow> { it.item.traktRank ?: Int.MAX_VALUE }
+                .thenByDescending { it.item.savedAtEpochMs }
+                .thenBy { it.tieBreak }
+                .thenBy { it.item.id }
+        LibrarySortOption.ADDED_DESC ->
+            compareByDescending<LibrarySortRow> { it.item.savedAtEpochMs }
+                .thenBy { it.tieBreak }
+                .thenBy { it.item.id }
+        LibrarySortOption.ADDED_ASC ->
+            compareBy<LibrarySortRow> { it.item.savedAtEpochMs }
+                .thenBy { it.tieBreak }
+                .thenBy { it.item.id }
         // Items without a release year always sink to the bottom, in both directions.
-        LibrarySortOption.RELEASED_DESC -> items.sortedWith(
-            compareBy<LibraryItem> { libraryReleaseYear(it) == null }
-                .thenByDescending { libraryReleaseYear(it) ?: 0 }
-                .thenBy { libraryTitleTieBreakKey(it) }
-                .thenBy { it.id },
-        )
-        LibrarySortOption.RELEASED_ASC -> items.sortedWith(
-            compareBy<LibraryItem> { libraryReleaseYear(it) == null }
-                .thenBy { libraryReleaseYear(it) ?: 0 }
-                .thenBy { libraryTitleTieBreakKey(it) }
-                .thenBy { it.id },
-        )
-        LibrarySortOption.TITLE_ASC -> items.sortedWith(
-            compareBy<LibraryItem> { libraryTitleSortKey(it) }
-                .thenBy { it.id },
-        )
-        LibrarySortOption.TITLE_DESC -> items.sortedWith(
-            compareByDescending<LibraryItem> { libraryTitleSortKey(it) }
-                .thenBy { it.id },
-        )
+        LibrarySortOption.RELEASED_DESC ->
+            compareBy<LibrarySortRow> { it.year == null }
+                .thenByDescending { it.year ?: 0 }
+                .thenBy { it.tieBreak }
+                .thenBy { it.item.id }
+        LibrarySortOption.RELEASED_ASC ->
+            compareBy<LibrarySortRow> { it.year == null }
+                .thenBy { it.year ?: 0 }
+                .thenBy { it.tieBreak }
+                .thenBy { it.item.id }
+        LibrarySortOption.TITLE_ASC ->
+            compareBy<LibrarySortRow> { it.titleKey }
+                .thenBy { it.item.id }
+        LibrarySortOption.TITLE_DESC ->
+            compareByDescending<LibrarySortRow> { it.titleKey }
+                .thenBy { it.item.id }
     }
+    return rows.sortedWith(comparator).map { it.item }
+}
+
+/** An item with its sort keys computed once; the keys a given sort does not read are never built. */
+private class LibrarySortRow(val item: LibraryItem) {
+    val tieBreak: String = libraryTitleTieBreakKey(item)
+    val titleKey: String by lazy(LazyThreadSafetyMode.NONE) { libraryTitleSortKey(item) }
+    val year: Int? by lazy(LazyThreadSafetyMode.NONE) { libraryReleaseYear(item) }
+}
 
 // Fork: public (upstream: internal) — consumed cross-module (composeApp UI/tests, tvOS Swift).
 fun sortLibrarySections(

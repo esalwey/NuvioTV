@@ -27,7 +27,23 @@ actual object ServerStorage {
     private const val SERVICE = "com.nuvio.media.servers"
     private const val FALLBACK_PREFIX = "media_server_storage."
 
+    /**
+     * Written to NSUserDefaults, which is deleted with the app, while Keychain items usually are not.
+     * A launch that finds no marker is the first one of this install: whatever the Keychain still
+     * holds belongs to a previous install (or its owner), so it is dropped before the first read.
+     */
+    private const val INSTALL_MARKER = "media_servers_install_marker"
+
+    private val freshInstallCheck: Unit by lazy {
+        val defaults = NSUserDefaults.standardUserDefaults
+        if (defaults.objectForKey(INSTALL_MARKER) == null) {
+            runCatching { query(null) { checkDelete(SecItemDelete(it)) } }
+            defaults.setBool(true, forKey = INSTALL_MARKER)
+        }
+    }
+
     actual fun read(key: String): String? {
+        freshInstallCheck
         val secure = try {
             keychainRead(key)
         } catch (_: Throwable) {
@@ -37,6 +53,7 @@ actual object ServerStorage {
     }
 
     actual fun write(key: String, value: String?) {
+        freshInstallCheck
         val defaults = NSUserDefaults.standardUserDefaults
         if (value == null) {
             val deleted = runCatching { keychainWrite(key, null) }

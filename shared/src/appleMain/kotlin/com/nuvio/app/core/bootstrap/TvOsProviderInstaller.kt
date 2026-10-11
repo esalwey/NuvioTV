@@ -2,6 +2,8 @@ package com.nuvio.app.core.bootstrap
 
 import com.nuvio.app.core.account.AccountDataCleanerProvider
 import com.nuvio.app.core.account.AccountDataStores
+import com.nuvio.app.core.account.ProfileDataEraser
+import com.nuvio.app.core.account.ProfileDataEraserProvider
 import com.nuvio.app.core.build.FeaturePolicy
 import com.nuvio.app.core.build.FeaturePolicyProvider
 import com.nuvio.app.core.network.ServerAuthRequirement
@@ -149,6 +151,18 @@ fun installTvOsSharedProviders() {
     // Mirrors composeApp's LocalAccountDataCleaner minus the flavor-bound/composeApp-only repos
     // (PluginRepository, P2pSettingsRepository) that tvOS doesn't ship.
     AccountDataCleanerProvider.cleaner = TvOsAccountDataCleaner
+
+    // Deleting a profile frees its index for the next one: erase that slot's profile-scoped keys
+    // (the same registry the sign-out wipe walks) so the new profile does not inherit them.
+    ProfileDataEraserProvider.eraser = ProfileDataEraser { profileIndex ->
+        val defaults = NSUserDefaults.standardUserDefaults
+        AccountDataStores.appleProfileIndexedPrefixes().forEach { prefix ->
+            defaults.removeObjectForKey("$prefix$profileIndex")
+        }
+        AccountDataStores.appleProfileScopedBases().forEach { baseKey ->
+            defaults.removeObjectForKey("${baseKey}_$profileIndex")
+        }
+    }
 
     // Self-hosted server discovery: a TV can sign in with QR (tv_login) alone, so accept servers
     // that advertise tv_login even without email+password (upstream's phone default requires

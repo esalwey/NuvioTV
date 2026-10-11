@@ -290,6 +290,7 @@ object AccountDataStores {
             androidPreferences = "nuvio_theme_settings",
             appleKeys = listOf(
                 AppleKeySpec.ProfileScoped("selected_theme"),
+                AppleKeySpec.ProfileScoped("custom_theme_colors"),
                 AppleKeySpec.ProfileScoped("amoled_enabled"),
                 AppleKeySpec.ProfileScoped("liquid_glass_native_tab_bar_enabled"),
                 AppleKeySpec.ProfileScoped("nav_bar_style"),
@@ -359,6 +360,7 @@ object AccountDataStores {
                 AppleKeySpec.ProfileScoped("show_file_size_badges"),
                 AppleKeySpec.ProfileScoped("show_addon_logo"),
                 AppleKeySpec.ProfileScoped("stream_badge_placement"),
+                AppleKeySpec.ProfileScoped("stream_background_mode"),
                 // Legacy key this store still reads for migration.
                 AppleKeySpec.ProfileScoped("debrid_stream_badge_rules"),
             ),
@@ -425,6 +427,7 @@ object AccountDataStores {
                 AppleKeySpec.ProfileScoped("intro_submit_enabled"),
                 AppleKeySpec.ProfileScoped("auto_skip_segment_types"),
                 AppleKeySpec.ProfileScoped("stream_auto_play_next_episode_enabled"),
+                AppleKeySpec.ProfileScoped("stream_auto_play_next_episode_fallback_enabled"),
                 AppleKeySpec.ProfileScoped("stream_auto_play_prefer_binge_group"),
                 AppleKeySpec.ProfileScoped("stream_auto_play_reuse_binge_group"),
                 AppleKeySpec.ProfileScoped("next_episode_threshold_mode"),
@@ -545,6 +548,7 @@ object AccountDataStores {
                 AppleKeySpec.ProfileScoped("mdblist_use_letterboxd"),
                 AppleKeySpec.ProfileScoped("mdblist_use_audience"),
                 AppleKeySpec.ProfileScoped("mdblist_use_mal"),
+                AppleKeySpec.ProfileScoped("mdblist_provider_order"),
             ),
         ),
         AccountDataStore(

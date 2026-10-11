@@ -916,6 +916,7 @@ final class DetailViewModel: ObservableObject {
         progressWatcher?.cancel()
         cwPrefsWatcher?.cancel()
         ratingsSettingsWatcher?.cancel()
+        commentsEnabledWatcher?.cancel()
     }
 }
 

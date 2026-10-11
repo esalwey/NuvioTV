@@ -108,6 +108,11 @@ internal fun decodeHomeCatalogPayloadPreservingLocalDefaults(
         },
         discoverInSidebar = if (settingsJson.containsKey(DISCOVER_IN_SIDEBAR_KEY)) {
             decoded.discoverInSidebar
+        } else if (settingsJson.containsKey(HIDE_DISCOVER_KEY)) {
+            // A client that predates the sidebar key sets only hide_discover, and for it
+            // hide_discover=true has always meant Off: keeping a stale local "in sidebar" would turn
+            // Off into Sidebar after a round trip through such a client.
+            false
         } else {
             localPayload.discoverInSidebar
         },

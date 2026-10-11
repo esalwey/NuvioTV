@@ -232,6 +232,10 @@ private struct AmbientModeAttachment: ViewModifier {
             .onChange(of: scenePhase) { _, phase in
                 let controller = AmbientIdleController.shared
                 controller.appActive = phase == .active
+                // Leaving the foreground (home screen, Top Shelf, Siri) ends the slideshow now:
+                // the idle loop only re-checks eligibility every few seconds, and until then the
+                // first remote press after coming back would be swallowed as the dismiss press.
+                if phase != .active { controller.dismiss() }
                 controller.noteActivity()
             }
     }

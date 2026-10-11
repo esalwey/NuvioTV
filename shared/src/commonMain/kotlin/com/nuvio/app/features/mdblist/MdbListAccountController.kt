@@ -61,7 +61,17 @@ class MdbListAccountController(
                 while (store.isCurrent(scope) && auth.state.value.session != null) {
                     val current = auth.state.value.session ?: break
                     delay((current.nextPollAtEpochMs - now()).coerceAtLeast(250L))
-                    when (auth.pollDeviceAuthorization(scope)) {
+                    val result = try {
+                        auth.pollDeviceAuthorization(scope)
+                    } catch (error: MdbListApiException) {
+                        // A dropped connection, a 429 or a 5xx is not the end of the sign-in: the
+                        // device code is still valid and on screen, so keep polling on the next
+                        // interval (after the rate limit window when the server named one).
+                        if (!error.isTransient()) throw error
+                        error.retryAtEpochMs?.let { delay((it - now()).coerceIn(0L, MAX_TRANSIENT_WAIT_MS)) }
+                        continue
+                    }
+                    when (result) {
                         MdbListDevicePollResult.Pending -> Unit
                         MdbListDevicePollResult.Authorized -> {
                             onConnected(store.scope())
@@ -115,4 +125,11 @@ class MdbListAccountController(
         pollJob?.cancel()
         pollJob = null
     }
+
+    private companion object {
+        const val MAX_TRANSIENT_WAIT_MS = 120_000L
+    }
 }
+
+private fun MdbListApiException.isTransient(): Boolean =
+    code == "transport_failure" || code == "request_failed" || status == 429 || (status != null && status >= 500)

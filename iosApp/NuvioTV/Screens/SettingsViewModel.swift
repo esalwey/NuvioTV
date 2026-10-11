@@ -146,7 +146,6 @@ final class SettingsViewModel: ObservableObject {
     private var customPosterWatcher: FlowWatcher?
     private var cardDepthWatcher: FlowWatcher?
     private var trackingSettingsWatcher: FlowWatcher?
-    private var cwPrefsWatcher: FlowWatcher?
     private var traktCommentsWatcher: FlowWatcher?
     private var searchStateWatcher: FlowWatcher?
     private var searchHistoryWatcher: FlowWatcher?
@@ -235,13 +234,6 @@ final class SettingsViewModel: ObservableObject {
             self.continueWatchingDaysCap = Int(state.continueWatchingDaysCap)
         }
 
-        // Show Unaired Next Up (Continue Watching preferences, shared with Detail's primary action).
-        ContinueWatchingPreferencesRepository.shared.ensureLoaded()
-        cwPrefsWatcher = FlowWatcherKt.watch(ContinueWatchingPreferencesRepository.shared.uiState) { [weak self] emitted in
-            guard let self, let state = emitted as? ContinueWatchingPreferencesUiState else { return }
-            self.showUnairedNextUp = state.showUnairedNextUp
-        }
-
         TraktCommentsSettings.shared.ensureLoaded()
         traktCommentsWatcher = FlowWatcherKt.watch(TraktCommentsSettings.shared.enabled) { [weak self] emitted in
             guard let self, let enabled = emitted as? KotlinBoolean else { return }
@@ -306,6 +298,8 @@ final class SettingsViewModel: ObservableObject {
             guard let self, let state = emitted as? ContinueWatchingPreferencesUiState else { return }
             let next = ContinueWatchingSettings(state)
             if next != self.continueWatching { self.continueWatching = next }
+            // Show Unaired Next Up (shared with Detail's primary action) comes from the same state.
+            if self.showUnairedNextUp != state.showUnairedNextUp { self.showUnairedNextUp = state.showUnairedNextUp }
         }
 
         // "Home Rows blank" bug: Settings must not depend on Home/Search having mounted first to
@@ -327,7 +321,6 @@ final class SettingsViewModel: ObservableObject {
         customPosterWatcher?.cancel(); customPosterWatcher = nil
         cardDepthWatcher?.cancel(); cardDepthWatcher = nil
         trackingSettingsWatcher?.cancel(); trackingSettingsWatcher = nil
-        cwPrefsWatcher?.cancel(); cwPrefsWatcher = nil
         traktCommentsWatcher?.cancel(); traktCommentsWatcher = nil
         searchStateWatcher?.cancel(); searchStateWatcher = nil
         searchHistoryWatcher?.cancel(); searchHistoryWatcher = nil
@@ -987,10 +980,12 @@ final class SettingsViewModel: ObservableObject {
         customPosterWatcher?.cancel()
         cardDepthWatcher?.cancel()
         trackingSettingsWatcher?.cancel()
-        cwPrefsWatcher?.cancel()
         traktCommentsWatcher?.cancel()
         searchStateWatcher?.cancel()
         searchHistoryWatcher?.cancel()
         metaScreenWatcher?.cancel()
+        themeWatcher?.cancel()
+        mdbListWatcher?.cancel()
+        continueWatchingWatcher?.cancel()
     }
 }

@@ -287,7 +287,12 @@ struct MediaServerDetailView: View {
             }
         }
         .navigationTitle(model.server(serverId)?.name ?? "")
-        .onAppear { model.start() }
+        .onAppear {
+            model.start()
+            // A "refresh failed" note is about one visit to one server: it does not carry over.
+            model.clearRefreshError()
+        }
+        .onDisappear { model.clearRefreshError() }
         .onChange(of: model.server(serverId) == nil) { _, gone in
             if gone { dismiss() }
         }
@@ -370,7 +375,7 @@ struct MediaServerDetailView: View {
 
             Section {
                 refreshRow(for: server)
-                if let error = model.refreshError {
+                if let error = model.refreshError, model.refreshErrorServerId == server.id {
                     Text(error)
                         .font(SettingsRowFont.subtitle)
                         .foregroundStyle(Theme.Palette.warning)

@@ -2,6 +2,7 @@ package com.nuvio.app.features.profiles
 
 import com.nuvio.app.core.coroutines.uncaughtCoroutineLogger
 import co.touchlab.kermit.Logger
+import com.nuvio.app.core.account.ProfileDataEraserProvider
 import com.nuvio.app.core.auth.AuthRepository
 import com.nuvio.app.core.auth.AuthState
 import com.nuvio.app.core.auth.isAnonymous
@@ -10,6 +11,7 @@ import com.nuvio.app.core.i18n.StringKey
 import com.nuvio.app.core.i18n.resourceString
 import com.nuvio.app.core.sync.putSyncOriginClientId
 import com.nuvio.app.features.servers.ServerRepository
+import com.nuvio.app.features.tracking.TrackingProviderRegistry
 import io.github.jan.supabase.postgrest.postgrest
 import io.github.jan.supabase.postgrest.rpc
 import kotlinx.coroutines.CancellationException
@@ -259,6 +261,7 @@ object ProfileRepository {
             val remaining = _state.value.profiles.filter { it.profileIndex != profileIndex }
             ProfilePinCacheStorage.removePayload(profileIndex)
             ServerRepository.removeProfile(profileIndex)
+            eraseLocalProfileData(profileIndex)
             _state.value = _state.value.copy(
                 profiles = remaining,
                 activeProfile = if (_state.value.activeProfile?.profileIndex == profileIndex) remaining.firstOrNull() else _state.value.activeProfile,
@@ -276,11 +279,23 @@ object ProfileRepository {
             }
             SupabaseProvider.client.postgrest.rpc("sync_delete_profile_data", params)
             ServerRepository.removeProfile(profileIndex)
+            eraseLocalProfileData(profileIndex)
             pullProfiles()
         } catch (e: Throwable) {
             if (AuthRepository.signOutIfSessionInvalid(e, "Profile delete")) return
             log.e(e) { "Failed to delete profile $profileIndex" }
         }
+    }
+
+    /**
+     * The index of a deleted profile is reused by the next one created, so what it left on this
+     * device (tracker sign-ins and sync caches, profile-scoped settings) goes with it.
+     */
+    private fun eraseLocalProfileData(profileIndex: Int) {
+        runCatching { TrackingProviderRegistry.removeStoredProfiles(listOf(profileIndex)) }
+            .onFailure { log.w(it) { "Unable to remove the tracker data of profile $profileIndex" } }
+        runCatching { ProfileDataEraserProvider.eraser.erase(profileIndex) }
+            .onFailure { log.w(it) { "Unable to erase the local data of profile $profileIndex" } }
     }
 
     suspend fun verifyPin(profileIndex: Int, pin: String): PinVerifyResult {

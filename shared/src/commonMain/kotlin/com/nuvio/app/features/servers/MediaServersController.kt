@@ -76,6 +76,8 @@ data class MediaServersUiState(
     /** Bumped when a refresh fails, so the page can surface it once per failure. */
     val refreshFailureGeneration: Int = 0,
     val refreshFailure: ServerFailure? = null,
+    /** The connection [refreshFailure] belongs to: only that server's page shows it. */
+    val refreshFailureServerId: String? = null,
 )
 
 /**
@@ -97,6 +99,7 @@ object MediaServersController {
         val refreshingServerId: String? = null,
         val refreshFailureGeneration: Int = 0,
         val refreshFailure: ServerFailure? = null,
+        val refreshFailureServerId: String? = null,
     )
 
     val state: StateFlow<MediaServersUiState> = combine(ServerRepository.uiState, local) { servers, localState ->
@@ -111,6 +114,7 @@ object MediaServersController {
             refreshingServerId = localState.refreshingServerId,
             refreshFailureGeneration = localState.refreshFailureGeneration,
             refreshFailure = localState.refreshFailure,
+            refreshFailureServerId = localState.refreshFailureServerId,
         )
     }.stateIn(scope, SharingStarted.Eagerly, MediaServersUiState(providers = providerInfos()))
 
@@ -164,7 +168,7 @@ object MediaServersController {
 
     fun refreshLibraries(connectionId: String) {
         if (local.value.refreshingServerId != null) return
-        local.update { it.copy(refreshingServerId = connectionId, refreshFailure = null) }
+        local.update { it.copy(refreshingServerId = connectionId, refreshFailure = null, refreshFailureServerId = null) }
         scope.launch {
             try {
                 ServerRepository.refreshLibraries(connectionId)
@@ -178,6 +182,7 @@ object MediaServersController {
                     it.copy(
                         refreshingServerId = null,
                         refreshFailure = error.serverFailure(),
+                        refreshFailureServerId = connectionId,
                         refreshFailureGeneration = it.refreshFailureGeneration + 1,
                     )
                 }
@@ -204,7 +209,15 @@ object MediaServersController {
         ServerRepository.setLibrarySelected(connectionId, libraryId, selected)
 
     /** Signs out of the server (best effort) and forgets the connection and its token. */
-    fun remove(connectionId: String) = ServerRepository.remove(connectionId)
+    fun remove(connectionId: String) {
+        local.update { if (it.refreshFailureServerId == connectionId) it.copy(refreshFailure = null, refreshFailureServerId = null) else it }
+        ServerRepository.remove(connectionId)
+    }
+
+    /** Forgets the last "refresh libraries" error (its server page was opened or closed). */
+    fun clearRefreshFailure() {
+        local.update { it.copy(refreshFailure = null, refreshFailureServerId = null) }
+    }
 
     private fun providerInfos(): List<MediaServerProviderInfo> =
         ServerProviders.registered.map { MediaServerProviderInfo(it.id, it.displayName, it.minimumVersion) }

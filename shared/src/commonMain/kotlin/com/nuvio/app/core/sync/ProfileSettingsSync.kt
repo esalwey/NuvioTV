@@ -472,7 +472,9 @@ object ProfileSettingsSync {
                         mdbListSettings = withoutProfileCredentials(PROFILE_MDBLIST_SETTINGS_FEATURE, copied.mdbListSettings),
                     )
                     val overlay = (json.encodeToJsonElement(MobileProfileSettingsFeatures.serializer(), sanitized) as JsonObject)
-                        .filterKeys { it != "notifications_settings" }
+                        // Not part of the copy: leaving them in would push their empty defaults over
+                        // the target's own custom poster pattern, and the next pull would clear it.
+                        .filterKeys { it !in NOT_COPIED_FEATURE_KEYS }
                     val existing = remote?.get("features") as? JsonObject ?: JsonObject(emptyMap())
                     val merged = JsonObject(existing + overlay)
                     val version = remote?.get("version") ?: JsonPrimitive(3)
@@ -1096,6 +1098,12 @@ internal inline fun <T> applyFeatureUnlessUnchanged(
 private data class MobileProfileSettingsBlob(
     val version: Int = 3,
     val features: MobileProfileSettingsFeatures = MobileProfileSettingsFeatures(),
+)
+
+private val NOT_COPIED_FEATURE_KEYS = setOf(
+    "notifications_settings",
+    "custom_poster_url_pattern",
+    "custom_poster_enabled_screens",
 )
 
 @Serializable
