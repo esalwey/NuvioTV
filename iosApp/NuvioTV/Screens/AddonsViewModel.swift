@@ -97,6 +97,35 @@ final class AddonsViewModel: ObservableObject {
         AddonRepository.shared.setAddonEnabled(manifestUrl: addon.manifestUrl, enabled: enabled)
     }
 
+    /// Install order is the order streams and catalogs are asked in, so it is worth being able to
+    /// change on the TV. Same move the phone and the remote setup page make.
+    func canMoveUp(_ addon: ManagedAddon) -> Bool {
+        !managedByPrimary && (index(of: addon).map { $0 > 0 } ?? false)
+    }
+
+    func canMoveDown(_ addon: ManagedAddon) -> Bool {
+        !managedByPrimary && (index(of: addon).map { $0 < addons.count - 1 } ?? false)
+    }
+
+    func moveUp(_ addon: ManagedAddon) { move(addon, by: -1) }
+
+    func moveDown(_ addon: ManagedAddon) { move(addon, by: 1) }
+
+    private func index(of addon: ManagedAddon) -> Int? {
+        addons.firstIndex { $0.manifestUrl == addon.manifestUrl }
+    }
+
+    private func move(_ addon: ManagedAddon, by offset: Int) {
+        guard !managedByPrimary else {
+            showStatus(managedByPrimaryMessage, isError: true)
+            return
+        }
+        guard let from = index(of: addon) else { return }
+        let to = from + offset
+        guard addons.indices.contains(to) else { return }
+        AddonRepository.shared.moveAddon(fromIndex: Int32(from), toIndex: Int32(to))
+    }
+
     /// ADD-3: re-fetch a manifest that failed to load (row context menu).
     func retry(_ addon: ManagedAddon) {
         AddonRepository.shared.refreshAddon(manifestUrl: addon.manifestUrl, forceRefresh: true)
