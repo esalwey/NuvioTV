@@ -156,7 +156,7 @@ object DebridSettingsRepository {
 
     fun setStreamDolbyVisionFilter(value: DebridStreamFeatureFilter) {
         ensureLoaded()
-        if (streamDolbyVisionFilter == value) return
+        if (streamDolbyVisionFilter == value && streamPreferences == streamPreferences.applyDolbyVisionFilter(value).normalized()) return
         streamDolbyVisionFilter = value
         streamPreferences = streamPreferences.applyDolbyVisionFilter(value).normalized()
         publish()
@@ -166,7 +166,7 @@ object DebridSettingsRepository {
 
     fun setStreamHdrFilter(value: DebridStreamFeatureFilter) {
         ensureLoaded()
-        if (streamHdrFilter == value) return
+        if (streamHdrFilter == value && streamPreferences == streamPreferences.applyHdrFilter(value).normalized()) return
         streamHdrFilter = value
         streamPreferences = streamPreferences.applyHdrFilter(value).normalized()
         publish()
@@ -176,7 +176,7 @@ object DebridSettingsRepository {
 
     fun setStreamCodecFilter(value: DebridStreamCodecFilter) {
         ensureLoaded()
-        if (streamCodecFilter == value) return
+        if (streamCodecFilter == value && streamPreferences == streamPreferences.applyCodecFilter(value).normalized()) return
         streamCodecFilter = value
         streamPreferences = streamPreferences.applyCodecFilter(value).normalized()
         publish()
@@ -498,7 +498,7 @@ private fun DebridStreamPreferences.applyCodecFilter(
         },
     )
 
-private fun resolutionsForMinimumQuality(quality: DebridStreamMinimumQuality): List<DebridStreamResolution> =
+internal fun resolutionsForMinimumQuality(quality: DebridStreamMinimumQuality): List<DebridStreamResolution> =
     DebridStreamResolution.defaultOrder.filter {
         it.value >= quality.minResolution && it != DebridStreamResolution.UNKNOWN
     }
