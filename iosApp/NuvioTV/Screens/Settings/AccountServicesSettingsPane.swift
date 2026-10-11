@@ -103,10 +103,6 @@ struct AccountServicesSettingsPane: View {
                 }
             }
 
-            SettingsSection(String(localized: "Details & Continue Watching")) {
-                discoverySection
-            }
-
             SettingsSection(String(localized: "Debrid")) {
                 debridSection
             }
@@ -363,53 +359,6 @@ struct AccountServicesSettingsPane: View {
 
     private static func continueWatchingWindowLabel(_ days: Int) -> String {
         days == 0 ? String(localized: "All history") : String(localized: "\(days) days")
-    }
-
-    // MARK: - Details & Continue Watching
-
-    /// More Like This source and Show Unaired Next Up. The source row appears once Trakt or Simkl is
-    /// connected (before that TMDB is the only choice); a stored choice whose provider is not
-    /// connected reads as TMDB, which is what the shared repository falls back to as well.
-    @ViewBuilder
-    private var discoverySection: some View {
-        if trakt.isConnected || simkl.isConnected {
-            SettingsPickerRow(
-                title: String(localized: "More Like This Source"),
-                subtitle: String(localized: "Where recommendations on a title's page come from."),
-                selection: Binding(
-                    get: { effectiveMoreLikeThisSource },
-                    set: { model.setMoreLikeThisSource($0) }
-                ),
-                options: moreLikeThisOptions,
-                label: Self.moreLikeThisLabel
-            )
-        }
-
-        SettingsToggleRow(
-            title: String(localized: "Show Unaired Next Up"),
-            subtitle: String(localized: "Offer the next episode on a title's page before it has aired."),
-            isOn: Binding(
-                get: { model.showUnairedNextUp },
-                set: { model.setShowUnairedNextUp($0) }
-            )
-        )
-    }
-
-    private var moreLikeThisOptions: [String] {
-        ["tmdb"] + (trakt.isConnected ? ["trakt"] : []) + (simkl.isConnected ? ["simkl"] : [])
-    }
-
-    private var effectiveMoreLikeThisSource: String {
-        let stored = model.moreLikeThisSource
-        return moreLikeThisOptions.contains(stored) ? stored : "tmdb"
-    }
-
-    private static func moreLikeThisLabel(_ key: String) -> String {
-        switch key {
-        case "trakt": return String(localized: "Trakt")
-        case "simkl": return String(localized: "Simkl")
-        default: return String(localized: "TMDB")
-        }
     }
 
     /// The MDBList card. Same states as Trakt and Simkl, with a QR code on the activation card, and

@@ -327,7 +327,7 @@ struct SettingsView: View {
         case .homeScreen:
             HomeScreenSettingsPane(model: model)
         case .detailPage:
-            DetailPageSettingsPane(model: model)
+            DetailPageSettingsPane(model: model, trakt: trakt, simkl: simkl)
         case .contentSources:
             ContentSourcesSettingsPane(model: model, plugins: plugins)
         case .addons:

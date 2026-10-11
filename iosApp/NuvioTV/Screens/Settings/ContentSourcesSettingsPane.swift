@@ -261,42 +261,27 @@ struct ContentSourcesSettingsPane: View {
             )
         )
 
-        Text("Choose which catalogs Search looks through. Fewer sources means faster, more focused results. Applies to this profile, on this Apple TV only.")
-            .font(Theme.Font.caption)
-            .foregroundStyle(Theme.Palette.textSecondary)
-            .frame(maxWidth: 1100, alignment: .leading)
-
         if model.searchSourceOptions.isEmpty {
             Text("No installed add-on offers search. Install a catalog add-on with search support and its sources will appear here.")
                 .font(Theme.Font.caption)
                 .foregroundStyle(Theme.Palette.textSecondary)
                 .frame(maxWidth: 1100, alignment: .leading)
         } else {
-            ForEach(model.searchSourceOptions, id: \.key) { option in
-                // Legacy bare keys disable a whole collision group; exact-match misses that (Codex finding 2/4 follow-up).
-                let disabled = SearchRepository.shared.isSearchSourceDisabled(optionKey: option.key, disabledCatalogKeys: model.disabledSearchSourceKeys)
-                SettingsToggleRow(
-                    title: "\(option.catalogName) \u{00B7} \(option.typeLabel)",
-                    subtitle: disabled
-                        ? String(localized: "\(option.addonName) \u{00B7} skipped when searching")
-                        : String(localized: "\(option.addonName)"),
-                    isOn: Binding(
-                        get: { !disabled },
-                        set: { model.setSearchSource(key: option.key, disabled: !$0) }
-                    )
-                )
+            // One row per search-capable catalog can run to dozens, so they live one level down.
+            SettingsLinkRow(
+                title: String(localized: "Search Sources"),
+                subtitle: String(localized: "\(searchSourcesOn) of \(model.searchSourceOptions.count) selected")
+            ) {
+                SearchSourcesSettingsPage(model: model)
             }
-
-            // BUG-33 defect 1 (P1, twice re-opened): the tester's only way to confirm a
-            // deselected catalog was actually skipped was a device log capture — and the
-            // diagnostic that shipped logged at debug level, which os_log hides by default
-            // (BUG-11). This mirrors it in-app: one caption naming exactly which catalogs the
-            // last search hit, screenshot-able from this exact pane.
-            Text(model.lastSearchFanOut ?? String(localized: "No search performed yet."))
-                .font(Theme.Font.caption)
-                .foregroundStyle(Theme.Palette.textSecondary)
-                .frame(maxWidth: 1100, alignment: .leading)
         }
+    }
+
+    /// How many of the search-capable catalogs Search currently looks through.
+    private var searchSourcesOn: Int {
+        model.searchSourceOptions.filter { option in
+            !SearchRepository.shared.isSearchSourceDisabled(optionKey: option.key, disabledCatalogKeys: model.disabledSearchSourceKeys)
+        }.count
     }
 
     /// The Plugins section body: master switch + per-scraper toggles. Repos are managed on the
@@ -391,6 +376,42 @@ struct ContentSourcesSettingsPane: View {
                 }
             }
         }
+    }
+}
+
+/// Settings > Content Sources > Search Sources: one toggle per search-capable catalog. Rows derive
+/// from the installed add-ons (SettingsViewModel's addon watcher); the disabled set is this
+/// profile's, on this Apple TV (SRC-2). Menu pops back to Content Sources.
+struct SearchSourcesSettingsPage: View {
+    @ObservedObject var model: SettingsViewModel
+
+    var body: some View {
+        List {
+            SettingsSection(
+                title: nil,
+                // BUG-33 defect 1 (P1, twice re-opened): the tester's only way to confirm a deselected
+                // catalog was actually skipped was a device log capture, so the footer also names
+                // exactly which catalogs the last search hit, screenshot-able from this page.
+                footer: String(localized: "Choose which catalogs Search looks through. Fewer sources means faster, more focused results. Applies to this profile, on this Apple TV only.")
+                    + "\n" + (model.lastSearchFanOut ?? String(localized: "No search performed yet."))
+            ) {
+                ForEach(model.searchSourceOptions, id: \.key) { option in
+                    // Legacy bare keys disable a whole collision group; exact-match misses that (Codex finding 2/4 follow-up).
+                    let disabled = SearchRepository.shared.isSearchSourceDisabled(optionKey: option.key, disabledCatalogKeys: model.disabledSearchSourceKeys)
+                    SettingsToggleRow(
+                        title: "\(option.catalogName) \u{00B7} \(option.typeLabel)",
+                        subtitle: disabled
+                            ? String(localized: "\(option.addonName) \u{00B7} skipped when searching")
+                            : String(localized: "\(option.addonName)"),
+                        isOn: Binding(
+                            get: { !disabled },
+                            set: { model.setSearchSource(key: option.key, disabled: !$0) }
+                        )
+                    )
+                }
+            }
+        }
+        .navigationTitle(String(localized: "Search Sources"))
     }
 }
 

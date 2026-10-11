@@ -5554,6 +5554,8 @@ struct HomeHeroForeground: View {
                     Text(verbatim: ratingText)
                         .lineLimit(1)
                 }
+                // A long meta line gives way first, so the rating is never the part that truncates.
+                .layoutPriority(1)
                 .accessibilityElement(children: .combine)
             }
         }
