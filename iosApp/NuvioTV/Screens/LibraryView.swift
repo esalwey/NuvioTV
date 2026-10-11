@@ -133,6 +133,14 @@ struct LibraryView: View {
         .onChange(of: showingServers) { _, isOn in
             servers.setActive(isOn)
         }
+        // The source pills disappear with their source; a flag left on would reopen that source
+        // by itself (and keep the server view model reloading) once the source comes back.
+        .onChange(of: servers.hasLibraries) { _, has in
+            if !has { showingServers = false }
+        }
+        .onChange(of: cloudSourceAvailable) { _, available in
+            if !available { showingCloud = false }
+        }
         .fullScreenCover(
             isPresented: Binding(
                 get: { lists.dialog != nil },
