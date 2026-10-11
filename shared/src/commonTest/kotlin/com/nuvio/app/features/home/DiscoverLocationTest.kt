@@ -41,13 +41,24 @@ class DiscoverLocationTest {
     }
 
     @Test
-    fun `a blob from a client without the sidebar flag keeps the local sidebar flag`() {
+    fun `a blob from a client without the sidebar flag reads hide_discover as off`() {
         val local = SyncHomeCatalogPayload(hideDiscover = true, discoverInSidebar = true)
         val remote = buildJsonObject { put("hide_discover", true) }
 
         val decoded = decodeHomeCatalogPayloadPreservingLocalDefaults(remote, local)
 
         assertEquals(true, decoded?.hideDiscover)
+        assertEquals(false, decoded?.discoverInSidebar)
+        assertEquals(DiscoverLocation.OFF, discoverLocationOf(decoded!!.hideDiscover, decoded.discoverInSidebar))
+    }
+
+    @Test
+    fun `a blob without either discover flag keeps the local sidebar flag`() {
+        val local = SyncHomeCatalogPayload(hideDiscover = true, discoverInSidebar = true)
+        val remote = buildJsonObject { put("show_catalog_type", true) }
+
+        val decoded = decodeHomeCatalogPayloadPreservingLocalDefaults(remote, local)
+
         assertEquals(true, decoded?.discoverInSidebar)
     }
 
