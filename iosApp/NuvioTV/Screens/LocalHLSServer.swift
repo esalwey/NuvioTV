@@ -71,7 +71,13 @@ nonisolated final class LocalHLSServer: @unchecked Sendable {
     /// Converted addon VTT at offset zero, cached per rendition index. Delay variants are shifted
     /// from this base on demand (cheap — a few thousand timing lines).
     private var vttBase = [Int: String]()
+    /// Renditions whose file can never be served (a 4xx, or a body that is not a subtitle). A timeout,
+    /// a network error or a 5xx is NOT recorded here: the next selection tries the download again.
     private var vttFailed = Set<Int>()
+    /// Requests parked on a download already in flight for a rendition, so one slow file is fetched
+    /// once however many times AVPlayer asks for it meanwhile.
+    private struct VTTWaiter { let name: String; let rangeHeader: String?; let isHead: Bool; let connection: NWConnection }
+    private var vttWaiters = [Int: [VTTWaiter]]()
     /// Subtitle delay in milliseconds, applied to the addon VTT bodies this server renders.
     private var _subtitleDelayMs = 0
     /// Bumped on every delay change; the media playlist names `sub-N-g<gen>.vtt`, so a refetched
@@ -519,10 +525,24 @@ nonisolated final class LocalHLSServer: @unchecked Sendable {
             return
         }
 
+        lock.lock()
+        if vttWaiters[rendition.index] != nil {
+            vttWaiters[rendition.index]?.append(VTTWaiter(name: name, rangeHeader: rangeHeader, isHead: isHead, connection: connection))
+            lock.unlock()
+            return
+        }
+        vttWaiters[rendition.index] = [VTTWaiter(name: name, rangeHeader: rangeHeader, isHead: isHead, connection: connection)]
+        lock.unlock()
+
         var request = URLRequest(url: sourceURL)
         request.timeoutInterval = 10
         URLSession.shared.dataTask(with: request) { [weak self] data, response, _ in
             guard let self else { connection.cancel(); return }
+            // Whoever asked while this download ran is answered with its result.
+            func takeWaiters() -> [VTTWaiter] {
+                self.lock.lock(); defer { self.lock.unlock() }
+                return self.vttWaiters.removeValue(forKey: rendition.index) ?? []
+            }
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0
             let vtt = (200..<300).contains(status) ? data.flatMap { SubtitleVTT.webVTT(from: $0, stripSdh: self.stripSdh, languageHint: rendition.language) } : nil
             if let vtt {
@@ -536,12 +556,23 @@ nonisolated final class LocalHLSServer: @unchecked Sendable {
                 let shifted = currentOffsetMs == 0 ? vtt : SubtitleVTT.shift(vtt, offsetMs: currentOffsetMs)
                 let body = Data(shifted.utf8)
                 print("[HLS] subtitle \(rendition.index) ready (\(body.count)b, \(rendition.name), delay \(currentOffsetMs)ms)")
-                self.serveBytes(body, name: name, rangeHeader: rangeHeader, isHead: isHead, on: connection)
+                for waiter in takeWaiters() {
+                    self.serveBytes(body, name: waiter.name, rangeHeader: waiter.rangeHeader, isHead: waiter.isHead,
+                                    on: waiter.connection)
+                }
             } else {
-                self.lock.lock(); self.vttFailed.insert(rendition.index); self.lock.unlock()
-                print("[HLS] subtitle \(rendition.index) failed (http \(status), \(sourceURL.host ?? "?"))")
-                self.send(status: "404 Not Found", contentType: "text/plain", body: Data("Unavailable".utf8),
-                          on: connection, requestPath: name)
+                // Permanent only when the addon answered and the file is unusable (4xx other than a
+                // timeout/throttle, or a 2xx that does not parse). A timeout, a network error or a 5xx is
+                // transient: it answers 404 now but the next selection downloads again.
+                let ok = (200..<300).contains(status)
+                let permanent = ok || ((400..<500).contains(status) && status != 408 && status != 429)
+                if permanent { self.lock.lock(); self.vttFailed.insert(rendition.index); self.lock.unlock() }
+                print("[HLS] subtitle \(rendition.index) failed (http \(status), \(sourceURL.host ?? "?")"
+                      + (permanent ? ")" : ", will retry on next request)"))
+                for waiter in takeWaiters() {
+                    self.send(status: "404 Not Found", contentType: "text/plain", body: Data("Unavailable".utf8),
+                              on: waiter.connection, requestPath: waiter.name)
+                }
             }
         }.resume()
     }
