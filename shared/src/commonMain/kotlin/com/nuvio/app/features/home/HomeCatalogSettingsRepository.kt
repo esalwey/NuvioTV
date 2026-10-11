@@ -41,8 +41,14 @@ data class HomeCatalogSettingsUiState(
     val hideCatalogUnderline: Boolean = false,
     /** UX-8: hide the whole Discover section on the Search screen (tvOS-authored, shared-namespace synced). */
     val hideDiscover: Boolean = false,
+    /** Together with [hideDiscover]: Discover is the app's own sidebar item, not just switched off. */
+    val discoverInSidebar: Boolean = false,
     val items: List<HomeCatalogSettingsItem> = emptyList(),
 ) {
+    /** Where Discover shows: derived from the two stored switches, see [discoverLocationOf]. */
+    val discoverLocation: DiscoverLocation
+        get() = discoverLocationOf(hideDiscover, discoverInSidebar)
+
     val signature: String
         get() = buildString {
             append(heroEnabled)
@@ -54,6 +60,8 @@ data class HomeCatalogSettingsUiState(
             append(hideCatalogUnderline)
             append('|')
             append(hideDiscover)
+            append('|')
+            append(discoverInSidebar)
             append('|')
             append(
                 items.joinToString(separator = "|") { item ->
@@ -106,6 +114,7 @@ private data class StoredHomeCatalogSettingsPayload(
     val hideUnreleasedContent: Boolean = false,
     val hideCatalogUnderline: Boolean = false,
     val hideDiscover: Boolean = false,
+    val discoverInSidebar: Boolean = false,
     val items: List<StoredHomeCatalogPreference> = emptyList(),
 )
 
@@ -177,6 +186,7 @@ object HomeCatalogSettingsRepository {
     private var hideUnreleasedContent = false
     private var hideCatalogUnderline = false
     private var hideDiscover = false
+    private var discoverInSidebar = false
 
     fun onProfileChanged() {
         hasLoaded = false
@@ -186,6 +196,7 @@ object HomeCatalogSettingsRepository {
         hideUnreleasedContent = false
         hideCatalogUnderline = false
         hideDiscover = false
+        discoverInSidebar = false
         definitions = emptyList()
         collectionDefinitions = emptyList()
         collectionContentSignature = ""
@@ -203,6 +214,7 @@ object HomeCatalogSettingsRepository {
         hideUnreleasedContent = false
         hideCatalogUnderline = false
         hideDiscover = false
+        discoverInSidebar = false
         _uiState.value = HomeCatalogSettingsUiState()
     }
 
@@ -378,8 +390,29 @@ object HomeCatalogSettingsRepository {
     /** UX-8: hide the entire Discover section on the Search screen. Per-profile, synced (shared namespace). */
     fun setHideDiscover(enabled: Boolean) {
         ensureLoaded()
-        if (hideDiscover == enabled) return
+        // Showing Discover in Search again leaves the sidebar; hiding it keeps a sidebar Discover.
+        val sidebar = discoverInSidebar && enabled
+        if (hideDiscover == enabled && discoverInSidebar == sidebar) return
         hideDiscover = enabled
+        discoverInSidebar = sidebar
+        publish()
+        persist()
+        HomeCatalogSettingsSyncService.triggerPush()
+    }
+
+    /**
+     * Where Discover lives: nowhere, below the search field, or as its own sidebar item. Stored as
+     * the older [setHideDiscover] switch (hidden in Search for both OFF and IN_SIDEBAR, which is
+     * what every client that predates the sidebar item understands) plus one extra switch that
+     * tells OFF and IN_SIDEBAR apart. Per profile, synced (shared namespace).
+     */
+    fun setDiscoverLocation(location: DiscoverLocation) {
+        ensureLoaded()
+        val hide = location != DiscoverLocation.IN_SEARCH
+        val sidebar = location == DiscoverLocation.IN_SIDEBAR
+        if (hideDiscover == hide && discoverInSidebar == sidebar) return
+        hideDiscover = hide
+        discoverInSidebar = sidebar
         publish()
         persist()
         HomeCatalogSettingsSyncService.triggerPush()
@@ -428,6 +461,7 @@ object HomeCatalogSettingsRepository {
             hideUnreleasedContent = false
             hideCatalogUnderline = false
             hideDiscover = false
+            discoverInSidebar = false
             synchronized(preferencesMutationLock) { preferences = emptyMap() }
             normalizePreferences()
             publish()
@@ -484,6 +518,7 @@ object HomeCatalogSettingsRepository {
             hideUnreleasedContent = parsedPayload.hideUnreleasedContent
             hideCatalogUnderline = parsedPayload.hideCatalogUnderline
             hideDiscover = parsedPayload.hideDiscover
+            discoverInSidebar = parsedPayload.discoverInSidebar
             synchronized(preferencesMutationLock) { preferences = parsedPayload.items.associateBy { it.key } }
             publish()
             return
@@ -676,6 +711,7 @@ object HomeCatalogSettingsRepository {
             hideUnreleasedContent = hideUnreleasedContent,
             hideCatalogUnderline = hideCatalogUnderline,
             hideDiscover = hideDiscover,
+            discoverInSidebar = discoverInSidebar,
             items = items,
         )
     }
@@ -689,6 +725,7 @@ object HomeCatalogSettingsRepository {
                     hideUnreleasedContent = hideUnreleasedContent,
                     hideCatalogUnderline = hideCatalogUnderline,
                     hideDiscover = hideDiscover,
+                    discoverInSidebar = discoverInSidebar,
                     items = preferences.values.sortedBy { it.order },
                 ),
             ),
@@ -791,6 +828,7 @@ object HomeCatalogSettingsRepository {
             hideUnreleasedContent = hideUnreleasedContent,
             hideCatalogUnderline = hideCatalogUnderline,
             hideDiscover = hideDiscover,
+            discoverInSidebar = discoverInSidebar,
             items = items,
         )
     }
@@ -807,6 +845,7 @@ object HomeCatalogSettingsRepository {
         hideUnreleasedContent = payload.hideUnreleasedContent
         hideCatalogUnderline = payload.hideCatalogUnderline
         hideDiscover = payload.hideDiscover
+        discoverInSidebar = payload.discoverInSidebar
         if (payload.items.isNotEmpty()) {
             synchronized(preferencesMutationLock) {
             val existingHeroState = preferences.mapValues { it.value.heroSourceEnabled }
