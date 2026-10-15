@@ -122,7 +122,7 @@ final class SpatialAudioTests: XCTestCase {
         XCTAssertEqual(SpatialAudioPolicy.startTrack(in: companion)?.streamIndex, 2)
         // Nothing announced and nothing selected to try: no conversion.
         XCTAssertNil(SpatialAudioPolicy.startTrack(in: [track(1, "ac3", selected: true), track(2, "truehd")]))
-        XCTAssertNil(SpatialAudioPolicy.startTrack(in: [track(1, "ac3", selected: true), track(2, "dts", profile: 20, title: "DTS:X")]))
+        XCTAssertNil(SpatialAudioPolicy.startTrack(in: [track(1, "ac3", selected: true), track(2, "dts", title: "DTS:X", profile: 20)]))
     }
 
     func testAnAtmosTrackReplacesTheCompatibilityTrackOfItsLanguage() {
