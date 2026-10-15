@@ -188,7 +188,7 @@ remux signals it (`av01`, `av01.<profile>.<level><tier>.<depth>`); it has not be
 | Item | Decision |
 |---|---|
 | Image subtitles over AVPlayer (decode PGS with libavcodec, draw them in `contentOverlayView`, publish an empty WebVTT rendition so the track is in the menu) | Not built. A week of work with seek, HDR brightness and aspect risks that cannot be checked off a device; the section 2.7 rule is the stop-gap |
-| ALAC instead of AAC for lossless multichannel (TrueHD, DTS-HD MA, PCM) | Not built. These files are already native; this is audio quality, not routing. Needs a check that MPVKit's FFmpeg has the `alac` encoder and what channel counts it takes |
+| ALAC instead of AAC for lossless multichannel (TrueHD, DTS-HD MA, PCM) | Not built. These files are already native; this is audio quality, not routing. The encoder question is settled: MPVKit's FFmpeg is configured with `--disable-encoders` and then `--enable-encoder=aac`, `alac`, `flac`, `pcm*` (MPVKit `Sources/BuildScripts/XCFrameworkBuild/main.swift`, the revision the submodule pins), and FFmpeg's ALAC encoder takes mono up to 7.1 in fixed channel layouts and 16 / 24-bit planar integers. What is left is the transcoder's encoder choice and layout mapping, the `alac` CODECS signaling for a transcoded track, and a device test that AVPlayer plays ALAC 5.1 / 7.1 from fMP4 HLS (it is in the HLS authoring spec, 2.5) |
 | Progressive MP4 straight to AVPlayer (no remux) | Not built. Only pays off if seek latency through the remux becomes a complaint, and it loses the addon subtitle renditions |
 | MPEG-TS / M2TS remux | Not built (no index) |
 | Proxying a direct HLS master to add addon subtitle renditions | Not built |
@@ -388,13 +388,27 @@ One session, about an hour, replaces the [MEASURE] stand-ins:
 
 ## 7. Verification, and what to check after a build
 
-Checked without a device: the pure-Swift parts (the router with its DEBUG self-check, `PlayerEnginePreference`,
-`PlayerSpec`, the probe value types) compile with Swift 6.2.3 and their 23 unit tests pass
-(`PlayerEngineRouterTests`, `PlayerSpecTests`); every other changed file parses clean; the string catalog is valid
-JSON in the file's own format with fr / de / es / it / vi for each new string; the FFmpeg calls match the FFmpeg 8.0
-headers (`av_packet_side_data_remove`, `AVCodecParameters.level` / `bits_per_raw_sample` / `field_order`, the
-`AVFieldOrder` and HEVC profile values). **Not compiled here** (no Xcode): the files that import Apple frameworks,
-libmpv or SharedCore - the CI build is the first compile of those.
+Checked without a device, with a Swift 6.2.3 toolchain on Linux and the app target's own compiler settings (Swift 5
+mode, main-actor default isolation, approachable concurrency, member import visibility):
+
+- The files that need no Apple framework compile as they are, and their 25 unit tests pass (`PlayerEngineRouterTests`,
+  `PlayerSpecTests`, the Dolby Vision picker cases of `PlayerTuningTests`, the router's DEBUG self-check): the router,
+  `PlayerEnginePreference`, `PlayerSpec`, `DolbyVisionMode`.
+- The FFmpeg-facing files (`MediaProbe`, `AudioTranscoder`, `DoviRpuConverter`, `RemuxSession`, `SegmentMap`,
+  `EmbeddedSubtitleSink`, `NativePlaybackMetrics`, `RemuxCacheJanitor`) type-check with no error against the exact FFmpeg
+  headers of the MPVKit revision the submodule pins (`0.41.0-n8.1.2`, libavcodec 62.28, tvOS slice of the
+  xcframeworks) and libdovi 3.3.2, so `av_packet_side_data_remove`, the `AVCodecParameters` fields and the AV1 and DOVI
+  constants are the real ones. Only Linux stand-ins for Darwin-only API (Mach task info, `String(localized:)`) were
+  needed.
+- The FFmpeg build of that MPVKit revision (`--disable-encoders` then `aac`, `alac`, `flac`, `pcm*`; the audio decoders
+  `aac* ac3* adpcm* alac* amr* ape cook dca dolby_e eac3* flac mp1* mp2* mp3* opus pcm* sonic truehd tta vorbis wma*`;
+  no `mlp`) matches what `AudioTranscoder.isTranscodable` assumes.
+- Every other changed file parses clean (tree-sitter); the string catalog is valid JSON in the file's own format with
+  fr / de / es / it / vi for each new string.
+
+**Not compiled here** (no Xcode, no tvOS SDK): the files that import SwiftUI, AVFoundation, AVKit, UIKit, Combine,
+libmpv or SharedCore - the CI build (`tvos-sim-build.yml`) is the first compile of those. Their symbols were checked
+against the project's existing call sites one by one.
 
 On the Apple TV, in this order:
 
