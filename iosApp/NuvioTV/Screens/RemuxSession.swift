@@ -54,6 +54,45 @@ nonisolated struct VideoSignaling: Sendable {
     var frameRate: Double = 0          // FRAME-RATE when known
 }
 
+/// One audio stream as the automatic pick sees it: what can be done with it and what the file says it is.
+nonisolated struct RemuxAudioCandidate: Equatable, Sendable {
+    let streamIndex: Int
+    let copyable: Bool
+    let transcodable: Bool
+    /// The container flags it as the default track (`AV_DISPOSITION_DEFAULT`).
+    let isDefault: Bool
+    /// A director's commentary and the like: flagged `AV_DISPOSITION_COMMENT` or titled so.
+    let isCommentary: Bool
+    let language: String?
+
+    var playable: Bool { copyable || transcodable }
+
+    static func looksLikeCommentary(_ title: String?) -> Bool {
+        guard let title = title?.lowercased() else { return false }
+        return title.contains("commentary") || title.contains("commentaire")
+            || title.contains("audio description") || title.contains("descriptive")
+    }
+
+    /// The track to start with when neither the viewer's language plan nor a menu pick chose one: the
+    /// file's own main track, as every player opens it. Commentary tracks are left alone unless nothing
+    /// else plays; the default-flagged playable track wins, else the first. The stream-copied (bit-exact,
+    /// zero CPU) track of the same language beats a transcode of the main one, but never a track of
+    /// another language: with [1] TrueHD eng (default), [2] AC-3 fra, [3] AC-3 commentary the answer is
+    /// the English track, not the first AC-3 in file order.
+    static func automaticPick(_ tracks: [RemuxAudioCandidate]) -> Int? {
+        let playable = tracks.filter(\.playable)
+        let main = playable.filter { !$0.isCommentary }
+        let pool = main.isEmpty ? playable : main
+        guard let anchor = pool.first(where: \.isDefault) ?? pool.first else { return nil }
+        if anchor.copyable { return anchor.streamIndex }
+        let language = anchor.language?.lowercased()
+        if let copy = pool.first(where: { $0.copyable && $0.language?.lowercased() == language }) {
+            return copy.streamIndex
+        }
+        return anchor.streamIndex
+    }
+}
+
 /// One audio stream of the source, as the remux worker inspected it (D4 audio track switching).
 /// `playable` means this session type can serve it — stream-copyable or TrueHD/DTS-transcodable;
 /// `selected` marks the track this session actually muxes. `streamIndex` is the avformat stream
@@ -117,12 +156,12 @@ nonisolated final class RemuxSession: @unchecked Sendable {
         let url: URL
         var segmentDurationSec: Int = 4
         /// avformat stream index of the audio track to start with (nil = automatic: the
-        /// `preferredAudioPicker` result, else first stream-copyable, else first transcodable).
+        /// `preferredAudioPicker` result, else the file's default track (`RemuxAudioCandidate.automaticPick`)).
         /// Track switching mid-session is `selectAudio(streamIndex:atSegment:)` (info-panel W3) —
         /// no session rebuild.
         var audioStreamIndex: Int? = nil
         /// Automatic-pick hook: given every audio track (with playability), return the stream index
-        /// to mux, or nil for the built-in default (first copyable, else first transcodable). The
+        /// to mux, or nil for the built-in default (the file's main audio track). The
         /// coordinator uses it to honour Settings → Playback → Preferred Audio Language before the
         /// stream carries a single rendition. Runs on the remux worker thread — keep it pure.
         var preferredAudioPicker: (@Sendable ([RemuxAudioTrack]) -> Int?)? = nil
@@ -386,7 +425,8 @@ nonisolated final class RemuxSession: @unchecked Sendable {
         defer { var p: UnsafeMutablePointer<AVFormatContext>? = input; avformat_close_input(&p) }
         guard avformat_find_stream_info(input, nil) >= 0 else { return fail("find_stream_info") }
 
-        var videoIn = -1, audioCopyIn = -1, audioTranscodeIn = -1
+        var videoIn = -1
+        var audioCandidates: [RemuxAudioCandidate] = []
         var foundAudio: [RemuxAudioTrack] = []
         var foundSubtitles: [RemuxSubtitleTrack] = []
         for i in 0..<Int(input.pointee.nb_streams) {
@@ -406,11 +446,14 @@ nonisolated final class RemuxSession: @unchecked Sendable {
                     codecToken: copyable ? Self.audioCodecString(par) : (transcodable ? "mp4a.40.2" : nil),
                     transcodes: !copyable && transcodable,
                     selected: false))
-                if audioCopyIn < 0, copyable {
-                    audioCopyIn = i
-                } else if audioTranscodeIn < 0, transcodable {
-                    audioTranscodeIn = i
-                }
+                let audioDisposition = Int32(s.pointee.disposition)
+                let audioTitle = Self.metadataValue(s.pointee.metadata, "title")
+                audioCandidates.append(RemuxAudioCandidate(
+                    streamIndex: i, copyable: copyable, transcodable: transcodable,
+                    isDefault: audioDisposition & AV_DISPOSITION_DEFAULT != 0,
+                    isCommentary: audioDisposition & AV_DISPOSITION_COMMENT != 0
+                        || RemuxAudioCandidate.looksLikeCommentary(audioTitle),
+                    language: Self.metadataValue(s.pointee.metadata, "language")))
             case AVMEDIA_TYPE_SUBTITLE:
                 let disposition = Int32(s.pointee.disposition)
                 foundSubtitles.append(RemuxSubtitleTrack(
@@ -429,13 +472,14 @@ nonisolated final class RemuxSession: @unchecked Sendable {
                 "#\($0.streamIndex) \($0.codec)\($0.isText ? "" : " (bitmap)")\($0.language.map { " [\($0)]" } ?? "")"
             }.joined(separator: ", "))
         }
-        // Prefer a stream-copyable track (bit-exact, zero CPU); with none present, transcode a
-        // TrueHD/DTS track to AAC (Phase 4 v2 — AVPlayer can't decode them and this FFmpeg build
+        // The file's own main track (its default flag, never a commentary), bit-exact when a copyable
+        // track of the same language exists, else transcoded (`RemuxAudioCandidate.automaticPick`); a
+        // TrueHD/DTS track is transcoded to AAC (Phase 4 v2 — AVPlayer can't decode them and this FFmpeg build
         // ships no AC3/EAC3 encoder). See AudioTranscoder. An explicit choice from the player's
         // Audio menu (D4 — the rebuilt session's config carries the picked stream index) overrides
         // the automatic pick; a stale/unplayable request falls back to automatic rather than failing
         // the session.
-        var audioIn = audioCopyIn >= 0 ? audioCopyIn : audioTranscodeIn
+        var audioIn = RemuxAudioCandidate.automaticPick(audioCandidates) ?? -1
         // Language preference (initial track — an explicit config pick below wins).
         if config.audioStreamIndex == nil, foundAudio.count > 1,
            let preferred = config.preferredAudioPicker?(foundAudio),
