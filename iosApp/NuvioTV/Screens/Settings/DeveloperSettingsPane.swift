@@ -114,6 +114,9 @@ struct DeveloperSettingsPane: View {
     /// on the device. Both are logged at player start (`[MPV] metal layer framebufferOnly=`).
     @AppStorage(PlayerTuning.darkGlassTintKey) private var darkPlayerGlass = false
     @AppStorage(PlayerTuning.framebufferOnlyKey) private var framebufferOnlyLayer = false
+    /// Calibration of the mpv chrome against the system player (docs/player-spec.md): the native engine
+    /// prints how the system player behaves under the remote script. Read when a playback starts.
+    @AppStorage(PlayerTuning.specProbeKey) private var systemPlayerProbe = false
 
     private var trailerZoomCacheCount: Int {
         _ = trailerZoomCacheGeneration // dependency only — see the property's doc comment
@@ -627,6 +630,17 @@ struct DeveloperSettingsPane: View {
             }
 
             SettingsSection(
+                nil,
+                footer: String(localized: "Calibrates the mpv player against the system player: on the native player, the console prints when the transport bar appears and goes away, every playback rate change and every jump of the playhead. Perform the remote script of the player spec, then read the [SpecProbe] lines. Applies to the next playback.")
+            ) {
+                SettingsToggleRow(
+                    title: String(localized: "System Player Probe"),
+                    subtitle: String(localized: "Print the system player's timings to the console"),
+                    isOn: $systemPlayerProbe
+                )
+            }
+
+            SettingsSection(
                 String(localized: "settings.developer.responsiveness.title", defaultValue: "Player Responsiveness",
                        comment: "Developer settings section that reads out how long the player screen stopped answering"),
                 footer: String(localized: "settings.developer.responsiveness.footer",
@@ -725,6 +739,7 @@ enum DeveloperMode {
         "debug.searchLegacyField",
         PlayerTuning.darkGlassTintKey,
         PlayerTuning.framebufferOnlyKey,
+        PlayerTuning.specProbeKey,
         PinEntryView.legacyPadKey,
         PinnedRowTitle.noZoomReachHoldsLiftKey,
     ]

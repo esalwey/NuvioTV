@@ -198,6 +198,7 @@ extension NativePlayerHostController: AVPlayerViewControllerDelegate {
                               willTransitionToVisibilityOfTransportBar visible: Bool,
                               with coordinator: any AVPlayerViewControllerAnimationCoordinator) {
         onTransportBarVisibility?(visible)
+        SystemPlayerSpecProbe.shared.transportBar(visible: visible)
     }
 }
 

@@ -83,6 +83,9 @@ nonisolated enum PlayerTuning {
     /// glass (round buttons, chips) over the mpv picture rendered as a dark block instead of the
     /// blurred video.
     static let framebufferOnlyKey = "debug.player.framebufferOnly"
+    /// Developer: the native engine prints the system player's own behaviour (`SystemPlayerSpecProbe`)
+    /// so docs/player-spec.md's [MEASURE] values can be read off a device. Off by default.
+    static let specProbeKey = "debug.playerSpecProbe"
 
     static var darkGlassTint: Bool { UserDefaults.standard.bool(forKey: darkGlassTintKey) }
     static var framebufferOnly: Bool { UserDefaults.standard.bool(forKey: framebufferOnlyKey) }

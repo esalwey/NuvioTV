@@ -7846,6 +7846,40 @@
         }
       }
     },
+    "Calibrates the mpv player against the system player: on the native player, the console prints when the transport bar appears and goes away, every playback rate change and every jump of the playhead. Perform the remote script of the player spec, then read the [SpecProbe] lines. Applies to the next playback.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kalibriert den mpv-Player am Systemplayer: Auf dem nativen Player gibt die Konsole aus, wann die Transportleiste erscheint und verschwindet, jede Änderung der Wiedergabegeschwindigkeit und jeden Sprung des Abspielkopfs. Führe das Fernbedienungsskript der Player-Spezifikation aus und lies dann die [SpecProbe]-Zeilen. Gilt für die nächste Wiedergabe."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Calibra el reproductor mpv con el del sistema: en el reproductor nativo, la consola muestra cuándo aparece y desaparece la barra de transporte, cada cambio de velocidad de reproducción y cada salto del cabezal. Realiza el guion de mando de la especificación del reproductor y lee las líneas [SpecProbe]. Se aplica a la próxima reproducción."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Étalonne le lecteur mpv sur le lecteur système : sur le lecteur natif, la console indique quand la barre de transport apparaît et disparaît, chaque changement de vitesse de lecture et chaque saut de la tête de lecture. Effectuez le scénario de télécommande de la spécification du lecteur, puis lisez les lignes [SpecProbe]. S’applique à la prochaine lecture."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Calibra il lettore mpv su quello di sistema: sul lettore nativo, la console mostra quando la barra di trasporto compare e scompare, ogni cambio di velocità di riproduzione e ogni salto della testina. Esegui lo script del telecomando della specifica del lettore, poi leggi le righe [SpecProbe]. Si applica alla prossima riproduzione."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hiệu chỉnh trình phát mpv theo trình phát hệ thống: trên trình phát gốc, bảng điều khiển in ra thời điểm thanh điều khiển xuất hiện và biến mất, mọi thay đổi tốc độ phát và mọi lần nhảy của đầu phát. Thực hiện kịch bản điều khiển trong đặc tả trình phát, rồi đọc các dòng [SpecProbe]. Áp dụng cho lần phát tiếp theo."
+          }
+        }
+      }
+    },
     "Camera": {
       "localizations": {
         "de": {
@@ -33884,6 +33918,40 @@
         }
       }
     },
+    "Print the system player's timings to the console": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zeiten des Systemplayers in der Konsole ausgeben"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar en la consola los tiempos del reproductor del sistema"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher dans la console les temps du lecteur système"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stampa nella console i tempi del lettore di sistema"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In thời gian của trình phát hệ thống ra bảng điều khiển"
+          }
+        }
+      }
+    },
     "Private": {
       "localizations": {
         "de": {
@@ -57397,6 +57465,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Mã đồng bộ"
+          }
+        }
+      }
+    },
+    "System Player Probe": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Systemplayer-Sonde"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sonda del reproductor del sistema"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sonde du lecteur système"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sonda del lettore di sistema"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đầu dò trình phát hệ thống"
           }
         }
       }

@@ -413,6 +413,7 @@ final class NativePlaybackCoordinator: ObservableObject {
         if let o = endObserver { NotificationCenter.default.removeObserver(o); endObserver = nil }
         if let o = stallObserver { NotificationCenter.default.removeObserver(o); stallObserver = nil }
         timeControlObserver?.invalidate(); timeControlObserver = nil
+        SystemPlayerSpecProbe.shared.detach()
         addonSubsWatcher?.cancel(); addonSubsWatcher = nil
         // A finished episode is flushed as completed (position = duration), so a late tick near the
         // end — or the system player restarting the file under the end screen — can't downgrade it.
@@ -721,6 +722,8 @@ final class NativePlaybackCoordinator: ObservableObject {
         observeMediaSelection(item: item, player: player)
         if showImmediately { phase = .playing }
         observePlayback(player: player, item: item)
+        // Reads the system player's own behaviour off this one (Developer pane; off by default).
+        SystemPlayerSpecProbe.shared.attach(to: player)
     }
 
     // MARK: - Direct HLS
