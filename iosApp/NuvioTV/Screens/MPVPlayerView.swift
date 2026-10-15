@@ -50,6 +50,12 @@ final class MPVTVPlayerViewController: UIViewController {
     private var didLoad = false
     private var pollTimer: Timer?
     var hideWork: DispatchWorkItem?
+    /// Clears the skip hint a while after the last ±10 s click (`MPVPlayerView+Remote`).
+    var skipHintWork: DispatchWorkItem?
+    /// Skip back (docs/player-spec.md, "Skip"): the subtitles turned on for the section being replayed
+    /// go off again once the playhead is back at this position. nil = none turned on that way.
+    /// Main thread only (`MPVPlayerView+Tracks`).
+    var rewindSubtitlesUntil: Double?
     private var lastSaveUptime: TimeInterval = 0
     private var pendingResumeSec: Double?
     /// A saved row with a percentage and no timecode (Simkl episode or Trakt playback row, upstream
@@ -347,6 +353,11 @@ final class MPVTVPlayerViewController: UIViewController {
         state.replay = { [weak self] in self?.replay() }
         state.rememberTracks = { [weak self] in self?.rememberTracksForEngineSwitch() }
         state.reclaimFocus = { [weak self] in self?.becomeFirstResponder() }
+        state.togglePlayPause = { [weak self] in
+            // A press is proof someone is watching (as in `pressesBegan`).
+            NextEpisodeEngine.consecutiveAutoPlays = 0
+            self?.playPausePressed()
+        }
         state.seekTo = { [weak self] seconds in
             guard let self else { return }
             let target = self.state.durationSec > 0 ? min(seconds, max(self.state.durationSec - 1, 0)) : seconds
@@ -1304,6 +1315,8 @@ final class MPVTVPlayerViewController: UIViewController {
         }
 
         updateSkipPrompt(position: snap.position, durationSec: snap.duration)
+        // The replayed section is over: the subtitles skip-back turned on go off again.
+        endRewindSubtitlesIfDue(position: snap.position)
 
         nowPlaying?.update(
             positionSec: state.positionSec,

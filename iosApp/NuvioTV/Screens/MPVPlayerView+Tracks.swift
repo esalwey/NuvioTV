@@ -876,6 +876,8 @@ extension MPVTVPlayerViewController {
 
     func selectSubtitle(_ id: Int) {
         guard mpv != nil else { return }
+        // A pick of the viewer's is final: the subtitles skip-back turned on no longer go off by themselves.
+        cancelRewindSubtitles()
         // The viewer's pick wins over a saved choice still waiting to be restored, and is saved for
         // the next episode (c9d6f5f63).
         finishSubtitleSelection()
@@ -891,6 +893,7 @@ extension MPVTVPlayerViewController {
     /// choice it made when the file opened.
     func selectAutomaticSubtitles() {
         guard mpv != nil else { return }
+        cancelRewindSubtitles()
         finishSubtitleSelection()
         state.subtitlesAutomatic = true
         persistedTrackPreference = PlayerSubtitleMemory.forgetSubtitle(parentMetaId: context.parentMetaId,
@@ -898,6 +901,64 @@ extension MPVTVPlayerViewController {
         pendingSubtitleSelectURL = nil
         _ = applySubtitlePlan(subInfos: lastSubtitleInfos, isFinal: true)
         refreshTracksAsync()
+    }
+
+    // MARK: - Skip back turns subtitles on
+
+    /// Skipping back replays a section, and the system turns subtitles on for it (Apple's "Control video
+    /// playback on Apple TV": "Skipping back 10 seconds turns subtitles on automatically so you can
+    /// rewatch that section", up to three clicks, 10 to 30 s). They go off again once the playhead is back
+    /// where the first click started. Only when none is showing: a viewer who has subtitles on keeps
+    /// exactly what they chose. The track is the language plan's full-subtitle pick (docs/player-spec.md,
+    /// "Skip"). Nothing is saved — this is not a choice — and any pick of the viewer's ends it.
+    func beginRewindSubtitles(replayingFrom origin: Double) {
+        guard mpv != nil, fileLoaded, subtitleSelectionResolved, rewindSubtitlesUntil == nil,
+              origin.isFinite, origin > 0 else { return }
+        guard !lastSubtitleInfos.contains(where: { $0.selected }) else { return }
+        guard let id = rewindSubtitleTrackId() else { return }
+        rewindSubtitlesUntil = origin
+        postSet("sid", String(id))
+        refreshTracksAsync()
+    }
+
+    /// The playhead is back where the skip back started (or the file ended): the subtitles it turned on
+    /// go off again. Called on every poll tick.
+    func endRewindSubtitlesIfDue(position: Double) {
+        guard let until = rewindSubtitlesUntil, position >= until || state.isEnded else { return }
+        rewindSubtitlesUntil = nil
+        postSet("sid", "no")
+        refreshTracksAsync()
+    }
+
+    /// The viewer chose subtitles (or Automatic): what skip back turned on is now theirs.
+    func cancelRewindSubtitles() {
+        rewindSubtitlesUntil = nil
+    }
+
+    /// The full (not forced-only) subtitle track the language plan would pick: the viewer's preferred
+    /// subtitle languages, else the Apple TV's, SDH first when closed captions are on. nil: no track in
+    /// those languages.
+    private func rewindSubtitleTrackId() -> Int? {
+        guard let settings = playerSettings, !lastSubtitleInfos.isEmpty else { return nil }
+        var targets = PlayerTrackSelectionKt.preferredSubtitleTargetsForSettings(settings: settings)
+        if targets.isEmpty { targets = DeviceLanguagePreferences.shared.preferredLanguageCodes() }
+        guard !targets.isEmpty else { return nil }
+        let tracks = lastSubtitleInfos.enumerated().map { index, info in
+            SubtitleTrack(
+                index: Int32(index),
+                id: String(info.id),
+                label: (info.title.isEmpty ? info.lang : info.title) + (info.hearingImpaired ? " SDH" : ""),
+                language: info.lang.isEmpty ? nil : info.lang,
+                isSelected: false,
+                isForced: info.forced
+            )
+        }
+        let match = Int(PlayerTrackSelectionKt.findPreferredSubtitleTrackIndexPreferringSdh(
+            tracks: tracks, targets: targets, mode: .normalOnly,
+            selectedAudioTrack: subtitlePlanAudio,
+            preferSdh: PlayerAudioLanguagePlan.closedCaptionsPreferred
+        ))
+        return lastSubtitleInfos.indices.contains(match) ? lastSubtitleInfos[match].id : nil
     }
 
     // MARK: - Playback speed & A/V-subtitle timing

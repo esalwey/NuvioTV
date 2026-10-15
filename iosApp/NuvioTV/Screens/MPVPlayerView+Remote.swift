@@ -8,35 +8,36 @@ import UIKit
 import Libmpv
 import SharedCore
 
-// Siri Remote grammar for the mpv engine (PLY-A2/A3/A4, F3/F5/F6/F7, spec §6.9.4): the same answers
-// as Apple's player and the native engine. Every layer Back can close comes before leaving:
-// Up Next card → Stream Info → scrub (back to the original time) → fast-forward / rewind → chrome
-// and pause card → exit. Scrubbing state lives in `MPVPlaybackState` (extensions hold no stored
-// properties).
+// Siri Remote grammar for the mpv engine (PLY-A2/A3/A4, F3/F5/F6/F7, docs/player-spec.md): the same
+// answers as Apple's player and the native engine, which this one is rebuilt from the spec of. Every
+// layer Back can close comes before leaving: Up Next card → Stream Info → scrub (back to the
+// original time) → fast-forward / rewind → chrome → exit. Scrubbing state lives in
+// `MPVPlaybackState` (extensions hold no stored properties). All timings and sizes are
+// `PlayerSpec`'s, each with its source.
 //
 // What the system player does, and so does this one:
-//  - a click on the left / right edge skips ±10 s, shows the skip indicator (the circular arrow with
-//    the seconds, clicks in a row add up) and the bar;
+//  - a click on the left / right edge skips exactly ±10 s — the head and the time move at once — and
+//    shows the bar with the skip hint in it ("+10 ›", the clicks in a row add up); there is no glyph
+//    over the picture. Skipping back also turns subtitles on for the section being replayed;
 //  - a hold on an edge starts fast-forward / rewind at 2×, each further press of the same edge steps
 //    to 3× then 4×, the opposite edge, Select, Play/Pause or Back return to normal speed; the rate
-//    shows next to the elapsed time;
+//    shows next to the elapsed time, the sound is muted;
 //  - swiping on the touch surface only shows the bar while playing, and scrubs while paused;
-//  - the bar hides 5 s after the last touch while playing and stays up while paused.
+//  - the bar hides a few seconds after the last interaction while playing and stays up while paused.
 extension MPVTVPlayerViewController: UIGestureRecognizerDelegate {
     /// Identifies the touch-surface pan this extension installs (installed once per view).
     private static let transportPanName = "nuvio.mpv.transportPan"
     /// An arrow held at least this long is a hold (fast-forward / rewind), not a click.
-    private static let holdThresholdSec: TimeInterval = 0.45
+    private static let holdThresholdSec: TimeInterval = PlayerSpec.Remote.holdThresholdSec
     /// A click left/right: one exact ±10 s seek (a step of the scrub head while scrubbing).
-    private static let clickSeekSec: Double = 10
+    private static let clickSeekSec: Double = PlayerSpec.Remote.skipSeconds
     /// A hold: 2×, and each further press of the same edge steps to 3×, then 4×.
-    private static let fastForwardRates: [Double] = [2, 3, 4]
+    private static let fastForwardRates: [Double] = PlayerSpec.Remote.scanRates
     /// Rewind, and any hold while paused, has no playback rate to ride on in mpv: the head is moved
     /// by a timer instead, one seek per tick, at the rate's pace.
-    private static let rateStepIntervalSec: TimeInterval = 0.25
-    /// Touch-surface scrub at slow speed: about 1 s per 8 pt of travel (spec §6.9.4), faster swipes
-    /// accelerate.
-    private static let scrubSecondsPerPoint: Double = 1.0 / 8.0
+    private static let rateStepIntervalSec: TimeInterval = PlayerSpec.Remote.scanStepIntervalSec
+    /// Touch-surface scrub at slow speed: about 1 s per 8 pt of travel, faster swipes accelerate.
+    private static let scrubSecondsPerPoint: Double = PlayerSpec.Remote.scrubSecondsPerPoint
 
     /// Down swipe: the content tabs under the scrubber (Info, Episodes, Chapters, Stream Info), as
     /// on the system player.
@@ -320,7 +321,10 @@ extension MPVTVPlayerViewController: UIGestureRecognizerDelegate {
         flashControls()
     }
 
-    private func playPausePressed() {
+    /// Play/Pause as the remote answers it: commits a scrub, stops a scan, else toggles. Also what the
+    /// chrome's focus layer calls (`MPVPlaybackState.togglePlayPause`) for a press that lands while focus
+    /// sits in the bar or in a tab.
+    func playPausePressed() {
         if state.isScrubbing {
             commitScrub(resume: true)
             return
@@ -422,19 +426,46 @@ extension MPVTVPlayerViewController: UIGestureRecognizerDelegate {
             moveScrubTarget(by: dir * Self.clickSeekSec)
             return
         }
-        seekBy(dir * Self.clickSeekSec, exact: true)
-        showSkipFeedback(dir)
+        skip(by: dir * Self.clickSeekSec)
+        showSkipHint(dir)
         flashControls()
     }
 
-    /// The system's skip indicator: the arrow on the side that was clicked, with the seconds skipped
-    /// by the clicks in a row (the overlay clears it a moment after the last one).
-    private func showSkipFeedback(_ dir: Double) {
+    /// The ±10 s skip: one exact seek to the current time ± 10 s, with the play / pause state left as
+    /// it was (docs/player-spec.md, "Skip"). The head and the time move at once, as the system bar's
+    /// do — they used to wait for the core's own position events, which are held back while a seek
+    /// is in flight — and the clicks in a row start from where the last one aimed, so they add up
+    /// exactly (+10, +20, +30) whatever the decoder has caught up with.
+    private func skip(by seconds: Double) {
+        guard mpv != nil else { return }
+        var origin = cachedProps().position
+        // A resume seek still in flight: the playhead has not got to where the file is resuming yet.
+        if let resume = resumeTargetSec, origin + 5 < resume { origin = resume }
+        var target = max(origin + seconds, 0)
+        // A skip forward past the end lands on the last half second, which then ends the file.
+        if state.durationSec > 0 { target = min(target, max(state.durationSec - 0.5, 0)) }
+        // Skipping back replays a section: the system turns subtitles on for it.
+        if seconds < 0 { beginRewindSubtitles(replayingFrom: origin) }
+        updateProps { $0.position = target }
+        var jump = Transaction()
+        jump.disablesAnimations = true
+        withTransaction(jump) { state.positionSec = target }
+        seekAbsolute(target, exact: true)
+    }
+
+    /// The system's skip hint: "+10 ›" (or "‹ -10") in the bar's state slot, the seconds skipped by the
+    /// clicks in a row added up. It stays up as long as the bar does after the last click, then the
+    /// total starts over (docs/player-spec.md, "Skip": the reset is [MEASURE]).
+    private func showSkipHint(_ dir: Double) {
         let direction = dir < 0 ? -1 : 1
-        let previous = state.skipFeedback
+        let previous = state.skipHint
         let carried = (previous?.direction == direction) ? (previous?.seconds ?? 0) : 0
-        state.skipFeedback = SkipFeedback(id: (previous?.id ?? 0) &+ 1, direction: direction,
-                                          seconds: carried + Int(Self.clickSeekSec))
+        state.skipHint = SkipHint(id: (previous?.id ?? 0) &+ 1, direction: direction,
+                                  seconds: carried + Int(Self.clickSeekSec))
+        skipHintWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in self?.state.skipHint = nil }
+        skipHintWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + PlayerSpec.Chrome.skipHintLifetime, execute: work)
     }
 
     /// Starts the rate in `dir` (+1 forward, -1 back) at 2×, or steps an already running one in the
@@ -552,8 +583,8 @@ extension MPVTVPlayerViewController: UIGestureRecognizerDelegate {
     }
 
     /// Stops every remote-driven transport activity: held-arrow timers, a scrub in progress (dropped,
-    /// no seek), fast-forward / rewind and the skip indicator. The core calls it when the player
-    /// leaves the screen or fails.
+    /// no seek), fast-forward / rewind and the skip hint. The core calls it when the player leaves the
+    /// screen or fails.
     func endSeek() {
         seekTimer?.invalidate()
         seekTimer = nil
@@ -561,7 +592,9 @@ extension MPVTVPlayerViewController: UIGestureRecognizerDelegate {
         seekHoldCount = 0
         if state.isScrubbing { clearScrub() }
         endFastForward()
-        state.skipFeedback = nil
+        skipHintWork?.cancel()
+        skipHintWork = nil
+        state.skipHint = nil
     }
 
     // MARK: Playback

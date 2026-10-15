@@ -116,6 +116,7 @@ struct MPVPlayerScreen: View {
 
     @StateObject private var state: MPVPlaybackState
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @StateObject private var panelModel: PlayerTopPanelModel
     @State private var panelAdapter: MPVPlayerPanelAdapter?
     /// The end screen's cover was closed with Menu: leave for the details page once it's gone.
@@ -207,13 +208,12 @@ struct MPVPlayerScreen: View {
                     withAnimation(PlayerChipStyle.animation) { transportHeight = height }
                 }
             )
+            // Fades in and out with a short slide of the bottom group (docs/player-spec.md, "Layout").
+            // A ±10 s click, a pause, a scan: all drawn inside this bar (its state slot), never as a
+            // glyph over the picture — the system player has none.
             .opacity(chromeShown ? 1 : 0)
-            .animation(.easeInOut(duration: 0.25), value: chromeShown)
-
-            // The ±10 s skip indicator of a click on the touch surface's edge (the system's glyph).
-            PlayerSkipIndicator(feedback: state.skipFeedback) { expired in
-                if state.skipFeedback?.id == expired.id { state.skipFeedback = nil }
-            }
+            .offset(y: chromeShown || reduceMotion ? 0 : PlayerSpec.Chrome.slideOffset)
+            .animation(.easeInOut(duration: PlayerSpec.Chrome.fadeDuration), value: chromeShown)
 
             // Transient prompts, bottom-trailing — same chip family as the native screen's
             // contextual actions (PlayerChipStyle). libmpv owns the remote, so these are drawn
