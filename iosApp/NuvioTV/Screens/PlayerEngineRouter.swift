@@ -475,7 +475,7 @@ extension PlayerEngineRouter {
             fails.append("router self-check: Prefer mpv still leaves the native player possible")
         }
         // Spatial audio: an announced TrueHD Atmos / DTS:X track labels a native decision and never
-        // changes the engine; the viewer's explicit routing (native engine off, HDR10 Only, FEL on mpv)
+        // changes the engine; the viewer's explicit routing (native engine off, FEL on mpv)
         // still wins.
         var atmosProbe = sample(hdr: .hdr10, audio: ["truehd", "ac3"])
         atmosProbe.audio[0].profile = Int32(FFmpegAudioProfile.trueHDAtmos)
@@ -493,8 +493,10 @@ extension PlayerEngineRouter {
         if dtsx.engine != .native || dtsx.spatialAudio != .dtsX || !dtsx.displayNote.hasSuffix("DTS:X") {
             fails.append("router self-check: DTS:X + DV P8.1 → native, labelled")
         }
-        expect(route(probe: dtsxProbe, nativeDVEnabled: true, stripDolbyVision: true, spatialAudio: true).engine, .mpv,
-               "DTS:X + HDR10 Only → mpv (the viewer's Dolby Vision choice wins)")
+        let dtsxStripped = route(probe: dtsxProbe, nativeDVEnabled: true, stripDolbyVision: true, spatialAudio: true)
+        if dtsxStripped.engine != .native || dtsxStripped.dvHandling != .stripToBase || dtsxStripped.spatialAudio != .dtsX {
+            fails.append("router self-check: DTS:X + HDR10 Only → native, Dolby Vision stripped, labelled")
+        }
         if route(probe: sample(audio: ["truehd"]), nativeDVEnabled: true, spatialAudio: true).spatialAudio != nil {
             fails.append("router self-check: plain TrueHD (not announced) carries no label")
         }
