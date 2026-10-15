@@ -3,6 +3,7 @@ import XCTest
 
 /// The values of docs/player-spec.md that the mpv chrome is built from. A change to one of them is a
 /// change to the spec, and the document has to change with it.
+@MainActor
 final class PlayerSpecTests: XCTestCase {
 
     func testTheSkipIsTenSecondsAndTheScanCyclesTwoThreeFour() {

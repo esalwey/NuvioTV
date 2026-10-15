@@ -60,7 +60,7 @@ nonisolated enum PlayerSpec {
 
         /// The bar fades in and out with a short slide of its bottom group. [inferred] 0.25 to 0.35 s
         /// (ease in-out) with a slide of a few points; the exact duration and curve are [MEASURE]
-        /// (`willTransitionToVisibilityOfTransportBar` on the native engine logs them).
+        /// (read from a 60 fps capture; the system player probe logs when the bar appears and goes away).
         static let fadeDuration: Double = 0.3
         static let slideOffset: CGFloat = 16
     }
