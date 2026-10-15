@@ -40,6 +40,11 @@ nonisolated struct AudioStreamInfo: Sendable {
     /// play it as it is (`AudioTranscoder.isTranscodable`). nil = not asked (a canned probe): the
     /// router then falls back to its list of the codecs that path was built for.
     var decodable: Bool? = nil
+    /// Raw `AVCodecParameters.profile`: how TrueHD Atmos and DTS-HD MA / DTS:X are told apart from their
+    /// plain forms (`FFmpegAudioProfile`). `FFmpegAudioProfile.unknown` when FFmpeg reports none.
+    var profile: Int32 = Int32(FFmpegAudioProfile.unknown)
+    /// The track title the muxer wrote ("TrueHD Atmos 7.1"), when there is one.
+    var title: String? = nil
 }
 
 nonisolated struct SubtitleStreamInfo: Sendable {
@@ -178,7 +183,9 @@ nonisolated enum MediaProbe {
                     codec: codecName(par.codec_id),
                     channels: Int(par.ch_layout.nb_channels),
                     language: lang,
-                    decodable: AudioTranscoder.isTranscodable(par.codec_id)
+                    decodable: AudioTranscoder.isTranscodable(par.codec_id),
+                    profile: par.profile,
+                    title: dictValue(stream.pointee.metadata, "title")
                 ))
             case AVMEDIA_TYPE_SUBTITLE:
                 let props = avcodec_descriptor_get(par.codec_id)?.pointee.props ?? 0

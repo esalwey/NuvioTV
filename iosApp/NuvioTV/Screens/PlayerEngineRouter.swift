@@ -51,13 +51,22 @@ nonisolated struct EngineDecision: Equatable, Sendable {
     var delivery: NativeDelivery = .remux
     /// Native only: what the remux does with the Dolby Vision data.
     var dvHandling: DolbyVisionHandling = .passthrough
+    /// The file has an object-based audio track (TrueHD Atmos / DTS:X, announced by FFmpeg's profile or
+    /// the track title) and Spatial Audio is on: the native player converts it to Dolby Atmos (APAC).
+    /// Only ever set on a native decision; mpv decodes such a track to its 5.1 / 7.1 bed, without the
+    /// heights.
+    var spatialAudio: SpatialAudioKind? = nil
 
     /// mpv must render this file with Dolby Vision reshaping (Profile 5 has no HDR10/SDR base layer).
     var needsDVReshapeOnMPV: Bool { dvProfile == 5 }
 
-    /// Short label for the Stream Info overlay, e.g. "Native · DV P8.1" or "mpv · audio truehd".
+    /// Short label for the Stream Info overlay, e.g. "Native · DV P8.1 · Atmos" or "mpv · audio truehd".
     var displayNote: String {
-        "\(engine == .native ? String(localized: "Native") : "mpv") \u{00B7} \(reason)"
+        var note = "\(engine == .native ? String(localized: "Native") : "mpv") \u{00B7} \(reason)"
+        if engine == .native, let spatialAudio {
+            note += " \u{00B7} " + (spatialAudio == .trueHDAtmos ? "Atmos" : "DTS:X")
+        }
+        return note
     }
 }
 
@@ -82,11 +91,28 @@ nonisolated enum PlayerEngineRouter {
     /// mpv instead of discarding their enhancement layer in the 8.1 conversion). `stripDolbyVision` is
     /// the "HDR10 Only" Dolby Vision mode: Dolby Vision files play as their HDR10 base layer (Profile
     /// 5 has none and is left to the usual rules). All three come from `DolbyVisionMode`.
+    ///
+    /// `spatialAudio` is the Settings > Playback > Audio switch (`SpatialAudioPolicy.isEnabled`). It
+    /// changes the label of a native decision, not the decision: the native engine is the only one that
+    /// can play TrueHD Atmos / DTS:X as Dolby Atmos (APAC needs AVPlayer; mpv's PCM output cannot carry
+    /// it), and no rule below sends such a file to mpv because of its audio: every audio track
+    /// libavcodec decodes is playable (copied, or transcoded by the remux), so a file whose best audio
+    /// is TrueHD or DTS is native whenever its container, video and Dolby Vision profile are. What is
+    /// left on mpv for such a file is what the native engine cannot play at all (container, video
+    /// codec, non-seekable source, a stream that is not remuxed) or what the viewer chose: the Dolby
+    /// Vision mode (Off, HDR10 Only, HDR10 for Profile 7 FEL) and the Player preference (Prefer mpv).
+    /// Those preferences are about the picture and are explicit, so Atmos does not override them.
+    /// The label is only ever set on a remuxed stream: an HLS stream that AVPlayer opens itself
+    /// (`NativeDelivery.directHLS`) plays the audio its playlist declares, with no APAC conversion.
     static func route(probe: ProbeResult?, nativeDVEnabled: Bool, dvP7FelToMpv: Bool = false,
-                      stripDolbyVision: Bool = false, options: RoutingOptions = RoutingOptions()) -> EngineDecision {
+                      stripDolbyVision: Bool = false, spatialAudio: Bool = false,
+                      options: RoutingOptions = RoutingOptions()) -> EngineDecision {
         var decision = decide(probe: probe, nativeDVEnabled: nativeDVEnabled, dvP7FelToMpv: dvP7FelToMpv,
                               stripDolbyVision: stripDolbyVision, options: options)
         decision.dvProfile = probe?.dolbyVision?.profile
+        if spatialAudio, decision.engine == .native, decision.delivery == .remux, let probe {
+            decision.spatialAudio = SpatialAudioPolicy.announcedKind(in: probe.audio)
+        }
         return decision
     }
 
@@ -190,8 +216,8 @@ nonisolated enum PlayerEngineRouter {
         }
 
         // At least one audio track must be AVPlayer-compatible (stream-copied) or decodable by
-        // libavcodec (the remux transcodes it to AAC: TrueHD, DTS, Opus, Vorbis, PCM, MP2, MP3 ...).
-        // Video-only files are fine.
+        // libavcodec (the remux transcodes it: TrueHD / DTS-HD MA to lossless FLAC when that setting is
+        // on, everything else to AAC: DTS, Opus, Vorbis, PCM, MP2, MP3 ...). Video-only files are fine.
         let hasCompatibleAudio = p.audio.isEmpty
             || p.audio.contains { isNativeAudio($0.codec) || isTranscodableAudio($0) }
         guard hasCompatibleAudio else {
@@ -447,6 +473,41 @@ extension PlayerEngineRouter {
         expect(routeHLS(nativeDVEnabled: true, options: RoutingOptions(enginePreference: .preferMpv)).engine, .mpv, "Prefer mpv + an .m3u8 URL → mpv")
         if !nativeCouldPlay(probe: sample(), options: RoutingOptions(enginePreference: .preferMpv)) {
             fails.append("router self-check: Prefer mpv still leaves the native player possible")
+        }
+        // Spatial audio: an announced TrueHD Atmos / DTS:X track labels a native decision and never
+        // changes the engine; the viewer's explicit routing (native engine off, HDR10 Only, FEL on mpv)
+        // still wins.
+        var atmosProbe = sample(hdr: .hdr10, audio: ["truehd", "ac3"])
+        atmosProbe.audio[0].profile = Int32(FFmpegAudioProfile.trueHDAtmos)
+        let atmos = route(probe: atmosProbe, nativeDVEnabled: true, spatialAudio: true)
+        if atmos.engine != .native || atmos.spatialAudio != .trueHDAtmos {
+            fails.append("router self-check: TrueHD Atmos + spatial audio → native, labelled")
+        }
+        if route(probe: atmosProbe, nativeDVEnabled: true, spatialAudio: false).spatialAudio != nil {
+            fails.append("router self-check: spatial audio off → no Atmos label")
+        }
+        expect(route(probe: atmosProbe, nativeDVEnabled: false, spatialAudio: true).engine, .mpv, "Atmos + native engine off → mpv")
+        var dtsxProbe = sample(dv: p81, audio: ["dts"])
+        dtsxProbe.audio[0].title = "DTS:X 7.1"
+        let dtsx = route(probe: dtsxProbe, nativeDVEnabled: true, spatialAudio: true)
+        if dtsx.engine != .native || dtsx.spatialAudio != .dtsX || !dtsx.displayNote.hasSuffix("DTS:X") {
+            fails.append("router self-check: DTS:X + DV P8.1 → native, labelled")
+        }
+        expect(route(probe: dtsxProbe, nativeDVEnabled: true, stripDolbyVision: true, spatialAudio: true).engine, .mpv,
+               "DTS:X + HDR10 Only → mpv (the viewer's Dolby Vision choice wins)")
+        if route(probe: sample(audio: ["truehd"]), nativeDVEnabled: true, spatialAudio: true).spatialAudio != nil {
+            fails.append("router self-check: plain TrueHD (not announced) carries no label")
+        }
+        // The Player preference keeps its say over the audio, and an HLS stream AVPlayer opens itself has
+        // no APAC conversion to announce.
+        let preferMpv = RoutingOptions(enginePreference: .preferMpv)
+        expect(route(probe: atmosProbe, nativeDVEnabled: true, spatialAudio: true, options: preferMpv).engine, .mpv,
+               "Atmos + Prefer mpv → mpv")
+        var atmosHLS = sample(video: "h264", audio: ["eac3", "truehd"], container: "hls")
+        atmosHLS.audio[1].profile = Int32(FFmpegAudioProfile.trueHDAtmos)
+        let hlsAtmos = route(probe: atmosHLS, nativeDVEnabled: true, spatialAudio: true)
+        if hlsAtmos.delivery != .directHLS || hlsAtmos.spatialAudio != nil {
+            fails.append("router self-check: HLS direct carries no spatial label")
         }
         // PLY-A9: the DV profile travels with every decision, mpv ones included.
         let p5OnMpv = route(probe: sample(dv: p5, seekable: false), nativeDVEnabled: true)

@@ -37,6 +37,15 @@ nonisolated enum PlayerTuning {
     static let audioGainDbKey = "player.audio.gainDb"
     /// Dialogue boost in dB (0, 3, 6, 9): the centre channel's extra level in a stereo downmix (mpv engine).
     static let dialogueBoostDbKey = "player.audio.dialogueDb"
+    /// Settings > Playback > Audio > Spatial Audio for TrueHD Atmos and DTS:X: the native engine converts
+    /// such tracks to Dolby Atmos (APAC 7.1.4, SpatialAudioBridge) so the heights play on an Atmos
+    /// receiver. ON by default (registered in NuvioTVApp.init; a missing key also reads as ON, see
+    /// `SpatialAudioPolicy`); OFF keeps the AAC / FLAC path. Applies to the next playback.
+    static let spatialAudioKey = "player.spatialAudio"
+    /// Settings > Playback > Audio > Lossless Surround Sound: TrueHD / DTS-HD MA tracks without objects
+    /// (or with Spatial Audio off) play as lossless FLAC 5.1 / 7.1 instead of AAC 5.1 on the native
+    /// engine (`AudioTranscoder.losslessPlan`). ON by default, like the key above. Applies to the next playback.
+    static let losslessAudioKey = "player.losslessAudio"
     /// mpv video tuning (Settings > Playback > Video). Device-local like the buffer knobs; absent
     /// keys read as the defaults of `MPVVideoSettings`. Applies to the next playback.
     static let videoToneMappingKey = "player.video.toneMapping"

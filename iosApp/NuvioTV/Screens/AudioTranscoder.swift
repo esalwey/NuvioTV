@@ -13,6 +13,24 @@ import Libswresample
 // docs/tvos-hybrid-player-plan.md ("v2 audio"): true DV picture + AAC 5.1 beats mpv's software
 // video path for these files.
 //
+// LOSSLESS OUTPUT (2026-10). Three ways to keep a TrueHD / DTS-HD MA bed lossless on AVPlayer were
+// weighed; the decision is FLAC in fMP4, with the AAC path above as the fallback:
+//   1. APAC 5.1 / 7.1 "bed only" through SpatialAudioBridge: not available (its decoder rejects a
+//      TrueHD track without an Atmos presentation and a DTS track that is not lossless DTS:X), and APAC
+//      is a lossy codec anyway. Real Atmos / DTS:X tracks take that route instead (SpatialAudioEngine).
+//   2. Linear PCM in fMP4 / HLS: not in Apple's HLS authoring specification (section 2: AAC, HE-AAC,
+//      xHE-AAC, APAC, Apple Lossless, FLAC, AC-3, E-AC-3 only), and no tvOS player is documented to
+//      take it from an HLS rendition.
+//   3. FLAC (or Apple Lossless) in fMP4: listed by the specification as a supported multichannel codec
+//      (rule 2.5), required to be fMP4 (rule 2.25), and the remux already stream-copies FLAC sources,
+//      so the CODECS token ("fLaC"), the init segment and the rendition plumbing are proven. FFmpeg's
+//      native `flac` encoder takes 1 to 8 channels in the FLAC channel order, which FFmpeg's native
+//      layouts follow, and TrueHD / DTS-XLL decode to 24-bit integers it stores as they are.
+//      Apple Lossless was not chosen: FFmpeg's `alac` encoder is stereo-oriented.
+// The plan is validated when the tracks are listed (`losslessPlan` opens an encoder once), so the
+// master playlist never promises FLAC for a track whose encoder cannot be opened: with no `flac`
+// encoder in the FFmpeg build, or more than 8 channels, or a lossy source, the track keeps the AAC path.
+//
 // Lifecycle: ONE TRANSCODER PER REMUX RUN (see RemuxSession's seek-anywhere runs). A reposition
 // discards the whole object, so decoder/resampler/fifo state can never leak across a seek, and the
 // run's fresh muxer context takes its audio codecpar from this encoder. Timestamps: the run's audio
@@ -53,15 +71,90 @@ nonisolated final class AudioTranscoder {
         sourceChannels >= 6 ? 384_000 : (sourceChannels >= 2 ? 192_000 : 96_000)
     }
 
+    // MARK: - Lossless (FLAC) plan
+
+    /// What a lossless transcode of a track produces: the source's channel count (3 to 8) in FLAC's
+    /// channel order, at the source's sample rate.
+    nonisolated struct LosslessPlan: Equatable, Sendable {
+        let channels: Int32
+        /// FFmpeg native layout mask of the FLAC layout for `channels`.
+        let layoutMask: UInt64
+        let sampleRate: Int32
+    }
+
+    /// The lossless plan for a source track, or nil when it keeps the AAC path: not TrueHD or DTS-HD
+    /// Master Audio (lossy DTS core / HRA / Express are not "lossless" and stay AAC), fewer than 3 or
+    /// more than 8 channels (FLAC's limit), a rate above 96 kHz, or an FFmpeg build without a `flac`
+    /// encoder that opens with the layout. The encoder is opened once here, so a plan that exists is a
+    /// plan `init(sourcePar:sourceTimeBase:lossless:)` can carry out.
+    static func losslessPlan(for par: UnsafeMutablePointer<AVCodecParameters>) -> LosslessPlan? {
+        let channels = par.pointee.ch_layout.nb_channels
+        let rate = par.pointee.sample_rate
+        guard channels >= 3, channels <= 8, rate >= 8_000, rate <= 96_000 else { return nil }
+        let id = par.pointee.codec_id
+        if id == AV_CODEC_ID_DTS {
+            let profile = Int(par.pointee.profile)
+            guard profile == FFmpegAudioProfile.dtsHDMA || profile == FFmpegAudioProfile.dtsHDMAX
+                    || profile == FFmpegAudioProfile.dtsHDMAXIMAX else { return nil }
+        } else if id != AV_CODEC_ID_TRUEHD {
+            return nil
+        }
+        guard let mask = flacLayoutMask(channels: channels), flacEncoderOpens(mask: mask, rate: rate) else { return nil }
+        return LosslessPlan(channels: channels, layoutMask: mask, sampleRate: rate)
+    }
+
+    /// FFmpeg layout masks for FLAC's channel assignment (RFC 9639, "channel assignment"): 3 = FL FR FC,
+    /// 4 = FL FR BL BR, 5 = FL FR FC BL BR, 6 = FL FR FC LFE BL BR, 7 = FL FR FC LFE BC SL SR,
+    /// 8 = FL FR FC LFE BL BR SL SR. FFmpeg's native channel order for these layouts is FLAC's order,
+    /// so the encoder needs no remapping; swresample maps a decoder's 5.1(side) onto the back pair.
+    private static func flacLayoutMask(channels: Int32) -> UInt64? {
+        switch channels {
+        case 3: return 0x7
+        case 4: return 0x33
+        case 5: return 0x37
+        case 6: return 0x3F
+        case 7: return 0x70F
+        case 8: return 0x63F
+        default: return nil
+        }
+    }
+
+    private static func flacEncoderOpens(mask: UInt64, rate: Int32) -> Bool {
+        guard let codec = avcodec_find_encoder(AV_CODEC_ID_FLAC) else { return false }
+        var context: UnsafeMutablePointer<AVCodecContext>? = avcodec_alloc_context3(codec)
+        guard let ctx = context else { return false }
+        defer { avcodec_free_context(&context) }
+        guard av_channel_layout_from_mask(&ctx.pointee.ch_layout, mask) >= 0 else { return false }
+        ctx.pointee.sample_fmt = AV_SAMPLE_FMT_S32
+        ctx.pointee.sample_rate = rate
+        ctx.pointee.bits_per_raw_sample = 24
+        ctx.pointee.time_base = AVRational(num: 1, den: rate)
+        ctx.pointee.flags |= codecFlagGlobalHeader
+        return avcodec_open2(ctx, codec, nil) >= 0
+    }
+
+    /// Peak bitrate the master declares for a lossless track: FLAC of a film soundtrack runs at 55 to
+    /// 75 % of 24-bit PCM (1.15 Mb/s per channel at 48 kHz), so 1.2 Mb/s per channel leaves headroom.
+    static func losslessBitrate(sourceChannels: Int32) -> Int {
+        Int(max(sourceChannels, 1)) * 1_200_000
+    }
+
     // MARK: - Format visibility (PLY-A14)
 
     /// What reaches the TV or receiver for a source audio track on the native path, for the
     /// player's Stream Info tab: the track as is when it is stream-copied ("Dolby Digital Plus
-    /// 5.1"), or the AAC layout this transcoder produces with its source ("AAC 5.1 · converted from
+    /// 5.1"), the FLAC a lossless transcode produces ("FLAC 7.1 · lossless from Dolby TrueHD 7.1"), or
+    /// the AAC layout this transcoder produces with its source ("AAC 5.1 · converted from
     /// Dolby TrueHD 7.1"). `codec` is the canonical FFmpeg name (`RemuxAudioTrack.codec`).
-    static func deliveredFormatDescription(codec: String, channels: Int, transcodes: Bool) -> String {
+    static func deliveredFormatDescription(codec: String, channels: Int, transcodes: Bool,
+                                           lossless: Bool = false) -> String {
         let source = "\(codecDisplayName(codec)) \(layoutName(channels: channels))"
         guard transcodes else { return source }
+        if lossless {
+            // FLAC keeps the source's channel count (the plan only exists for 3 to 8 channels).
+            let delivered = "FLAC \(layoutName(channels: channels))"
+            return String(localized: "\(delivered) \u{00B7} lossless from \(source)")
+        }
         // Same layout rule as `init`: 6+ channels → 5.1, 2–5 → stereo, 1 → mono.
         let outputChannels = channels >= 6 ? 6 : (channels >= 2 ? 2 : 1)
         let delivered = "AAC \(layoutName(channels: outputChannels))"
@@ -103,10 +196,14 @@ nonisolated final class AudioTranscoder {
         }
     }
 
-    /// Opened AAC encoder — the run's muxer copies its codecpar (incl. AudioSpecificConfig extradata)
-    /// into the output stream before avformat_write_header.
+    /// Opened AAC (or FLAC) encoder — the run's muxer copies its codecpar (incl. the AudioSpecificConfig
+    /// / STREAMINFO extradata) into the output stream before avformat_write_header.
     let encoderCtx: UnsafeMutablePointer<AVCodecContext>
     let outputSampleRate: Int32
+    /// FLAC (lossless) instead of AAC-LC.
+    let isLossless: Bool
+    /// Sample format the encoder takes (planar float for AAC, 24-bit-in-32 integer for FLAC).
+    private let encoderFormat: AVSampleFormat
 
     private let decoderCtx: UnsafeMutablePointer<AVCodecContext>
     private let sourceTimeBase: AVRational
@@ -128,8 +225,9 @@ nonisolated final class AudioTranscoder {
     private var decodeErrors = 0
 
     /// nil when the decoder/encoder can't be set up (missing codec, bad parameters) — the remux then
-    /// fails and the coordinator falls back to mpv, matching pre-v2 behavior.
-    init?(sourcePar: UnsafeMutablePointer<AVCodecParameters>, sourceTimeBase: AVRational) {
+    /// fails and the coordinator falls back to mpv, matching pre-v2 behavior. `lossless` encodes FLAC at
+    /// the source's channel count (`losslessPlan(for:)` must exist) instead of AAC-LC.
+    init?(sourcePar: UnsafeMutablePointer<AVCodecParameters>, sourceTimeBase: AVRational, lossless: Bool = false) {
         var dec: UnsafeMutablePointer<AVCodecContext>?
         var enc: UnsafeMutablePointer<AVCodecContext>?
         var fifoTmp: OpaquePointer?
@@ -157,16 +255,27 @@ nonisolated final class AudioTranscoder {
         // rate (96k→48k, 88.2k→44.1k).
         let srcChannels = sourcePar.pointee.ch_layout.nb_channels
         let srcRate = sourcePar.pointee.sample_rate
-        let rate: Int32 = srcRate > 48_000 ? (srcRate % 44_100 == 0 ? 44_100 : 48_000)
-                                           : (srcRate > 0 ? srcRate : 48_000)
-        let mask: UInt64 = srcChannels >= 6 ? 0x3F : (srcChannels == 1 ? 0x4 : 0x3)
-        guard let encCodec = avcodec_find_encoder(AV_CODEC_ID_AAC) else { cleanup(); return nil }
+        // Lossless: FLAC at the source's own channel count and rate, 24-bit integer samples (TrueHD and
+        // DTS-XLL decode to 24-bit integers; the encoder stores them untouched).
+        let plan: LosslessPlan? = lossless ? Self.losslessPlan(for: sourcePar) : nil
+        if lossless && plan == nil { cleanup(); return nil }
+        let aacRate: Int32 = srcRate > 48_000 ? (srcRate % 44_100 == 0 ? 44_100 : 48_000)
+                                              : (srcRate > 0 ? srcRate : 48_000)
+        let aacMask: UInt64 = srcChannels >= 6 ? 0x3F : (srcChannels == 1 ? 0x4 : 0x3)
+        let rate: Int32 = plan?.sampleRate ?? aacRate
+        let mask: UInt64 = plan?.layoutMask ?? aacMask
+        let encFormat: AVSampleFormat = plan == nil ? AV_SAMPLE_FMT_FLTP : AV_SAMPLE_FMT_S32
+        guard let encCodec = avcodec_find_encoder(plan == nil ? AV_CODEC_ID_AAC : AV_CODEC_ID_FLAC) else { cleanup(); return nil }
         enc = avcodec_alloc_context3(encCodec)
         guard let encCtx = enc,
               av_channel_layout_from_mask(&encCtx.pointee.ch_layout, mask) >= 0 else { cleanup(); return nil }
-        encCtx.pointee.sample_fmt = AV_SAMPLE_FMT_FLTP
+        encCtx.pointee.sample_fmt = encFormat
         encCtx.pointee.sample_rate = rate
-        encCtx.pointee.bit_rate = Int64(Self.targetBitrate(sourceChannels: srcChannels))
+        if plan == nil {
+            encCtx.pointee.bit_rate = Int64(Self.targetBitrate(sourceChannels: srcChannels))
+        } else {
+            encCtx.pointee.bits_per_raw_sample = 24
+        }
         encCtx.pointee.time_base = AVRational(num: 1, den: rate)
         encCtx.pointee.flags |= codecFlagGlobalHeader
         guard avcodec_open2(encCtx, encCodec, nil) >= 0 else { cleanup(); return nil }
@@ -174,7 +283,7 @@ nonisolated final class AudioTranscoder {
         // Unconfigured resampler: swr_convert_frame configures + inits it from the first frame pair
         // (the decoder's real layout/format isn't authoritative until a frame is decoded).
         swrTmp = swr_alloc()
-        fifoTmp = av_audio_fifo_alloc(AV_SAMPLE_FMT_FLTP, encCtx.pointee.ch_layout.nb_channels, 8192)
+        fifoTmp = av_audio_fifo_alloc(encFormat, encCtx.pointee.ch_layout.nb_channels, 8192)
         frame = av_frame_alloc()
         pkt = av_packet_alloc()
         guard let swrCtx = swrTmp, let fifoCtx = fifoTmp,
@@ -188,9 +297,16 @@ nonisolated final class AudioTranscoder {
         self.decFrame = decFrame
         self.outPkt = outPkt
         self.outputSampleRate = rate
-        self.frameSize = encCtx.pointee.frame_size > 0 ? encCtx.pointee.frame_size : 1024
-        print("[AudioTx] \(String(cString: decCodec.pointee.name)) \(srcChannels)ch@\(srcRate) → aac "
-              + "\(encCtx.pointee.ch_layout.nb_channels)ch@\(rate) \(encCtx.pointee.bit_rate / 1000)kbps")
+        self.encoderFormat = encFormat
+        self.isLossless = plan != nil
+        self.frameSize = encCtx.pointee.frame_size > 0 ? encCtx.pointee.frame_size : (plan != nil ? 4096 : 1024)
+        if plan != nil {
+            print("[AudioTx] \(String(cString: decCodec.pointee.name)) \(srcChannels)ch@\(srcRate) → flac "
+                  + "\(encCtx.pointee.ch_layout.nb_channels)ch@\(rate) 24-bit lossless")
+        } else {
+            print("[AudioTx] \(String(cString: decCodec.pointee.name)) \(srcChannels)ch@\(srcRate) → aac "
+                  + "\(encCtx.pointee.ch_layout.nb_channels)ch@\(rate) \(encCtx.pointee.bit_rate / 1000)kbps")
+        }
     }
 
     deinit {
@@ -297,7 +413,7 @@ nonisolated final class AudioTranscoder {
         var tmp: UnsafeMutablePointer<AVFrame>? = cvt
         defer { av_frame_free(&tmp) }
         guard av_channel_layout_copy(&cvt.pointee.ch_layout, &encoderCtx.pointee.ch_layout) >= 0 else { return false }
-        cvt.pointee.format = AV_SAMPLE_FMT_FLTP.rawValue
+        cvt.pointee.format = encoderFormat.rawValue
         cvt.pointee.sample_rate = Int32(outputSampleRate)
         return body(cvt)
     }

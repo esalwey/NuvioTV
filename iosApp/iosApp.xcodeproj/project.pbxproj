@@ -12,6 +12,8 @@
 		941331072FF49A2B003DA3AA /* MPVKit in Frameworks */ = {isa = PBXBuildFile; productRef = 941331062FF49A2B003DA3AA /* MPVKit */; };
 		947233692FF8500F001B4F7C /* TVServices.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 947233682FF8500F001B4F7C /* TVServices.framework */; };
 		947233702FF8500F001B4F7C /* NuvioTopShelf.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 947233672FF8500F001B4F7C /* NuvioTopShelf.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		C8A15E3D0F2B4A6791D4E7B4 /* SpatialAudioBridge in Frameworks */ = {isa = PBXBuildFile; productRef = C8A15E3D0F2B4A6791D4E7B2 /* SpatialAudioBridge */; };
+		C8A15E3D0F2B4A6791D4E7B5 /* SpatialAudioPlayback in Frameworks */ = {isa = PBXBuildFile; productRef = C8A15E3D0F2B4A6791D4E7B3 /* SpatialAudioPlayback */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -182,6 +184,8 @@
 			buildActionMask = 2147483647;
 			files = (
 				941331072FF49A2B003DA3AA /* MPVKit in Frameworks */,
+				C8A15E3D0F2B4A6791D4E7B4 /* SpatialAudioBridge in Frameworks */,
+				C8A15E3D0F2B4A6791D4E7B5 /* SpatialAudioPlayback in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -315,6 +319,8 @@
 			name = NuvioTV;
 			packageProductDependencies = (
 				941331062FF49A2B003DA3AA /* MPVKit */,
+				C8A15E3D0F2B4A6791D4E7B2 /* SpatialAudioBridge */,
+				C8A15E3D0F2B4A6791D4E7B3 /* SpatialAudioPlayback */,
 			);
 			productName = NuvioTV;
 			productReference = 94AEB9E42FF2294B007C43F2 /* NuvioTV.app */;
@@ -430,6 +436,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				F1E2D3C4B5A6F7E8D9C0B1A2 /* XCLocalSwiftPackageReference "../MPVKit" */,
+				C8A15E3D0F2B4A6791D4E7B1 /* XCRemoteSwiftPackageReference "SpatialAudioBridge" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = AD93033A33973C81BB77B73A /* Products */;
@@ -1135,6 +1142,17 @@
 		};
 /* End XCLocalSwiftPackageReference section */
 
+/* Begin XCRemoteSwiftPackageReference section */
+		C8A15E3D0F2B4A6791D4E7B1 /* XCRemoteSwiftPackageReference "SpatialAudioBridge" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/kristofferR/SpatialAudioBridge";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.6.2;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
 /* Begin XCSwiftPackageProductDependency section */
 		941331062FF49A2B003DA3AA /* MPVKit */ = {
 			isa = XCSwiftPackageProductDependency;
@@ -1145,6 +1163,16 @@
 			isa = XCSwiftPackageProductDependency;
 			package = F1E2D3C4B5A6F7E8D9C0B1A2 /* XCLocalSwiftPackageReference "../MPVKit" */;
 			productName = MPVKit;
+		};
+		C8A15E3D0F2B4A6791D4E7B2 /* SpatialAudioBridge */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C8A15E3D0F2B4A6791D4E7B1 /* XCRemoteSwiftPackageReference "SpatialAudioBridge" */;
+			productName = SpatialAudioBridge;
+		};
+		C8A15E3D0F2B4A6791D4E7B3 /* SpatialAudioPlayback */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C8A15E3D0F2B4A6791D4E7B1 /* XCRemoteSwiftPackageReference "SpatialAudioBridge" */;
+			productName = SpatialAudioPlayback;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

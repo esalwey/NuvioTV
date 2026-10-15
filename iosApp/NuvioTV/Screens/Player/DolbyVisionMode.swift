@@ -30,7 +30,7 @@ nonisolated enum DolbyVisionMode: String, CaseIterable, Identifiable, Sendable {
     var detail: String {
         switch self {
         case .automatic:
-            return String(localized: "Play Dolby Vision, HDR10 and other compatible files on the native player for true Dolby Vision output on Apple TV 4K; everything else stays on the mpv player. Profile 7 discs convert to 8.1 on the fly, and TrueHD/DTS-only audio plays as AAC 5.1.")
+            return String(localized: "Play Dolby Vision, HDR10 and other compatible files on the native player for true Dolby Vision output on Apple TV 4K; everything else stays on the mpv player. Profile 7 discs convert to 8.1 on the fly.")
         case .hdr10Fel:
             return String(localized: "Like Automatic, but Profile 7 FEL releases, whose enhancement data the 8.1 conversion must discard, play on the mpv player as HDR10 with nothing discarded. MEL releases still play natively.")
         case .hdr10Only:

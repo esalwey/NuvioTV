@@ -7,8 +7,11 @@ import Libavutil
 // Stream-copies (no re-encode) the compatible video and audio tracks of a source into fragmented-MP4
 // segments, preserving Dolby Vision (RPU NALs ride along in the copied bitstream; the `dvvC` box is
 // written by movenc from the DOVI side data). Audio with no copyable track falls back to a TrueHD/DTS
-// → AAC transcode (`AudioTranscoder`, Phase 4 v2). Runs on a background worker; the emitted directory
-// — one init segment plus `seg-NNNNN.m4s` files — is served to AVPlayer by `LocalHLSServer`.
+// transcode (`AudioTranscoder`, Phase 4 v2): lossless FLAC for TrueHD / DTS-HD MA that FLAC can carry,
+// AAC for the rest. Object-based tracks (TrueHD Atmos, DTS:X) additionally get an APAC rendition from
+// the spatial audio engine (`SpatialAudioEngine`), which the remux knows nothing about. Runs on a
+// background worker; the emitted directory — one init segment plus `seg-NNNNN.m4s` files — is served to
+// AVPlayer by `LocalHLSServer`.
 //
 // WHY WE OWN THE SEGMENTER (not the `dash` muxer): tvOS 27 rejects EVENT/growing playlists and only
 // plays a VOD playlist (EXT-X-ENDLIST) published complete up front — but the segment files must still
@@ -52,6 +55,18 @@ nonisolated struct VideoSignaling: Sendable {
     var width: Int32 = 0               // RESOLUTION=WxH when known (part of the validated master shape)
     var height: Int32 = 0
     var frameRate: Double = 0          // FRAME-RATE when known
+    /// The HEVC stream carries HDR10+ dynamic metadata (ITU-T T.35 SEI messages with the ST 2094-40
+    /// application id). The remux copies those NAL units byte for byte, so the metadata reaches AVPlayer
+    /// inside the fMP4 samples; this flag only makes the master say so (SUPPLEMENTAL-CODECS brand `cdm4`,
+    /// see `SegmentMap.masterPlaylist`). Detected from the first packets of the first run.
+    var hdr10Plus: Bool = false
+
+    /// The master declares HDR10+ (SUPPLEMENTAL-CODECS `<codecs>/cdm4`): detected, no Dolby Vision
+    /// signaling in that slot, and the base codec is PQ `hvc1` (the form Apple specifies for the brand).
+    /// `SegmentMap.masterPlaylist` writes the brand under exactly this condition.
+    var declaresHdr10Plus: Bool {
+        hdr10Plus && supplementalCodecs == nil && videoRange == "PQ" && codecs.hasPrefix("hvc1")
+    }
 }
 
 /// One audio stream as the automatic pick sees it: what can be done with it and what the file says it is.
@@ -106,13 +121,29 @@ nonisolated struct RemuxAudioTrack: Equatable, Sendable {
     let title: String?       // container track title ("Commentary", "Surround 5.1", ...), when tagged
     let playable: Bool
     /// RFC 6381 token of what the rendition CARRIES: the source codec when stream-copied, "mp4a.40.2"
-    /// when transcoded (TrueHD/DTS → AAC). nil for unplayable tracks.
+    /// when transcoded to AAC, "fLaC" when transcoded losslessly. nil for unplayable tracks.
     let codecToken: String?
     /// True when serving this track means transcoding (not stream copy).
     let transcodes: Bool
     /// The track whose audio the worker is currently producing (info-panel W3: the master lists every
     /// playable track as its own rendition; only the active one's segments are being written).
     var selected: Bool
+    /// `AVCodecParameters.profile` of the track (`FFmpegAudioProfile`): how TrueHD Atmos and DTS-HD MA /
+    /// DTS:X are told apart from their plain forms. `FFmpegAudioProfile.unknown` when FFmpeg has none.
+    var profile: Int = FFmpegAudioProfile.unknown
+    /// The transcode is lossless FLAC (TrueHD / DTS-HD MA, 3 to 8 channels) instead of AAC 5.1.
+    var losslessOutput: Bool = false
+    /// The container flags it as the default track / it is a commentary (the inputs of
+    /// `RemuxAudioCandidate.automaticPick`, kept so the initial-pick hook can find the same track).
+    var isDefault: Bool = false
+    var isCommentary: Bool = false
+
+    /// The same track as the automatic pick sees it: a playable track is stream-copied or transcoded.
+    var candidate: RemuxAudioCandidate {
+        RemuxAudioCandidate(streamIndex: streamIndex, copyable: playable && !transcodes,
+                            transcodable: playable && transcodes, isDefault: isDefault,
+                            isCommentary: isCommentary, language: language)
+    }
 
     /// HLS rendition file names for this track's audio-only fMP4 (`aud-<streamIndex>-…`).
     var playlistName: String { "aud-\(streamIndex).m3u8" }
@@ -179,6 +210,10 @@ nonisolated final class RemuxSession: @unchecked Sendable {
         /// layer plays as the plain HDR10 / HLG / SDR stream it is, tagged `hvc1` with no
         /// SUPPLEMENTAL-CODECS. Profile 5 has no base layer and is never stripped.
         var dolbyVisionHandling: DolbyVisionHandling = .passthrough
+        /// Settings → Playback → Audio → Lossless Surround Sound: TrueHD / DTS-HD MA tracks the
+        /// transcoder can encode as FLAC play as lossless 5.1 / 7.1 instead of AAC 5.1 (see
+        /// `AudioTranscoder.losslessPlan`). Sampled at session start.
+        var losslessAudio: Bool = false
     }
 
     let config: Config
@@ -192,6 +227,7 @@ nonisolated final class RemuxSession: @unchecked Sendable {
     private var _cancelled = false
     private var _signaling: VideoSignaling?
     private var _segmentMap: SegmentMap?
+    private var _timelineOriginSec: Double?
     private var _hasAudio = false
     private var _audioCodecToken: String?
     private var _audioTracks: [RemuxAudioTrack] = []
@@ -319,6 +355,13 @@ nonisolated final class RemuxSession: @unchecked Sendable {
     /// the remux cuts its fragments at the map's boundaries, so published == produced.
     var segmentMap: SegmentMap? { lock.lock(); defer { lock.unlock() }; return _segmentMap }
 
+    /// Container time, in seconds, of playlist time zero: the pts of the first keyframe of the video
+    /// (`SegmentMap.boundaryTicks[0]` in the video time_base). Every timestamp the remux writes has it
+    /// subtracted, audio included, so anything else that feeds a rendition of this master (the spatial
+    /// audio converter reads the same container times itself) must subtract it too. Published together
+    /// with `segmentMap`.
+    var timelineOriginSec: Double? { lock.lock(); defer { lock.unlock() }; return _timelineOriginSec }
+
     /// Whether an audio track is muxed alongside video (single A/V representation).
     var hasAudio: Bool { lock.lock(); defer { lock.unlock() }; return _hasAudio }
 
@@ -436,6 +479,14 @@ nonisolated final class RemuxSession: @unchecked Sendable {
             case AVMEDIA_TYPE_AUDIO:
                 let copyable = isCopyableAudio(par.pointee.codec_id)
                 let transcodable = AudioTranscoder.isTranscodable(par.pointee.codec_id)
+                // TrueHD / DTS-HD MA that FLAC can carry stay lossless (the plan opens an encoder, so a
+                // track listed as "fLaC" is one the transcoder can produce); the rest keep AAC.
+                let lossless = !copyable && transcodable && config.losslessAudio
+                    && AudioTranscoder.losslessPlan(for: par) != nil
+                let audioDisposition = Int32(s.pointee.disposition)
+                let audioDefault = audioDisposition & AV_DISPOSITION_DEFAULT != 0
+                let audioCommentary = audioDisposition & AV_DISPOSITION_COMMENT != 0
+                    || RemuxAudioCandidate.looksLikeCommentary(Self.metadataValue(s.pointee.metadata, "title"))
                 foundAudio.append(RemuxAudioTrack(
                     streamIndex: i,
                     codec: avcodec_get_name(par.pointee.codec_id).map { String(cString: $0) } ?? "",
@@ -443,16 +494,16 @@ nonisolated final class RemuxSession: @unchecked Sendable {
                     language: Self.metadataValue(s.pointee.metadata, "language"),
                     title: Self.metadataValue(s.pointee.metadata, "title"),
                     playable: copyable || transcodable,
-                    codecToken: copyable ? Self.audioCodecString(par) : (transcodable ? "mp4a.40.2" : nil),
+                    codecToken: copyable ? Self.audioCodecString(par) : (lossless ? "fLaC" : (transcodable ? "mp4a.40.2" : nil)),
                     transcodes: !copyable && transcodable,
-                    selected: false))
-                let audioDisposition = Int32(s.pointee.disposition)
-                let audioTitle = Self.metadataValue(s.pointee.metadata, "title")
+                    selected: false,
+                    profile: Int(par.pointee.profile),
+                    losslessOutput: lossless,
+                    isDefault: audioDefault,
+                    isCommentary: audioCommentary))
                 audioCandidates.append(RemuxAudioCandidate(
                     streamIndex: i, copyable: copyable, transcodable: transcodable,
-                    isDefault: audioDisposition & AV_DISPOSITION_DEFAULT != 0,
-                    isCommentary: audioDisposition & AV_DISPOSITION_COMMENT != 0
-                        || RemuxAudioCandidate.looksLikeCommentary(audioTitle),
+                    isDefault: audioDefault, isCommentary: audioCommentary,
                     language: Self.metadataValue(s.pointee.metadata, "language")))
             case AVMEDIA_TYPE_SUBTITLE:
                 let disposition = Int32(s.pointee.disposition)
@@ -474,11 +525,11 @@ nonisolated final class RemuxSession: @unchecked Sendable {
         }
         // The file's own main track (its default flag, never a commentary), bit-exact when a copyable
         // track of the same language exists, else transcoded (`RemuxAudioCandidate.automaticPick`); a
-        // TrueHD/DTS track is transcoded to AAC (Phase 4 v2 — AVPlayer can't decode them and this FFmpeg build
-        // ships no AC3/EAC3 encoder). See AudioTranscoder. An explicit choice from the player's
-        // Audio menu (D4 — the rebuilt session's config carries the picked stream index) overrides
-        // the automatic pick; a stale/unplayable request falls back to automatic rather than failing
-        // the session.
+        // TrueHD/DTS track is transcoded (Phase 4 v2 — AVPlayer can't decode them and this FFmpeg build
+        // ships no AC3/EAC3 encoder): to FLAC when lossless, else to AAC. See AudioTranscoder. An
+        // explicit choice from the player's Audio menu (D4 — the rebuilt session's config carries the
+        // picked stream index) overrides the automatic pick; a stale/unplayable request falls back to
+        // automatic rather than failing the session.
         var audioIn = RemuxAudioCandidate.automaticPick(audioCandidates) ?? -1
         // Language preference (initial track — an explicit config pick below wins).
         if config.audioStreamIndex == nil, foundAudio.count > 1,
@@ -574,6 +625,9 @@ nonisolated final class RemuxSession: @unchecked Sendable {
         let audioToken = foundAudio.first(where: { $0.streamIndex == audioIn })?.codecToken
         let audioBitrate = foundAudio.filter(\.playable).map { track -> Int in
             guard let par = input.pointee.streams[track.streamIndex]?.pointee.codecpar else { return 0 }
+            if track.losslessOutput {
+                return AudioTranscoder.losslessBitrate(sourceChannels: par.pointee.ch_layout.nb_channels)
+            }
             return track.transcodes
                 ? AudioTranscoder.targetBitrate(sourceChannels: par.pointee.ch_layout.nb_channels)
                 : Int(par.pointee.bit_rate)
@@ -620,7 +674,11 @@ nonisolated final class RemuxSession: @unchecked Sendable {
         guard let map = buildSegmentMap(input: input, videoIndex: videoIn) else {
             return fail("no usable keyframe index")
         }
-        lock.lock(); _segmentMap = map; lock.unlock()
+        let originSec: Double? = input.pointee.streams[videoIn].map { stream in
+            let tb = stream.pointee.time_base
+            return Double(map.boundaryTicks[0]) * Double(tb.num) / Double(max(tb.den, 1))
+        }
+        lock.lock(); _segmentMap = map; _timelineOriginSec = originSec; lock.unlock()
         print("[Remux] segment map: \(map.count) segments, \(String(format: "%.1f", map.totalDurationSec))s, target=\(map.targetDurationSec)s")
 
         // --- Multi-run production with seek-anywhere ------------------------------------------------
@@ -679,6 +737,12 @@ nonisolated final class RemuxSession: @unchecked Sendable {
         let videoTB = videoStream.pointee.time_base
 
         var vDur: Int64 = 0             // learned frame duration — a stream constant, kept across runs
+        // HDR10+ (ST 2094-40) detection: bounded scan of the first video packets of the session. Only HEVC
+        // with a PQ transfer (HDR10+ is HDR10 plus dynamic metadata) and an hvcC-shaped extradata (the
+        // packets are length-prefixed, so the NAL walk needs the prefix size) is looked at.
+        let hevcNalLengthSize: Int? = videoPar.pointee.codec_id == AV_CODEC_ID_HEVC && signaling.videoRange == "PQ"
+            ? DoviRpuConverter.hvccNalLengthSize(videoPar) : nil
+        var hdr10PlusScanLeft = hevcNalLengthSize == nil ? 0 : 240
         var isFirstRun = true
         var everRepositioned = false
         var consecutiveErrorParks = 0
@@ -976,7 +1040,11 @@ nonisolated final class RemuxSession: @unchecked Sendable {
             // and the run's muxer header takes its audio codecpar from the new encoder.
             var audioTx: AudioTranscoder?
             if audioTranscodes, let par = audioPar, let audioStream = input.pointee.streams[audioIn] {
-                guard let tx = AudioTranscoder(sourcePar: par, sourceTimeBase: audioStream.pointee.time_base) else {
+                // The master advertised this rendition as FLAC or AAC when the tracks were listed;
+                // the encoder must be the one it promised.
+                let lossless = foundAudio.first(where: { $0.streamIndex == audioIn })?.losslessOutput ?? false
+                guard let tx = AudioTranscoder(sourcePar: par, sourceTimeBase: audioStream.pointee.time_base,
+                                               lossless: lossless) else {
                     return fail("audio transcoder init")
                 }
                 audioTx = tx
@@ -1148,6 +1216,20 @@ nonisolated final class RemuxSession: @unchecked Sendable {
                     av_packet_unref(pkt)
                     if !ok { runEnd = .error }
                     continue
+                }
+
+                // HDR10+: the dynamic metadata is carried in the HEVC bitstream itself (prefix SEI NAL
+                // units, ITU-T T.35 messages), and this stream copy writes every video packet's bytes
+                // as they are, so the metadata is in the fMP4 samples AVPlayer reads. The DV 8.1
+                // conversion below drops enhancement-layer NALs and replaces RPUs only. Look at the
+                // packet as it came from the source, before that conversion, and tell the master.
+                if isVideo, hdr10PlusScanLeft > 0, let nalSize = hevcNalLengthSize, let data = pkt.pointee.data {
+                    hdr10PlusScanLeft -= 1
+                    if Hdr10PlusDetector.containsHdr10Plus(packet: data, size: Int(pkt.pointee.size), nalLengthSize: nalSize) {
+                        hdr10PlusScanLeft = 0
+                        lock.lock(); _signaling?.hdr10Plus = true; lock.unlock()
+                        print("[Remux] HDR10+ dynamic metadata (ST 2094-40 SEI) in the video — copied untouched, declared in the master")
+                    }
                 }
 
                 // DV P7 → 8.1: rewrite the packet (drop EL NALs, convert the RPU) before anything

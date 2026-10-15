@@ -185,10 +185,21 @@ extension NativePlaybackCoordinator {
         let savedLanguage = persistedTrackPreference?.audioLanguage
         let savedName = persistedTrackPreference?.audioName
         let savedTrackId = persistedTrackPreference?.audioTrackId
-        guard !targets.isEmpty || !(savedLanguage ?? "").isEmpty else { return nil }
+        let hasPreference = !targets.isEmpty || !(savedLanguage ?? "").isEmpty
+        // Spatial Audio on: a TrueHD Atmos / DTS:X track starts in place of a stream-copied compatibility
+        // track (Dolby Digital...) of its language, unless the viewer's own remembered pick is that track.
+        let upgrades = SpatialAudioPolicy.isEnabled && (savedName ?? "").isEmpty && (savedTrackId ?? "").isEmpty
+        guard hasPreference || upgrades else { return nil }
         return { tracks in
-            Self.preferredAudioStream(in: tracks, targets: targets, savedLanguage: savedLanguage,
-                                      savedName: savedName, savedTrackId: savedTrackId)
+            let picked = hasPreference
+                ? Self.preferredAudioStream(in: tracks, targets: targets, savedLanguage: savedLanguage,
+                                            savedName: savedName, savedTrackId: savedTrackId)
+                : nil
+            guard upgrades,
+                  let base = tracks.first(where: { $0.streamIndex == picked })
+                      ?? RemuxAudioCandidate.automaticPick(tracks.map(\.candidate))
+                          .flatMap({ start in tracks.first(where: { $0.streamIndex == start }) }) else { return picked }
+            return SpatialAudioPolicy.upgradedStart(from: base, in: tracks) ?? picked
         }
     }
 
@@ -243,6 +254,14 @@ extension NativePlaybackCoordinator {
                 let group = (try? await item.asset.loadMediaSelectionGroup(for: .audible)) ?? nil
                 guard let self, self.playerItem === item, let group else { return }
                 self.audibleGroup = group
+                // A reloaded item (a spatial track fell back to the standard audio) opens on AVPlayer's
+                // own pick: put the viewer's back first.
+                self.restorePendingAudioSelection(item: item, group: group)
+                // The Atmos output was set up for the master's default audio: follow the real selection.
+                if !self.spatialKinds.isEmpty, let player = self.player,
+                   self.isSpatialAudioSelected(in: item) != self.defaultAudioIsSpatial {
+                    self.attachAtmosActivator(to: player)
+                }
                 self.syncAudioSelection(item: item, player: player)
             }
         } else {
@@ -263,7 +282,11 @@ extension NativePlaybackCoordinator {
         guard selectedAudioBox.value != stream else { return }
         selectedAudioBox.value = stream
         print("[NativePlayer] audio selection → stream \(stream) (\(option.displayName))")
-        remux?.selectAudio(streamIndex: stream, atSegment: nil)
+        // An APAC rendition is converted by the spatial engine, not the remux: restarting the remux
+        // for it would interrupt its read, re-seek the source and start a FLAC encode nobody hears
+        // while the conversion is starting. If the track later falls back to the standard audio,
+        // the server's first request for it switches the remux then.
+        if spatialKinds[stream] == nil { remux?.selectAudio(streamIndex: stream, atSegment: nil) }
         // A later change came from the system Audio popover (panel picks save in `select(audio:)`):
         // remember it for the show (LANG-09 / STAB-05).
         if didRelayInitialAudio, subtitleChoiceTrackingArmed, lastSavedAudioStream != stream {
@@ -294,8 +317,8 @@ extension NativePlaybackCoordinator {
     /// Map an audible option back to our track. `displayName` is AVFoundation's LOCALIZED language
     /// ("French"), not the rendition NAME — the NAME is the option's common-metadata title. Fall back
     /// to the language tag when it identifies exactly one playable track.
-    private static func renditionStream(for option: AVMediaSelectionOption, byName: [String: Int],
-                                        tracks: [RemuxAudioTrack]) -> Int? {
+    static func renditionStream(for option: AVMediaSelectionOption, byName: [String: Int],
+                                tracks: [RemuxAudioTrack]) -> Int? {
         let title = AVMetadataItem.metadataItems(from: option.commonMetadata,
                                                  filteredByIdentifier: .commonIdentifierTitle).first?.stringValue
         if let title, let stream = byName[title] { return stream }
@@ -558,7 +581,7 @@ extension NativePlaybackCoordinator {
             else if s.height >= 700 { chips.append(PlayerPanelChip(text: "720p")) }
             else if s.height > 0 { chips.append(PlayerPanelChip(text: "SD")) }
             if s.supplementalCodecs != nil { chips.append(PlayerPanelChip(text: "Dolby Vision")) }
-            else if s.videoRange == "PQ" { chips.append(PlayerPanelChip(text: "HDR10")) }
+            else if s.videoRange == "PQ" { chips.append(PlayerPanelChip(text: hdr10PlusDeclared ? "HDR10+" : "HDR10")) }
             else if s.videoRange == "HLG" { chips.append(PlayerPanelChip(text: "HLG")) }
             let codec = s.codecs.lowercased()
             if codec.hasPrefix("hvc1") || codec.hasPrefix("hev1") || codec.hasPrefix("dvh1") || codec.hasPrefix("dvhe") {
@@ -666,8 +689,9 @@ extension NativePlaybackCoordinator {
     /// 10-foot menu label: localized language with its variant, codec + channel layout, the
     /// release tag, then the container's track title when it adds information. E.g.
     /// "Français (Canada) · Dolby Digital+ 5.1 · VFQ", "English · Dolby Atmos · Commentary".
-    /// Same pieces as the mpv engine's rows (`MPVTrackFields`).
-    static func audioTrackDisplayName(_ track: RemuxAudioTrack) -> String {
+    /// Same pieces as the mpv engine's rows (`MPVTrackFields`). A track played as an APAC rendition
+    /// (`spatial`) is named for what the viewer picks it for: "English · Dolby Atmos", "English · DTS:X".
+    static func audioTrackDisplayName(_ track: RemuxAudioTrack, spatial: SpatialAudioKind? = nil) -> String {
         var parts: [String] = []
         let title = track.title?.trimmingCharacters(in: .whitespaces) ?? ""
         // Shared formatter (contract C3, LANG-07/10): ISO 639-2/B codes ("fre") read "French", and
@@ -681,7 +705,8 @@ extension NativePlaybackCoordinator {
         }
         let hasLanguage = !parts.isEmpty
         let atmos = TrackLabelFormatter.looksAtmos(title)
-        let detail = TrackLabelFormatter.audioDetail(codec: track.codec, channels: track.channels, atmos: atmos)
+        let detail = spatial?.menuName
+            ?? TrackLabelFormatter.audioDetail(codec: track.codec, channels: track.channels, atmos: atmos)
             ?? "\(Self.audioCodecDisplay[track.codec] ?? track.codec.uppercased()) \(Self.channelText(track.channels))"
         parts.append(detail)
         // The release tag ("VFF", "VFQ"): two French dubs must read apart.

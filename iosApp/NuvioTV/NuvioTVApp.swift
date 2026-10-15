@@ -73,8 +73,12 @@ struct NuvioTVApp: App {
         // OFF survives, and every `bool(forKey:)` reader (PlayerScreen routing, SettingsViewModel)
         // sees the same default without its own fallback logic.
         // D6: "Match frame rate" is on by default too, registered the same way so an explicit OFF stays.
+        // Spatial Audio (TrueHD Atmos / DTS:X as Dolby Atmos) and Lossless Surround Sound (FLAC instead
+        // of AAC 5.1 for TrueHD / DTS-HD MA) are on by default, registered the same way.
         UserDefaults.standard.register(defaults: [PlayerTuning.nativeDVKey: true,
-                                                  PlayerTuning.matchFrameRateKey: true])
+                                                  PlayerTuning.matchFrameRateKey: true,
+                                                  PlayerTuning.spatialAudioKey: true,
+                                                  PlayerTuning.losslessAudioKey: true])
 
         // FEAT-11: seed the shared hero-trailer audio state from the user's configured default
         // (PlaybackSettingsPane's "Trailer Sound by Default" toggle, same `trailer_audio_default_on`

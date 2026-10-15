@@ -103,6 +103,28 @@ final class PlayerEngineRouterTests: XCTestCase {
                                                 options: RoutingOptions(enginePreference: .preferNative)).engine, .mpv)
     }
 
+    // MARK: Spatial audio and the native-first rules together
+
+    func testSpatialAudioLabelsARemuxedNativeDecisionOnly() {
+        var atmos = probe(hdr: .hdr10, audio: ["truehd", "ac3"])
+        atmos.audio[0].profile = Int32(FFmpegAudioProfile.trueHDAtmos)
+        let remuxed = PlayerEngineRouter.route(probe: atmos, nativeDVEnabled: true, spatialAudio: true)
+        XCTAssertEqual(remuxed.engine, .native)
+        XCTAssertEqual(remuxed.delivery, .remux)
+        XCTAssertEqual(remuxed.spatialAudio, .trueHDAtmos)
+        // The Player preference is explicit and wins over the audio format.
+        let preferMpv = PlayerEngineRouter.route(probe: atmos, nativeDVEnabled: true, spatialAudio: true,
+                                                 options: RoutingOptions(enginePreference: .preferMpv))
+        XCTAssertEqual(preferMpv.engine, .mpv)
+        XCTAssertNil(preferMpv.spatialAudio)
+        // An HLS stream AVPlayer opens itself has no APAC conversion.
+        var hls = probe(video: "h264", audio: ["eac3", "truehd"], container: "hls")
+        hls.audio[1].profile = Int32(FFmpegAudioProfile.trueHDAtmos)
+        let direct = PlayerEngineRouter.route(probe: hls, nativeDVEnabled: true, spatialAudio: true)
+        XCTAssertEqual(direct.delivery, .directHLS)
+        XCTAssertNil(direct.spatialAudio)
+    }
+
     // MARK: Dolby Vision
 
     func testDolbyVisionThatPlaysAsDolbyVisionStaysNative() {

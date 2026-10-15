@@ -358,6 +358,10 @@ final class SettingsViewModel: ObservableObject {
     @Published var dolbyVisionMode: DolbyVisionMode = DolbyVisionMode.current
     /// Which engine plays a file when more than one could (Settings > Playback > Advanced > Player).
     @Published var enginePreference: PlayerEnginePreference = PlayerEnginePreference.current
+    /// Native player: TrueHD Atmos and DTS:X tracks play as Dolby Atmos (APAC). ON unless switched off.
+    @Published var spatialAudio: Bool = SpatialAudioPolicy.userEnabled
+    /// Native player: TrueHD / DTS-HD MA without objects play as lossless FLAC instead of AAC 5.1.
+    @Published var losslessAudio: Bool = SpatialAudioPolicy.losslessEnabled
 
     func setBufferMB(_ value: Int) {
         bufferMB = value
@@ -387,6 +391,16 @@ final class SettingsViewModel: ObservableObject {
     func setEnginePreference(_ preference: PlayerEnginePreference) {
         enginePreference = preference
         preference.store()
+    }
+
+    func setSpatialAudio(_ value: Bool) {
+        spatialAudio = value
+        UserDefaults.standard.set(value, forKey: PlayerTuning.spatialAudioKey)
+    }
+
+    func setLosslessAudio(_ value: Bool) {
+        losslessAudio = value
+        UserDefaults.standard.set(value, forKey: PlayerTuning.losslessAudioKey)
     }
 
     // MARK: - Up Next (Settings → Playback → Next Episode)

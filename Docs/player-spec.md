@@ -132,6 +132,9 @@ shown for a stripped file.
 - Not offered on direct HLS: addon subtitle files (there is no master of ours to put them in; the stream's own
   renditions are the system menu's) and the app's Subtitle Timing. Jellyfin / Emby keep their audio and
   burned-in subtitle choices in the server menus (`ServerPlaybackLink`).
+- No Dolby Atmos conversion (APAC) and no lossless FLAC on direct HLS: both are renditions the remux's local
+  master lists, and a stream AVPlayer opens itself plays the audio its own playlist declares. The router never
+  labels a direct HLS decision with `EngineDecision.spatialAudio`.
 - Risks to check on a device: addon headers on segment requests, segments with unusual MIME types (AVPlayer is
   strict), live streams.
 
@@ -143,6 +146,18 @@ shown for a stripped file.
   libavcodec has a decoder for** (PCM including Blu-ray PCM, MP2, MP3, WMA, AMR ...), minus MLP. The probe asks
   libavcodec (`AudioStreamInfo.decodable`); the remux uses the same predicate
   (`AudioTranscoder.isTranscodable`).
+- Lossless Surround Sound (Settings > Playback > Audio, on by default): TrueHD and DTS-HD MA with 3 to 8
+  channels that the FLAC encoder can carry are transcoded to FLAC at their own channel count instead of AAC 5.1
+  (`AudioTranscoder.losslessPlan`, master CODECS `fLaC`); every other transcoded codec stays AAC.
+- Spatial Audio (same pane, on by default): a TrueHD Atmos or DTS:X track plays as Dolby Atmos, converted to
+  APAC 7.1.4 by SpatialAudioBridge (`NativePlaybackCoordinator+SpatialAudio`), on the remuxed path only. It
+  changes the label of a native decision (`EngineDecision.spatialAudio`), not the engine: the Player preference
+  and the Dolby Vision modes still decide. A file that falls back to the standard audio keeps the FLAC / AAC
+  rendition the remux produces.
+- Initial audio track: the viewer's language plan first (`preferredAudioPicker`); with none, the file's own main
+  track (`RemuxAudioCandidate.automaticPick`). With Spatial Audio on, an announced Atmos / DTS:X track of the
+  same language replaces a stream-copied compatibility track (not E-AC-3) as the start track, unless the
+  viewer's remembered pick is a named track.
 
 ### 2.7 Image subtitles (PGS, VobSub, DVB)
 
@@ -188,7 +203,7 @@ remux signals it (`av01`, `av01.<profile>.<level><tier>.<depth>`); it has not be
 | Item | Decision |
 |---|---|
 | Image subtitles over AVPlayer (decode PGS with libavcodec, draw them in `contentOverlayView`, publish an empty WebVTT rendition so the track is in the menu) | Not built. A week of work with seek, HDR brightness and aspect risks that cannot be checked off a device; the section 2.7 rule is the stop-gap |
-| ALAC instead of AAC for lossless multichannel (TrueHD, DTS-HD MA, PCM) | Not built. These files are already native; this is audio quality, not routing. The encoder question is settled: MPVKit's FFmpeg is configured with `--disable-encoders` and then `--enable-encoder=aac`, `alac`, `flac`, `pcm*` (MPVKit `Sources/BuildScripts/XCFrameworkBuild/main.swift`, the revision the submodule pins), and FFmpeg's ALAC encoder takes mono up to 7.1 in fixed channel layouts and 16 / 24-bit planar integers. What is left is the transcoder's encoder choice and layout mapping, the `alac` CODECS signaling for a transcoded track, and a device test that AVPlayer plays ALAC 5.1 / 7.1 from fMP4 HLS (it is in the HLS authoring spec, 2.5) |
+| ALAC instead of AAC for lossless multichannel (TrueHD, DTS-HD MA, PCM) | Not built as ALAC: FFmpeg's `alac` encoder is stereo-oriented, so lossless FLAC is what ships for TrueHD and DTS-HD MA (section 2.6). These files are already native; this is audio quality, not routing. The encoder question is settled: MPVKit's FFmpeg is configured with `--disable-encoders` and then `--enable-encoder=aac`, `alac`, `flac`, `pcm*` (MPVKit `Sources/BuildScripts/XCFrameworkBuild/main.swift`, the revision the submodule pins), and FFmpeg's ALAC encoder takes mono up to 7.1 in fixed channel layouts and 16 / 24-bit planar integers. What is left is the transcoder's encoder choice and layout mapping, the `alac` CODECS signaling for a transcoded track, and a device test that AVPlayer plays ALAC 5.1 / 7.1 from fMP4 HLS (it is in the HLS authoring spec, 2.5) |
 | Progressive MP4 straight to AVPlayer (no remux) | Not built. Only pays off if seek latency through the remux becomes a complaint, and it loses the addon subtitle renditions |
 | MPEG-TS / M2TS remux | Not built (no index) |
 | Proxying a direct HLS master to add addon subtitle renditions | Not built |

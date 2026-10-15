@@ -26,6 +26,9 @@ nonisolated struct AudioRendition: Sendable {
     let channels: Int
     let codecToken: String?      // RFC 6381, for the variant's CODECS union
     let isDefault: Bool          // the track production starts with (DEFAULT=YES)
+    /// The rendition is APAC (spatial audio): `LocalHLSServer` serves its playlist and segments from the
+    /// spatial audio converter instead of the remux's files, on the grid of `SpatialGrid`.
+    var isSpatial: Bool = false
 
     var playlistName: String { "aud-\(streamIndex).m3u8" }
     var initName: String { "aud-\(streamIndex)-init.mp4" }
@@ -206,8 +209,14 @@ nonisolated struct SegmentMap: Sendable {
             streamInf += String(format: ",FRAME-RATE=%.3f", signaling.frameRate)
         }
         streamInf += ",CODECS=\"\(codecTokens.joined(separator: ","))\""
+        // SUPPLEMENTAL-CODECS: the Dolby Vision form when the stream has Dolby Vision signaling. Else, for
+        // HDR10+ (PQ HEVC with ST 2094-40 dynamic metadata in the bitstream, `Hdr10PlusDetector`), the
+        // base HEVC codec with the compatibility brand `cdm4`, as Apple specifies for HDR10+ variants:
+        // every member must have its base codec in CODECS, which `signaling.codecs` is.
         if let supp = signaling.supplementalCodecs {
             streamInf += ",SUPPLEMENTAL-CODECS=\"\(supp)\""
+        } else if signaling.declaresHdr10Plus {
+            streamInf += ",SUPPLEMENTAL-CODECS=\"\(signaling.codecs)/cdm4\""
         }
         // VIDEO-RANGE is REQUIRED for HDR on tvOS 27: PQ media behind a master that doesn't declare it
         // is rejected at media admission (-12927); declared (with full CODECS + SUPPLEMENTAL-CODECS,

@@ -337,11 +337,10 @@ struct NativePlayerScreen: View {
                 tabs.append(episodes)
             }
             let info = PlayerInfoTabHost(rootView: AnyView(
+                // What reaches the TV for the audio that plays now: the track as is, its AAC / lossless
+                // FLAC conversion, or "Dolby Atmos via APAC 7.1.4 (from TrueHD Atmos)".
                 PlayerStreamInfoTab(model: panelModel) { [weak coordinator] in
-                    coordinator?.remux?.audioTracks.first(where: \.selected).map {
-                        AudioTranscoder.deliveredFormatDescription(codec: $0.codec, channels: $0.channels,
-                                                                   transcodes: $0.transcodes)
-                    }
+                    coordinator?.deliveredAudioDescription()
                 }))
             info.title = String(localized: "Stream Info")
             info.preferredContentSize = CGSize(width: 0, height: PlayerStreamInfoTab.tabHeight)
