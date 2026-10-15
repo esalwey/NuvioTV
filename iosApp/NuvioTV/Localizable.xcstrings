@@ -58250,6 +58250,40 @@
           }
         }
       }
+    },
+    "These apply to the native player, from the next video. Dolby Atmos needs Audio Format on Auto and Dolby Atmos switched on in tvOS Settings → Video and Audio, and a receiver or soundbar that plays Atmos from Apple TV. Spatial Audio uses an open-source renderer (SpatialAudioBridge). Dolby Atmos, TrueHD and DTS:X are covered by Dolby and DTS patents.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Einstellungen gelten für den nativen Player, ab dem nächsten Video. Für Dolby Atmos muss in tvOS-Einstellungen → Video und Audio das Audioformat auf Automatisch stehen und Dolby Atmos eingeschaltet sein, außerdem ein Receiver oder eine Soundbar, die Atmos von der Apple TV wiedergibt. Spatial Audio nutzt einen Open-Source-Renderer (SpatialAudioBridge). Dolby Atmos, TrueHD und DTS:X sind durch Patente von Dolby und DTS geschützt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se aplican al reproductor nativo, desde el siguiente vídeo. Dolby Atmos requiere que Formato de audio esté en Automático y Dolby Atmos activado en Configuración de tvOS → Vídeo y audio, y un receptor o barra de sonido que reproduzca Atmos desde el Apple TV. El audio espacial usa un renderizador de código abierto (SpatialAudioBridge). Dolby Atmos, TrueHD y DTS:X están protegidos por patentes de Dolby y DTS."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ces réglages s’appliquent au lecteur natif, dès la prochaine vidéo. Dolby Atmos nécessite que Format audio soit sur Auto et que Dolby Atmos soit activé dans Réglages tvOS → Vidéo et audio, ainsi qu’un récepteur ou une barre de son qui lit l’Atmos depuis l’Apple TV. L’audio spatial utilise un moteur de rendu open source (SpatialAudioBridge). Dolby Atmos, TrueHD et DTS:X sont couverts par des brevets de Dolby et DTS."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Valgono per il player nativo, dal prossimo video. Dolby Atmos richiede Formato audio su Auto e Dolby Atmos attivo in Impostazioni tvOS → Video e audio, oltre a un ricevitore o una soundbar che riproduca Atmos dall’Apple TV. L’audio spaziale usa un renderer open source (SpatialAudioBridge). Dolby Atmos, TrueHD e DTS:X sono coperti da brevetti di Dolby e DTS."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Áp dụng cho trình phát gốc, từ video tiếp theo. Dolby Atmos cần đặt Định dạng âm thanh ở Tự động và bật Dolby Atmos trong Cài đặt tvOS → Video và Âm thanh, cùng bộ thu hoặc loa thanh phát được Atmos từ Apple TV. Âm thanh không gian dùng trình kết xuất mã nguồn mở (SpatialAudioBridge). Dolby Atmos, TrueHD và DTS:X được bảo hộ bởi các bằng sáng chế của Dolby và DTS."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

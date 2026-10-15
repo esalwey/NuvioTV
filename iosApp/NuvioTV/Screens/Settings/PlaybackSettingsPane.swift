@@ -112,7 +112,7 @@ struct PlaybackSettingsPane: View {
         // Advanced > Audio and Video. Device-local, applied from the next video.
         SettingsSection(
             String(localized: "Audio"),
-            footer: String(localized: "These apply to the native player, from the next video. Dolby Atmos needs Audio Format on Auto and Dolby Atmos switched on in tvOS Settings \u{2192} Video and Audio, and a receiver or soundbar that plays Atmos from Apple TV.")
+            footer: String(localized: "These apply to the native player, from the next video. Dolby Atmos needs Audio Format on Auto and Dolby Atmos switched on in tvOS Settings \u{2192} Video and Audio, and a receiver or soundbar that plays Atmos from Apple TV. Spatial Audio uses an open-source renderer (SpatialAudioBridge). Dolby Atmos, TrueHD and DTS:X are covered by Dolby and DTS patents.")
         ) {
             // Apple TV HD has no Dolby Atmos output: no row to switch on.
             if SpatialAudioPolicy.deviceCanOutputAtmos {
