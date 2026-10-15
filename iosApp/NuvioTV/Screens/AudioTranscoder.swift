@@ -30,15 +30,22 @@ private let avErrorEAGAIN: Int32 = -EAGAIN
 private let avErrorInputChanged: Int32 = -0x636e6701
 
 nonisolated final class AudioTranscoder {
-    /// Codec ids worth transcoding (decoders verified present in the MPVKit FFmpeg build; MLP is not).
-    /// Opus and Vorbis (2026-10, one player UI for every format): FFmpeg's own native decoders, the
-    /// ones mpv plays these tracks with — files whose only audio is Opus/Vorbis (common in MKV web
-    /// releases) now keep the native AVPlayer path instead of going to mpv wholesale. A decoder that
-    /// turned out missing fails `init` before the first segment, and the coordinator falls back to
-    /// mpv exactly as for any other pre-playback remux failure.
+    /// Codec ids the remux can transcode to AAC: every audio codec libavcodec has a decoder for that
+    /// AVPlayer cannot play as it is. The ones this path was built and verified for are TrueHD and
+    /// DTS (decoders verified present in the MPVKit FFmpeg build; MLP is not) and, since 2026-10, Opus
+    /// and Vorbis (one player UI for every format): FFmpeg's own native decoders, the ones mpv plays
+    /// these tracks with — files whose only audio is Opus/Vorbis (common in MKV web releases) keep the
+    /// native AVPlayer path instead of going to mpv wholesale. The rest (PCM including Blu-ray PCM,
+    /// MP2, MP3, WMA, AMR, ...) is whatever `avcodec_find_decoder` reports, so a file is no longer
+    /// sent to mpv for its audio alone. A decoder that turned out unusable fails `init` before the
+    /// first segment, and the coordinator falls back to mpv exactly as for any other pre-playback
+    /// remux failure.
     static func isTranscodable(_ id: AVCodecID) -> Bool {
-        id == AV_CODEC_ID_TRUEHD || id == AV_CODEC_ID_DTS
-            || id == AV_CODEC_ID_OPUS || id == AV_CODEC_ID_VORBIS
+        // No decoder in this build (MLP), or no codec at all.
+        if id == AV_CODEC_ID_MLP || id == AV_CODEC_ID_NONE { return false }
+        if id == AV_CODEC_ID_TRUEHD || id == AV_CODEC_ID_DTS
+            || id == AV_CODEC_ID_OPUS || id == AV_CODEC_ID_VORBIS { return true }
+        return avcodec_find_decoder(id) != nil
     }
 
     /// Target AAC-LC bitrate for the layout the source downmixes to.

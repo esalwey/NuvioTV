@@ -36,6 +36,10 @@ nonisolated struct AudioStreamInfo: Sendable {
     var codec: String         // canonical FFmpeg name: "aac", "ac3", "eac3", "truehd", "dts", ...
     var channels: Int
     var language: String?
+    /// libavcodec can decode this track, so the remux can transcode it to AAC when AVPlayer cannot
+    /// play it as it is (`AudioTranscoder.isTranscodable`). nil = not asked (a canned probe): the
+    /// router then falls back to its list of the codecs that path was built for.
+    var decodable: Bool? = nil
 }
 
 nonisolated struct SubtitleStreamInfo: Sendable {
@@ -60,6 +64,16 @@ nonisolated struct ProbeResult: Sendable {
     /// source with a SECOND video stream is the two-track BL+EL layout — the RPUs live in the EL
     /// track, which the remux never reads, so those files stay on mpv.
     var videoStreamCount: Int = 0
+    /// Picture size of the first video stream (0 = unknown).
+    var videoWidth: Int32 = 0
+    var videoHeight: Int32 = 0
+    /// `AVCodecParameters.level`: for HEVC `general_level_idc` (153 = level 5.1), -99 if unknown.
+    var videoLevel: Int32 = -99
+    /// `AVCodecParameters.bits_per_raw_sample` (the luma bit depth the parser or the decoder found), 0 if unknown.
+    var videoBitDepth: Int32 = 0
+    /// `AVFieldOrder` raw value: 0 unknown, 1 progressive, 2 top-top, 3 bottom-bottom, 4 top-bottom,
+    /// 5 bottom-top. 2...5 is interlaced video.
+    var videoFieldOrder: Int32 = 0
 }
 
 nonisolated enum MediaProbe {
@@ -71,6 +85,21 @@ nonisolated enum MediaProbe {
             .sorted { $0.key.localizedCaseInsensitiveCompare($1.key) == .orderedAscending }
             .map { "\($0.key): \($0.value)\r\n" }
             .joined()
+    }
+
+    /// `probe`, with one more try for a source that ran into the deadline: a cold debrid redirect
+    /// plus TLS plus the Matroska header over a slow link takes longer than the first deadline, and
+    /// would otherwise play on the wrong engine for no reason of its own. A probe that failed
+    /// outright (refused, 404, not a media file) is not retried — the same answer would come back.
+    /// Blocking: call off the main thread.
+    static func probeWithRetry(url: URL, timeoutSec: Double, retryTimeoutSec: Double,
+                               requestHeaders: [String: String] = [:]) -> ProbeResult? {
+        let started = ProcessInfo.processInfo.systemUptime
+        if let result = probe(url: url, timeoutSec: timeoutSec, requestHeaders: requestHeaders) { return result }
+        let elapsed = ProcessInfo.processInfo.systemUptime - started
+        guard retryTimeoutSec > timeoutSec, elapsed >= timeoutSec - 0.5 else { return nil }
+        print("[MediaProbe] no answer within \(timeoutSec) s — one more try, \(retryTimeoutSec) s")
+        return probe(url: url, timeoutSec: retryTimeoutSec, requestHeaders: requestHeaders)
     }
 
     /// Open `url` with avformat and return a `ProbeResult`, or nil on failure/timeout. Blocking
@@ -136,12 +165,20 @@ nonisolated enum MediaProbe {
                 result.videoProfile = par.profile
                 result.hdr = hdrFormat(par.color_trc)
                 result.dolbyVision = dolbyVision(parPtr)
+                // What the router needs to tell a picture the Apple TV decodes from one it does not
+                // (HEVC Main 4:2:2 10, 12-bit, 8K) or may not deinterlace (1080i).
+                result.videoWidth = par.width
+                result.videoHeight = par.height
+                result.videoLevel = par.level
+                result.videoBitDepth = par.bits_per_raw_sample
+                result.videoFieldOrder = Int32(truncatingIfNeeded: par.field_order.rawValue)
             case AVMEDIA_TYPE_AUDIO:
                 result.audio.append(AudioStreamInfo(
                     index: i,
                     codec: codecName(par.codec_id),
                     channels: Int(par.ch_layout.nb_channels),
-                    language: lang
+                    language: lang,
+                    decodable: AudioTranscoder.isTranscodable(par.codec_id)
                 ))
             case AVMEDIA_TYPE_SUBTITLE:
                 let props = avcodec_descriptor_get(par.codec_id)?.pointee.props ?? 0

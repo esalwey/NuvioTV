@@ -2,14 +2,17 @@ import SharedCore
 import SwiftUI
 
 /// Engine dispatcher for all video playback in NuvioTV. Call sites present `PlayerScreen`; it probes
-/// the stream and routes to the native AVPlayer path (`NativePlayerScreen` — true Dolby Vision via
-/// the on-device remux) or the libmpv path (`MPVPlayerScreen` — universal fallback), keeping the
-/// choice invisible to callers.
+/// the stream and routes to the native AVPlayer path (`NativePlayerScreen` — the system player itself,
+/// with true Dolby Vision, fed by the on-device remux or opening an HLS stream directly) or the libmpv
+/// path (`MPVPlayerScreen` — for what AVPlayer cannot play), keeping the choice invisible to callers.
 ///
-/// The native path is gated by `PlayerTuning.nativeDVKey` (Settings > Playback beta toggle). With the
-/// flag off, playback goes straight to mpv with no probe delay — non-beta behavior is unchanged. With
-/// it on, a brief probe decides per file, and any native-path failure falls back to mpv for the same
-/// context. See docs/tvos-hybrid-player-plan.md.
+/// NATIVE FIRST: the native player is the only exact copy of the system player there is, so the router
+/// (`PlayerEngineRouter`) sends it everything AVPlayer can play. The native path is gated by
+/// `PlayerTuning.nativeDVKey` (Settings > Playback > Dolby Vision > Off turns it off for good, straight
+/// to mpv with no probe delay) and steered by Settings > Playback > Advanced > Player
+/// (`PlayerEnginePreference`: Automatic, Prefer Native, Prefer mpv). A brief probe decides per file
+/// (none for an `.m3u8` URL, which AVPlayer opens itself), and any native-path failure falls back to mpv
+/// for the same context. See docs/player-spec.md, "Engine routing".
 ///
 /// Owns the `NextEpisodeEngine` for this episode so both engines share it: a native → mpv fallback
 /// keeps the Up Next state (trigger, prefetched stream) and resumes mpv at the native position
@@ -76,12 +79,29 @@ struct PlayerScreen: View {
 
     private var nativeDVEnabled: Bool { UserDefaults.standard.bool(forKey: PlayerTuning.nativeDVKey) }
 
+    /// Player: Prefer mpv, with a Dolby Vision setting that never sends Dolby Vision to the native
+    /// player: there is nothing left to find out about the file, so no probe either.
+    private var mpvWithoutProbe: Bool {
+        PlayerEnginePreference.current == .preferMpv && !DolbyVisionMode.current.playsDolbyVision
+    }
+
     private enum Shown { case deciding, native, mpv }
     private var shown: Shown {
         if let engineOverride { return engineOverride.engine == .native ? .native : .mpv }
-        guard nativeDVEnabled else { return .mpv }       // flag off → mpv immediately, no probe wait
+        // Native engine off, or Prefer mpv with nothing to probe for → mpv immediately, no probe wait.
+        guard nativeDVEnabled, !mpvWithoutProbe else { return .mpv }
         guard let decision else { return .deciding }
         return decision.engine == .native ? .native : .mpv
+    }
+
+    /// How the native engine plays this stream: the router's decision, except that a playlist URL is
+    /// always opened by AVPlayer itself (a manual switch to native for a stream the router had sent to
+    /// mpv still has no file for the remux to read).
+    private var nativePlan: NativePlaybackPlan {
+        let decided = decision?.engine == .native ? decision : nil
+        return NativePlaybackPlan(
+            delivery: PlayerEngineRouter.isHLSURL(context.url) ? .directHLS : (decided?.delivery ?? .remux),
+            dolbyVision: decided?.dvHandling ?? .passthrough)
     }
 
     var body: some View {
@@ -100,6 +120,7 @@ struct PlayerScreen: View {
                                        nativePossible = false
                                    },
                                    routingNote: engineNote,
+                                   plan: nativePlan,
                                    onExitToDetails: onExitToDetails,
                                    onPickNextSource: onPickNextSource,
                                    canSwitchStreams: onPlayNext != nil,
@@ -192,7 +213,8 @@ struct PlayerScreen: View {
         return copy
     }
 
-    /// Probe off-main (hard-bounded) and pick the engine. No-op straight to mpv when the flag is off.
+    /// Probe off-main (hard-bounded) and pick the engine. No-op straight to mpv when the flag is off,
+    /// and when Prefer mpv leaves nothing to probe for.
     private func decideEngine() async {
         #if DEBUG
         let failures = PlayerEngineRouter.selfCheckFailures()
@@ -203,30 +225,127 @@ struct PlayerScreen: View {
         }
         #endif
 
-        guard nativeDVEnabled else { return }
+        guard nativeDVEnabled, !mpvWithoutProbe else { return }
 
         let url = context.url
         let requestHeaders = context.requestHeaders
         let dvMode = DolbyVisionMode.current
         let felToMpv = dvMode.sendsP7FelToMpv
         let stripDV = dvMode.stripsDolbyVision
+        let options = RoutingOptions(enginePreference: PlayerEnginePreference.current,
+                                     hardwareAV1: DeviceVideoCapabilities.decodesAV1InHardware)
+
+        // A playlist URL (.m3u8: an addon's playlist, a Jellyfin / Emby transcode, a live channel) is
+        // opened by AVPlayer itself, so there is nothing for a probe to add. A stream AVPlayer then
+        // rejects falls back to mpv (NativePlaybackCoordinator).
+        if PlayerEngineRouter.isHLSURL(url) {
+            let result = PlayerEngineRouter.routeHLS(nativeDVEnabled: true, options: options)
+            print("[PlayerRouter] \(result.engine.rawValue) — \(result.reason) — \(context.title)")
+            decision = result
+            if nativePossible != false { nativePossible = true }
+            return
+        }
+
         let timeoutSec = PlayerTuning.probeTimeoutSec
+        let retryTimeoutSec = PlayerTuning.probeRetryTimeoutSec
         // `.userInitiated`: the viewer is staring at the loading view while this runs.
-        let (result, nativeCanPlay) = await Task.detached(priority: .userInitiated) { () -> (EngineDecision, Bool) in
-            let probe = MediaProbe.probe(url: url, timeoutSec: timeoutSec, requestHeaders: requestHeaders)
+        let (probed, routed, nativeCanPlay) = await Task.detached(priority: .userInitiated) {
+            () -> (ProbeResult?, EngineDecision, Bool) in
+            // A source that is slow to open gets a second, longer try before it is given up on.
+            let probe = MediaProbe.probeWithRetry(url: url, timeoutSec: timeoutSec,
+                                                  retryTimeoutSec: retryTimeoutSec, requestHeaders: requestHeaders)
             let decision = PlayerEngineRouter.route(probe: probe, nativeDVEnabled: true, dvP7FelToMpv: felToMpv,
-                                                    stripDolbyVision: stripDV)
-            // Could the native engine play it at all, the viewer's routing preferences aside (Dolby
-            // Vision as HDR10, Profile 7 FEL on mpv)? A probe that found nothing proves nothing.
-            let possible = probe == nil || PlayerEngineRouter.route(probe: probe, nativeDVEnabled: true).engine == .native
-            return (decision, possible)
+                                                    stripDolbyVision: stripDV, options: options)
+            // Could the native engine play it at all, the viewer's routing preferences aside (the Player
+            // choice, Dolby Vision as HDR10, Profile 7 FEL on mpv)? A probe that found nothing proves
+            // nothing.
+            return (probe, decision, PlayerEngineRouter.nativeCouldPlay(probe: probe, options: options))
         }.value
         // The detached probe runs to its deadline whatever happens here: a viewer who left meanwhile
         // (the `.task` was cancelled) gets no decision for a stream no longer asked for.
+        guard !Task.isCancelled else { return }
+
+        var result = routed
+        // Automatic routing keeps a file on mpv when the native player would leave the viewer without
+        // subtitles they would otherwise have (bitmap tracks only, in their language).
+        if result.engine == .native, result.delivery == .remux, options.enginePreference == .automatic,
+           let probed, let reason = await bitmapSubtitleGapReason(probe: probed) {
+            guard !Task.isCancelled else { return }
+            var moved = EngineDecision(engine: .mpv, reason: reason)
+            moved.dvProfile = result.dvProfile
+            result = moved
+        }
         guard !Task.isCancelled else { return }
         print("[PlayerRouter] \(result.engine.rawValue) — \(result.reason) — \(context.title)")
         decision = result
         // A native failure on this stream (set by the fallback) stays final.
         if nativePossible != false { nativePossible = nativeCanPlay }
+    }
+
+    // MARK: - Subtitles the native player could not show
+
+    /// How long the router waits for the addon subtitle search before it judges a file's subtitles.
+    private static let addonSubtitleWaitSec: TimeInterval = 3
+
+    /// The native player shows the file's text subtitles and the addons' files, never images (PGS, VobSub,
+    /// DVB): a Blu-ray remux whose only subtitles in the viewer's language are PGS would play there with
+    /// none. When that is the case for this file and no addon file in that language came back (the search is
+    /// awaited, `addonSubtitleWaitSec` at most), the file plays on mpv, which draws the images. Nil: the
+    /// native player shows what the viewer would have.
+    ///
+    /// Only for what the language plan would switch on at the start: not when subtitles are off, when the plan
+    /// is forced-only (the audio is already in the viewer's language), or when the viewer turned them off for
+    /// this title. A media server's own subtitles are the server's business.
+    private func bitmapSubtitleGapReason(probe: ProbeResult) async -> String? {
+        guard probe.subtitles.contains(where: { $0.isBitmap }) else { return nil }
+        guard !ServerStreams.shared.isServerSourceId(addonId: context.providerAddonId) else { return nil }
+        PlayerSettingsRepository.shared.ensureLoaded()
+        guard let settings = PlayerSettingsRepository.shared.uiState.value_ as? PlayerSettingsUiState else { return nil }
+        let persisted = PlayerSubtitleMemory.load(parentMetaId: context.parentMetaId)
+        if persisted?.subtitleType == PersistedSubtitleSelectionType.shared.DISABLED { return nil }
+
+        // The audio the viewer will hear, picked the way the remux picks it.
+        let audioTargets = PlayerAudioLanguagePlan.audioTargets(settings: settings, context: context, persisted: persisted)
+        let audioTracks = probe.audio.enumerated().map { offset, audio in
+            AudioTrack(index: Int32(offset), id: String(audio.index), label: audio.language ?? "",
+                       language: audio.language, isSelected: false)
+        }
+        var heard: AudioTrack?
+        if !audioTracks.isEmpty {
+            let picked = Int(PlayerTrackSelectionKt.resolveInitialAudioTrackIndex(
+                tracks: audioTracks, targets: audioTargets,
+                savedLanguage: persisted?.audioLanguage, savedName: persisted?.audioName,
+                savedTrackId: persisted?.audioTrackId))
+            heard = audioTracks.indices.contains(picked) ? audioTracks[picked] : audioTracks[0]
+        }
+        guard let plan = PlayerAudioLanguagePlan.subtitlePlan(settings: settings, audio: heard, audioTargets: audioTargets),
+              plan.mode != .forcedOnly, !plan.targets.isEmpty else { return nil }
+
+        func inViewerLanguage(_ language: String?) -> Bool {
+            guard let language, !language.isEmpty else { return false }
+            return plan.targets.contains {
+                PlayerLanguagePreferencesKt.languageMatchesPreference(trackLanguage: language, targetLanguage: $0)
+            }
+        }
+        // Text tracks of the file, and files the stream came with, show on the native player.
+        if probe.subtitles.contains(where: { !$0.isBitmap && inViewerLanguage($0.language) }) { return nil }
+        if context.externalSubtitles.contains(where: { inViewerLanguage($0.language) }) { return nil }
+        // Nothing lost if the file has no image track in the viewer's language either.
+        guard probe.subtitles.contains(where: { $0.isBitmap && inViewerLanguage($0.language) }) else { return nil }
+
+        // The addon search: started now (the native player would start it as it opens), awaited briefly.
+        let key = SubtitleRepository.shared.requestKey(type: context.contentType, videoId: context.videoId)
+        SubtitleRepository.shared.fetchAddonSubtitles(type: context.contentType, videoId: context.videoId)
+        let deadline = Date().addingTimeInterval(Self.addonSubtitleWaitSec)
+        while (SubtitleRepository.shared.completedRequest.value_ as? String) != key, Date() < deadline, !Task.isCancelled {
+            try? await Task.sleep(nanoseconds: 150_000_000)
+        }
+        guard !Task.isCancelled else { return nil }
+        if (SubtitleRepository.shared.completedRequest.value_ as? String) == key,
+           let addon = SubtitleRepository.shared.addonSubtitles.value_ as? [AddonSubtitle],
+           addon.contains(where: { inViewerLanguage($0.language) }) {
+            return nil
+        }
+        return "bitmap subtitles only in your language"
     }
 }

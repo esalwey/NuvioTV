@@ -134,6 +134,12 @@ nonisolated final class RemuxSession: @unchecked Sendable {
         /// shared `SubtitleSdhFilter` as their VTT segments are written (SDH stripping, native
         /// path — the mpv path sets `sub-filter-sdh` instead). Sampled at session start.
         var stripSdh: Bool = false
+        /// What to do with the Dolby Vision data of the video track. `.stripToBase` (the router's
+        /// call, for "HDR10 only", dual-track Profile 7, Profile 7 with no convertible RPU, Profile 9
+        /// ...): the DOVI configuration, the RPU NALs and the enhancement layer are dropped and the base
+        /// layer plays as the plain HDR10 / HLG / SDR stream it is, tagged `hvc1` with no
+        /// SUPPLEMENTAL-CODECS. Profile 5 has no base layer and is never stripped.
+        var dolbyVisionHandling: DolbyVisionHandling = .passthrough
     }
 
     let config: Config
@@ -486,8 +492,22 @@ nonisolated final class RemuxSession: @unchecked Sendable {
         // signaling/tagging derive from it and before any run's parameters_copy — so movenc's dvvC
         // box, the hvc1 sample entry and the master's SUPPLEMENTAL-CODECS all describe the converted
         // bitstream (profile 8, no EL, HDR10-compatible base → dvh1.08/db1p), never the source's.
+        //
+        // Or the router asked for the base layer alone (`Config.dolbyVisionHandling`): the DOVI
+        // configuration is removed from the stream the same way, before anything derives from it, so
+        // the init segment carries no dvvC/dvcC box, the sample entry is plain hvc1/avc1, and the
+        // master declares the stream as the HDR10 / HLG / SDR one it is. The RPU and enhancement-layer
+        // NALs of an HEVC track are dropped too (a decoder would skip them anyway; this keeps the
+        // bitstream exactly what its declaration says). Profile 5 has no base layer and is never stripped.
         var doviConverter: DoviRpuConverter?
-        if let dovi = Self.doviRecord(videoPar), dovi.dv_profile == 7 {
+        if config.dolbyVisionHandling == .stripToBase, let dovi = Self.doviRecord(videoPar), dovi.dv_profile != 5 {
+            if videoPar.pointee.codec_id == AV_CODEC_ID_HEVC {
+                // nil when the extradata is not hvcC-shaped: the NALs then stay, and are ignored.
+                doviConverter = DoviRpuConverter(videoPar: videoPar, mode: .stripToBase)
+            }
+            Self.removeDoviConf(videoPar)
+            print("[Remux] Dolby Vision profile \(dovi.dv_profile) stripped — the base layer plays as plain HDR10/SDR")
+        } else if let dovi = Self.doviRecord(videoPar), dovi.dv_profile == 7 {
             guard let conv = DoviRpuConverter(videoPar: videoPar) else {
                 return fail("DV P7 converter init (extradata not hvcC)")
             }
@@ -1281,7 +1301,7 @@ nonisolated final class RemuxSession: @unchecked Sendable {
                 }
                 if state != .ready { setState(.ready) }
                 consecutiveErrorParks = 0
-                if let conv = doviConverter { print("[Remux] DV P7→8.1: \(conv.statsDescription)") }
+                if let conv = doviConverter { print("[Remux] DV: \(conv.statsDescription)") }
                 print("[Remux] parked at EOF — repositions still serviced")
                 guard parkForRequest() else { break runLoop }
                 everRepositioned = true
@@ -1356,7 +1376,6 @@ nonisolated final class RemuxSession: @unchecked Sendable {
         case AV_CODEC_ID_EAC3: return "ec-3"
         case AV_CODEC_ID_ALAC: return "alac"
         case AV_CODEC_ID_FLAC: return "fLaC"
-        case AV_CODEC_ID_MP3:  return "mp4a.40.34"
         default: return nil
         }
     }
@@ -1407,9 +1426,14 @@ nonisolated final class RemuxSession: @unchecked Sendable {
         return s.isEmpty ? nil : s
     }
 
+    /// Audio AVPlayer plays as it is in fragmented MP4. MP3 is deliberately NOT here: Apple's HLS
+    /// authoring spec lists no MP3 for fMP4 (2.2, 2.5), so it is decoded and re-encoded to AAC like
+    /// every other codec the player cannot take as it is (`AudioTranscoder.isTranscodable`) — a
+    /// stereo MP3 costs next to nothing, and a copy that AVPlayer rejected would hang for the
+    /// not-ready timeout before the fallback to mpv.
     private func isCopyableAudio(_ id: AVCodecID) -> Bool {
         switch id {
-        case AV_CODEC_ID_AAC, AV_CODEC_ID_AC3, AV_CODEC_ID_EAC3, AV_CODEC_ID_FLAC, AV_CODEC_ID_ALAC, AV_CODEC_ID_MP3:
+        case AV_CODEC_ID_AAC, AV_CODEC_ID_AC3, AV_CODEC_ID_EAC3, AV_CODEC_ID_FLAC, AV_CODEC_ID_ALAC:
             return true
         default:
             return false
@@ -1440,6 +1464,8 @@ nonisolated final class RemuxSession: @unchecked Sendable {
             return dolbyProfile(par) == 5 ? fourcc("dvh1") : fourcc("hvc1")
         case AV_CODEC_ID_H264:
             return fourcc("avc1")
+        case AV_CODEC_ID_AV1:
+            return fourcc("av01")
         default:
             return 0
         }
@@ -1483,9 +1509,30 @@ nonisolated final class RemuxSession: @unchecked Sendable {
             return VideoSignaling(codecs: base, supplementalCodecs: nil, videoRange: range)
         case AV_CODEC_ID_H264:
             return VideoSignaling(codecs: avcCodecString(par), supplementalCodecs: nil, videoRange: range)
+        case AV_CODEC_ID_AV1:
+            // Only reachable where the router saw a hardware AV1 decoder (Apple TV 4K 4th generation+).
+            return VideoSignaling(codecs: av1CodecString(par), supplementalCodecs: nil, videoRange: range)
         default:
             return VideoSignaling(codecs: "", supplementalCodecs: nil, videoRange: nil)
         }
+    }
+
+    /// RFC 6381 AV1 token from the av1C decoder configuration record (AV1-ISOBMFF 2.3), in the short
+    /// form `av01.<profile>.<level><tier>.<bit depth>`, e.g. `av01.0.13M.10`: the optional colour fields
+    /// are left out and VIDEO-RANGE carries the dynamic range. Falls back to the bare tag if the
+    /// extradata is not an av1C record (a raw sequence header recovered from the bitstream).
+    private static func av1CodecString(_ par: UnsafeMutablePointer<AVCodecParameters>) -> String {
+        let size = Int(par.pointee.extradata_size)
+        // av1C: marker(1) version(7) = 0x81 | seq_profile(3) seq_level_idx_0(5) |
+        //       seq_tier_0(1) high_bitdepth(1) twelve_bit(1) monochrome(1) subsampling_x(1) subsampling_y(1) position(2).
+        guard size >= 4, let ed = par.pointee.extradata, ed[0] == 0x81 else { return "av01" }
+        let profile = Int(ed[1] >> 5)
+        let level = Int(ed[1] & 0x1F)
+        let tier = (ed[2] >> 7) & 1 == 0 ? "M" : "H"
+        let high = (ed[2] >> 6) & 1 != 0
+        let twelve = (ed[2] >> 5) & 1 != 0
+        let depth = high ? (twelve ? 12 : 10) : 8
+        return String(format: "av01.%d.%02d%@.%02d", profile, level, tier, depth)
     }
 
     /// RFC 6381 HEVC token from the hvcC decoder configuration (ISO 14496-15 Annex E), e.g.
@@ -1539,6 +1586,14 @@ nonisolated final class RemuxSession: @unchecked Sendable {
             $0.pointee.el_present_flag = 0
             $0.pointee.dv_bl_signal_compatibility_id = 1
         }
+    }
+
+    /// Drop the stream's Dolby Vision configuration (`DolbyVisionHandling.stripToBase`). In place on
+    /// the input codecpar, like `patchDoviConfToP81` and for the same reason: every run's
+    /// `parameters_copy`, the `videoOutputTag` choice (no profile 5 → hvc1) and `videoSignaling`
+    /// (no SUPPLEMENTAL-CODECS) then describe the base layer alone.
+    private static func removeDoviConf(_ par: UnsafeMutablePointer<AVCodecParameters>) {
+        av_packet_side_data_remove(par.pointee.coded_side_data, &par.pointee.nb_coded_side_data, AV_PKT_DATA_DOVI_CONF)
     }
 
     private func dolbyProfile(_ par: UnsafeMutablePointer<AVCodecParameters>) -> Int? {

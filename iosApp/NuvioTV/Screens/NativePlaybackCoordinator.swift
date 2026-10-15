@@ -51,6 +51,11 @@ final class NativePlaybackCoordinator: ObservableObject {
     @Published private(set) var preparingLabel: String?
     /// Router decision label ("Native · DV P8.1"), from `EngineDecision.displayNote`.
     let engineNote: String?
+    /// How this stream reaches AVPlayer (the remux or AVPlayer itself) and what the remux does with
+    /// its Dolby Vision data — the router's call.
+    let plan: NativePlaybackPlan
+    /// The direct HLS session has been started (`start()` is idempotent; `stop()` re-arms it).
+    private var directStarted = false
     private(set) var player: AVPlayer?
 
     /// Fired ~every few seconds with (position, duration) while playing — the screen refreshes the
@@ -280,21 +285,31 @@ final class NativePlaybackCoordinator: ObservableObject {
     /// An item that never becomes ready (a playlist or codec AVPlayer silently rejects, a source that
     /// stopped before the first segment) hands over to mpv after this long instead of spinning on.
     private static let itemReadyTimeoutSec: Double = 45
+    /// A stream AVPlayer opens itself (direct HLS) gets less: there is no remux to wait for, and a
+    /// playlist that is still not ready after this long is one AVPlayer will not play. (A Jellyfin
+    /// transcode that has to start its encoder is slower than a CDN's playlist, hence not shorter.)
+    private static let directReadyTimeoutSec: Double = 30
+    /// Ticks (3 s each) a direct HLS stream may sit in a buffering state before it is handed to mpv:
+    /// twice the remux's, because here the network is the whole pipeline.
+    private static let directStallTicks = 20
 
-    init(context: PlaybackContext, engineNote: String? = nil) {
+    init(context: PlaybackContext, engineNote: String? = nil, plan: NativePlaybackPlan = NativePlaybackPlan()) {
         self.context = context
         self.recorder = PlaybackProgressRecorder(context: context)
         self.explicitStartSec = context.startPositionSec.flatMap { $0 > 1 ? $0 : nil }
         self.engineNote = engineNote
-        // `EngineDecision.reason` for a DV file starts with "DV " ("DV P8.1", "DV P7 FEL → 8.1").
-        let isDolbyVision = engineNote?.contains("DV ") ?? false
+        self.plan = plan
+        // `EngineDecision.reason` for a DV file starts with "DV " ("DV P8.1", "DV P7 FEL → 8.1"); one
+        // whose Dolby Vision is stripped plays as HDR10 and is not captioned as Dolby Vision.
+        let isDolbyVision = (engineNote?.contains("DV ") ?? false)
+            && plan.dolbyVision == .passthrough && plan.delivery == .remux
         self.preparingLabel = isDolbyVision ? String(localized: "Preparing Dolby Vision\u{2026}") : nil
     }
 
     // MARK: - Lifecycle
 
     func start() {
-        guard remux == nil else { return }
+        guard remux == nil, !directStarted else { return }
         // The main-thread stall watchdog covers this engine too (DEBUG / Developer pane): the probe,
         // the remux and the local HLS server all run off the main thread, and this is how a device
         // pass confirms it.
@@ -316,31 +331,38 @@ final class NativePlaybackCoordinator: ObservableObject {
             PlayerTrackPreferenceStorage.shared.loadSubtitleDelayMs(videoId: context.videoId)?.intValue ?? 0)
         if subtitleDelayMs != 0 { print("[NativePlayer] subtitle delay restored: \(subtitleDelayMs)ms") }
         subsRequestKey = SubtitleRepository.shared.requestKey(type: context.contentType, videoId: context.videoId)
-        addonSubsWatcher = FlowWatcherKt.watch(SubtitleRepository.shared.addonSubtitles) { [weak self] emitted in
-            guard let subs = emitted as? [AddonSubtitle] else { return }
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                // "Show only preferred languages" (shared subtitle-style setting, cloud-synced from
-                // mobile): drop non-preferred renditions at the source with the same shared filter
-                // the mobile runtime and the mpv screen apply.
-                let kept = self.playerSettings.map {
-                    PlayerTrackSelectionKt.filterAddonSubtitlesForSettings(subtitles: subs, settings: $0)
-                } ?? subs
-                self.keptAddonSubtitles = kept
-                self.addonSubtitles = kept.map {
-                    SubtitleFile(url: $0.url, language: $0.language, name: $0.display)
+        // A stream AVPlayer opens itself (direct HLS) has no master of ours to put addon subtitle files
+        // in: the stream's own renditions are what the system menu offers, so nothing is fetched.
+        if plan.delivery == .remux {
+            addonSubsWatcher = FlowWatcherKt.watch(SubtitleRepository.shared.addonSubtitles) { [weak self] emitted in
+                guard let subs = emitted as? [AddonSubtitle] else { return }
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    // "Show only preferred languages" (shared subtitle-style setting, cloud-synced from
+                    // mobile): drop non-preferred renditions at the source with the same shared filter
+                    // the mobile runtime and the mpv screen apply.
+                    let kept = self.playerSettings.map {
+                        PlayerTrackSelectionKt.filterAddonSubtitlesForSettings(subtitles: subs, settings: $0)
+                    } ?? subs
+                    self.keptAddonSubtitles = kept
+                    self.addonSubtitles = kept.map {
+                        SubtitleFile(url: $0.url, language: $0.language, name: $0.display)
+                    }
+                    if !subs.isEmpty {
+                        // Incremental emission: this may be just one addon's results, not the whole
+                        // fetch — completion is decided solely by `subsFetchCompleted()` polling
+                        // `completedRequest` against `subsRequestKey`, not by this arriving non-empty.
+                        print("[NativePlayer] addon subtitles updated: \(subs.count)\(self.server == nil ? "" : " (after master — too late this session)")")
+                    }
+                    if self.server != nil { self.updateLateAddonSubtitleCount() }
                 }
-                if !subs.isEmpty {
-                    // Incremental emission: this may be just one addon's results, not the whole
-                    // fetch — completion is decided solely by `subsFetchCompleted()` polling
-                    // `completedRequest` against `subsRequestKey`, not by this arriving non-empty.
-                    print("[NativePlayer] addon subtitles updated: \(subs.count)\(self.server == nil ? "" : " (after master — too late this session)")")
-                }
-                if self.server != nil { self.updateLateAddonSubtitleCount() }
             }
+            SubtitleRepository.shared.fetchAddonSubtitles(type: context.contentType, videoId: context.videoId)
+            launchRemux()
+        } else {
+            directStarted = true
+            launchDirect()
         }
-        SubtitleRepository.shared.fetchAddonSubtitles(type: context.contentType, videoId: context.videoId)
-        launchRemux()
     }
 
     /// Spin up the remux session and the first-segment poll.
@@ -357,6 +379,9 @@ final class NativePlaybackCoordinator: ObservableObject {
         // from the next playback session — no invalidation machinery.
         config.stripSdh = playerSettings?.subtitleStyle.stripSdh ?? false
         config.preferredAudioPicker = preferredAudioPicker()
+        // The router's call on the Dolby Vision data: kept (P5, P8, P7 converted to 8.1) or stripped to
+        // the base layer ("HDR10 Only", two-track P7, P9 ...).
+        config.dolbyVisionHandling = plan.dolbyVision
         let remux = RemuxSession(config: config)
         self.remux = remux
         NativePlaybackMetrics.shared.reset()
@@ -417,6 +442,7 @@ final class NativePlaybackCoordinator: ObservableObject {
         remux = nil
         player = nil
         playerItem = nil
+        directStarted = false
         // The screen re-installs these on appear; dropping them here also breaks the
         // screen ↔ coordinator reference cycle the tick closures form.
         onTick = nil
@@ -657,34 +683,64 @@ final class NativePlaybackCoordinator: ObservableObject {
             // would otherwise race minutes past the ~realtime remux frontier and block on segments that
             // don't exist yet, tripping CFNetwork's request timeout.
             item.preferredForwardBufferDuration = 24
-            self.prepareItem(item)
-            let player = AVPlayer(playerItem: item)
-            self.applyLanguagePlan(to: player)
-            self.playerItem = item
-            self.player = player
-            self.audibleGroup = nil
-            self.didRelayInitialAudio = false
-            // `isPaused` means a pause DURING playback: the pre-playback `.paused` state a fresh
-            // player reports before it ever plays is ignored (it would masquerade as a user pause).
-            self.hasStartedPlaying = false
-            self.timeControlObserver = player.observe(\.timeControlStatus, options: [.new]) { [weak self] player, _ in
-                let status = player.timeControlStatus
-                Task { @MainActor [weak self] in
-                    guard let self else { return }
-                    if status == .playing { self.hasStartedPlaying = true; self.logFirstFrameIfNeeded() }
-                    guard self.hasStartedPlaying else { return }
-                    let paused = status == .paused
-                    if self.isPaused != paused { self.isPaused = paused }
-                }
-            }
-            self.observeMediaSelection(item: item, player: player)
-            self.phase = .playing
-            self.observePlayback(player: player, item: item)
+            self.installPlayer(with: item, showImmediately: true)
             #if DEBUG
             self.startSubtitleDelaySpike()
             #endif
             self.startLateSubtitlePoll()
         }
+    }
+
+    /// The AVPlayer for one item: Now Playing / title-view metadata, the subtitle appearance, the language
+    /// plan, the `isPaused` observer, the media-selection observer, and the playback observation (resume,
+    /// progress, stalls, the fallback). `showImmediately`: the screen gets its player now (the remux
+    /// path, whose item opens at once from segments that already exist). Otherwise the loading view
+    /// stays up until the item is ready to play (`observePlayback` flips the phase): a stream AVPlayer
+    /// opens itself would show an empty player for as long as its playlist takes to load.
+    private func installPlayer(with item: AVPlayerItem, showImmediately: Bool) {
+        prepareItem(item)
+        let player = AVPlayer(playerItem: item)
+        applyLanguagePlan(to: player)
+        playerItem = item
+        self.player = player
+        audibleGroup = nil
+        didRelayInitialAudio = false
+        // `isPaused` means a pause DURING playback: the pre-playback `.paused` state a fresh
+        // player reports before it ever plays is ignored (it would masquerade as a user pause).
+        hasStartedPlaying = false
+        timeControlObserver = player.observe(\.timeControlStatus, options: [.new]) { [weak self] player, _ in
+            let status = player.timeControlStatus
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                if status == .playing { self.hasStartedPlaying = true; self.logFirstFrameIfNeeded() }
+                guard self.hasStartedPlaying else { return }
+                let paused = status == .paused
+                if self.isPaused != paused { self.isPaused = paused }
+            }
+        }
+        observeMediaSelection(item: item, player: player)
+        if showImmediately { phase = .playing }
+        observePlayback(player: player, item: item)
+    }
+
+    // MARK: - Direct HLS
+
+    /// A stream that already is HLS (an addon's playlist, a Jellyfin / Emby transcode, a live channel):
+    /// AVPlayer opens it itself — no remux, no local server — so the system player gets the playlist's
+    /// own renditions, trick play and live handling exactly as for any other AVPlayer app. The addon's
+    /// request headers ride on the asset's requests (`AVURLAssetHTTPHeaderFieldsKey`, the key AVFoundation
+    /// reads for the headers of every request the asset makes; it has no public constant). A stream that
+    /// does not become ready, or fails, hands the context to mpv like any native failure.
+    private func launchDirect() {
+        guard phase == .preparing, player == nil else { return }
+        var options: [String: Any] = [:]
+        if !context.requestHeaders.isEmpty {
+            options["AVURLAssetHTTPHeaderFieldsKey"] = context.requestHeaders
+        }
+        let asset = AVURLAsset(url: context.url, options: options.isEmpty ? nil : options)
+        let item = AVPlayerItem(asset: asset)
+        print("[NativePlayer] direct HLS \u{2014} \(context.url.host ?? "?")\(context.url.path)")
+        installPlayer(with: item, showImmediately: false)
     }
 
     // MARK: - Startup helpers
@@ -976,6 +1032,7 @@ final class NativePlaybackCoordinator: ObservableObject {
             var waitingTicks = 0
             var notReadyTicks = 0
             var lastProducingSeg = 0
+            var lastWaitingPosition = -1.0
             // A percentage-only row (Simkl episode, Trakt playback) needs the file's duration, which
             // an HLS item may not know yet at readyToPlay: the first tick that knows it resumes it.
             var resumeAwaitsDuration = false
@@ -1009,6 +1066,9 @@ final class NativePlaybackCoordinator: ObservableObject {
                         guard !Task.isCancelled, self.player === player else { return }
                         self.lastPositionSec = resume
                     }
+                    // A stream AVPlayer opened itself (direct HLS) shows its player now, at the resume
+                    // point: until here the loading view stood in for it.
+                    if self.phase == .preparing { self.phase = .playing }
                     self.startPlaybackIfForeground(player)
                     if !self.traktStarted {
                         self.traktStarted = true
@@ -1041,8 +1101,9 @@ final class NativePlaybackCoordinator: ObservableObject {
                     }
                     // Never an endless spinner: an item still not ready this long after it was
                     // created goes to mpv (the native loading path had no ceiling past this point).
-                    if Double(notReadyTicks) * 0.2 >= Self.itemReadyTimeoutSec {
-                        self.fallbackMidPlay("item not ready after \(Int(Self.itemReadyTimeoutSec)) s")
+                    let readyTimeout = self.plan.delivery == .directHLS ? Self.directReadyTimeoutSec : Self.itemReadyTimeoutSec
+                    if Double(notReadyTicks) * 0.2 >= readyTimeout {
+                        self.handOverToMpv("item not ready after \(Int(readyTimeout)) s")
                         return
                     }
                 }
@@ -1097,6 +1158,11 @@ final class NativePlaybackCoordinator: ObservableObject {
                             lastProducingSeg = producing
                             waitingTicks = 1
                         }
+                        // A stream AVPlayer opens itself has no remux: its progress is the playhead.
+                        if self.plan.delivery == .directHLS, pos.isFinite, abs(pos - lastWaitingPosition) > 0.5 {
+                            lastWaitingPosition = pos
+                            waitingTicks = 1
+                        }
                         if waitingTicks == 3 || waitingTicks % 10 == 3 {
                             let reason = player.reasonForWaitingToPlay?.rawValue ?? "?"
                             print("[NativePlayer] waiting (\(reason)) at \(String(format: "%.1f", CMTimeGetSeconds(player.currentTime())))s")
@@ -1104,8 +1170,11 @@ final class NativePlaybackCoordinator: ObservableObject {
                         }
                         // Sustained stall (~30s at 3s/tick) with NO remux progress: dead/stalled
                         // source. Hand to mpv at the current position rather than spin forever.
-                        if waitingTicks >= 10 {
-                            self.fallbackMidPlay("stalled ~30s with no remux progress")
+                        let stallTicks = self.plan.delivery == .directHLS ? Self.directStallTicks : 10
+                        if waitingTicks >= stallTicks {
+                            self.fallbackMidPlay(self.plan.delivery == .directHLS
+                                                 ? "stalled ~\(stallTicks * 3)s with the playhead frozen"
+                                                 : "stalled ~30s with no remux progress")
                             return
                         }
                     } else {
@@ -1331,6 +1400,9 @@ final class NativePlaybackCoordinator: ObservableObject {
                 let fps = s.frameRate > 0 ? " \u{00B7} " + LocalizedNumberFormat.frameRate(Double(s.frameRate)) : ""
                 add(String(localized: "Resolution"), "\(s.width)\u{00D7}\(s.height)\(fps)")
             }
+        } else if let size = playerItem?.presentationSize, size.width > 0, size.height > 0 {
+            // A stream AVPlayer opens itself has no remux to ask: the item knows the picture size.
+            add(String(localized: "Resolution"), "\(Int(size.width))\u{00D7}\(Int(size.height))")
         }
         // The display name already carries language · codec · layout · title; the RFC 6381 token
         // adds nothing a viewer needs and pushes the row onto a second line.
@@ -1349,8 +1421,11 @@ final class NativePlaybackCoordinator: ObservableObject {
             add(String(localized: "Subtitles"), selected?.displayName ?? String(localized: "Off"))
         }
         // Same self-explanation for subtitles: an empty system menu should read as "the addons
-        // had nothing for this title", not as a broken selector.
-        if lateAddonSubtitleCount > 0 {
+        // had nothing for this title", not as a broken selector. (Not for a stream AVPlayer opens
+        // itself: no addon file is offered there, so there is nothing to account for.)
+        if plan.delivery == .directHLS {
+            // The stream's own subtitle renditions are the system menu's business.
+        } else if lateAddonSubtitleCount > 0 {
             // LANG-08: the master was rendered before these arrived; AVPlayer can't list them now.
             add(String(localized: "Addon subtitles"),
                 String(localized: "player.subtitles.addon.late",
@@ -1502,5 +1577,16 @@ final class NativePlaybackCoordinator: ObservableObject {
         refreshPositionFromPlayer()
         print("[NativePlayer] mid-play fallback to mpv at \(String(format: "%.1f", lastPositionSec))s — \(reason)")
         phase = .failed(reason)
+    }
+
+    /// Hand the stream to mpv from whichever side of the first frame the failure is on. A stream AVPlayer
+    /// opens itself is not shown until it is ready, so one that never gets there fails before playback
+    /// (the loading view hands over); anything later is a mid-play fallback at the current position.
+    private func handOverToMpv(_ reason: String) {
+        if phase == .playing {
+            fallbackMidPlay(reason)
+        } else {
+            failIfPreplayback(reason)
+        }
     }
 }

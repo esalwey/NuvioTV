@@ -251,6 +251,15 @@ struct PlaybackSettingsPane: View {
         // Expert options live one level down, so this pane stays short: each row opens a page of
         // its own (the tvOS Settings pattern for a category's less-used controls).
         SettingsSection(String(localized: "Advanced")) {
+            // Native first by default; the Dolby Vision picker above keeps its own say (its Off turns
+            // the native player off for good, and its other modes decide how Dolby Vision plays).
+            SettingsPickerRow(
+                title: String(localized: "Player"),
+                subtitle: model.enginePreference.detail(nativeEngineEnabled: model.dolbyVisionMode.nativeEngineEnabled),
+                selection: Binding(get: { model.enginePreference }, set: { model.setEnginePreference($0) }),
+                options: PlayerEnginePreference.allCases,
+                label: { $0.title }
+            )
             StreamRecommendationsSettingsLinkRow(ranking: streamRanking)
             SettingsLinkRow(title: String(localized: "Next Episode Stream")) {
                 NextEpisodeStreamSettingsPage(model: model, streamSelection: streamSelection)
