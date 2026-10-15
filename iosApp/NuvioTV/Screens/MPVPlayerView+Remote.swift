@@ -18,7 +18,11 @@ import SharedCore
 // What the system player does, and so does this one:
 //  - a click on the left / right edge skips exactly ±10 s — the head and the time move at once — and
 //    shows the bar with the skip hint in it ("+10 ›", the clicks in a row add up); there is no glyph
-//    over the picture. Skipping back also turns subtitles on for the section being replayed;
+//    over the picture. Skipping back also turns subtitles on for the section being replayed. Clicks in
+//    quick succession seek by keyframe and settle on one exact seek after the last, so the decoder is
+//    never asked for a pile of exact seeks;
+//  - Select pauses and resumes, always. A skip chip ("Skip Intro") is the system's focusable contextual
+//    action: Up moves "focus" onto it, Select then skips, anything else hands the focus back;
 //  - a hold on an edge starts fast-forward / rewind at 2×, each further press of the same edge steps
 //    to 3× then 4×, the opposite edge, Select, Play/Pause or Back return to normal speed; the rate
 //    shows next to the elapsed time, the sound is muted;
@@ -38,6 +42,13 @@ extension MPVTVPlayerViewController: UIGestureRecognizerDelegate {
     private static let rateStepIntervalSec: TimeInterval = PlayerSpec.Remote.scanStepIntervalSec
     /// Touch-surface scrub at slow speed: about 1 s per 8 pt of travel, faster swipes accelerate.
     private static let scrubSecondsPerPoint: Double = PlayerSpec.Remote.scrubSecondsPerPoint
+    /// A swipe moves the scrub head only after this much travel (points), and not within
+    /// `edgeDriftWindowSec` of an edge press: a click's own drift is not a scrub.
+    private static let scrubStartTravel: Double = 24
+    private static let edgeDriftWindowSec: TimeInterval = 0.4
+    /// Clicks closer together than this are one burst: keyframe seeks, then one exact seek.
+    private static let skipBurstGapSec: TimeInterval = 0.5
+    private static let skipSettleDelaySec: TimeInterval = 0.25
 
     /// Down swipe: the content tabs under the scrubber (Info, Episodes, Chapters, Stream Info), as
     /// on the system player.
@@ -49,11 +60,22 @@ extension MPVTVPlayerViewController: UIGestureRecognizerDelegate {
     /// Up swipe: with the bar showing, focus moves up to its buttons; otherwise the bar shows.
     @objc func handleSwipeUp() {
         guard presentedViewController == nil, !state.isScrubbing, !state.isEnded, !state.playbackErrorShown else { return }
-        if chromeIsShowing {
-            openChrome(.transport)
-        } else {
+        upRequested()
+    }
+
+    /// Up, by press or by swipe: the first one shows the bar; with a skip chip up, the next moves
+    /// "focus" onto it; then (or with no chip) the one after moves focus up to the bar's buttons.
+    private func upRequested() {
+        guard chromeIsShowing else {
             flashControls()
+            return
         }
+        if state.skipPrompt != nil, !state.skipChipFocused {
+            state.skipChipFocused = true
+            flashControls()
+            return
+        }
+        openChrome(.transport)
     }
 
     /// The transport bar is on screen (shown by an interaction, or held by a pause).
@@ -66,7 +88,12 @@ extension MPVTVPlayerViewController: UIGestureRecognizerDelegate {
     private func openChrome(_ entry: PlayerChromeEntry) {
         endFastForward()
         refreshTracksAsync()
-        onOpenChrome?(entry)
+        state.skipChipFocused = false
+        // The layer opens over the bar: it is brought up first if it was away (Down from nothing), so
+        // the two come in together instead of the layer appearing on its own.
+        let barWasShowing = chromeIsShowing
+        if !barWasShowing { flashControls() }
+        onOpenChrome?(entry, barWasShowing)
     }
 
     /// Show a skip prompt while the playhead is inside a segment (leaving a 1s tail so the button
@@ -157,11 +184,18 @@ extension MPVTVPlayerViewController: UIGestureRecognizerDelegate {
         switch pan.state {
         case .began:
             NextEpisodeEngine.consecutiveAutoPlays = 0
-            if state.isPaused { beginScrub() }
-            pan.setTranslation(.zero, in: view)
+            // The scrub itself starts once the finger has really travelled (`changed`): a click on an
+            // edge drifts a little under the finger and must stay a skip.
             flashControls()
         case .changed:
-            guard state.isPaused, state.isScrubbing else { return }
+            guard state.isPaused else { return }
+            if !state.isScrubbing {
+                let travel = abs(Double(pan.translation(in: view).x))
+                let sinceEdgePress = ProcessInfo.processInfo.systemUptime - lastEdgePressUptime
+                guard travel >= Self.scrubStartTravel, sinceEdgePress > Self.edgeDriftWindowSec else { return }
+                beginScrub()
+            }
+            guard state.isScrubbing else { return }
             let dx = Double(pan.translation(in: view).x)
             pan.setTranslation(.zero, in: view)
             let speed = abs(Double(pan.velocity(in: view).x))
@@ -177,6 +211,10 @@ extension MPVTVPlayerViewController: UIGestureRecognizerDelegate {
     override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
         var handled = false
         for press in presses {
+            // "Focus" stays on the skip chip only for Select (skip) and Up (on to the buttons).
+            if press.type != .select, press.type != .upArrow, state.skipChipFocused {
+                state.skipChipFocused = false
+            }
             // Keyboard: Space toggles play (HIG Playing video).
             if let key = press.key, key.keyCode == .keyboardSpacebar {
                 playPausePressed()
@@ -214,9 +252,10 @@ extension MPVTVPlayerViewController: UIGestureRecognizerDelegate {
                     handled = true
                 } else if presentedViewController == nil {
                     // The system player's grammar: the first Up shows the bar, the next one moves
-                    // focus up to its buttons (Subtitles, Audio, the app's menus).
-                    if chromeIsShowing, !state.isEnded, !state.playbackErrorShown {
-                        openChrome(.transport)
+                    // focus up to its buttons (Subtitles, Audio, the app's menus) - by way of the skip
+                    // chip when one is up.
+                    if !state.isEnded, !state.playbackErrorShown {
+                        upRequested()
                     } else {
                         flashControls()
                     }
@@ -312,11 +351,14 @@ extension MPVTVPlayerViewController: UIGestureRecognizerDelegate {
             flashControls()
             return
         }
-        if let prompt = state.skipPrompt, !state.isPaused {
-            // Skip Intro / Recap / Outro answers Select (F6); paused, Select resumes as usual.
+        if let prompt = state.skipPrompt, state.skipChipFocused {
+            // Skip Intro / Recap / Outro, once "focus" was moved onto the chip with Up (F6).
+            state.skipChipFocused = false
             performSkip(prompt)
             return
         }
+        // Select is Pause / Play, whatever is on screen: a chip that stays up for a whole intro must
+        // not take the pause away.
         togglePause()
         flashControls()
     }
@@ -360,6 +402,7 @@ extension MPVTVPlayerViewController: UIGestureRecognizerDelegate {
     private func hideChrome() {
         hideWork?.cancel()
         hideWork = nil
+        state.skipChipFocused = false
         state.controlsVisible = false
         if state.isPaused { state.pauseChromeDismissed = true }
     }
@@ -371,6 +414,7 @@ extension MPVTVPlayerViewController: UIGestureRecognizerDelegate {
     private func arrowPressBegan(_ dir: Double) {
         // Going backward means the user is still watching — abandon next-episode autoplay.
         if dir < 0 { state.upNextCancel?() }
+        lastEdgePressUptime = ProcessInfo.processInfo.systemUptime
         seekTimer?.invalidate()
         seekDirection = dir
         seekHoldCount = 0
@@ -436,7 +480,7 @@ extension MPVTVPlayerViewController: UIGestureRecognizerDelegate {
     /// do — they used to wait for the core's own position events, which are held back while a seek
     /// is in flight — and the clicks in a row start from where the last one aimed, so they add up
     /// exactly (+10, +20, +30) whatever the decoder has caught up with.
-    private func skip(by seconds: Double) {
+    func skip(by seconds: Double) {
         guard mpv != nil else { return }
         var origin = cachedProps().position
         // A resume seek still in flight: the playhead has not got to where the file is resuming yet.
@@ -450,22 +494,52 @@ extension MPVTVPlayerViewController: UIGestureRecognizerDelegate {
         var jump = Transaction()
         jump.disablesAnimations = true
         withTransaction(jump) { state.positionSec = target }
-        seekAbsolute(target, exact: true)
+        seekForSkipClick(to: target)
+    }
+
+    /// The seek behind a ±10 s click. A lone click is one exact seek, as before. Clicks in quick
+    /// succession (or while the last seek is still out) would each ask the decoder for an exact
+    /// frame, and every one of them restarts from the previous keyframe - on a 4K stream that piles up
+    /// and the picture lands late. The head and the time already show the total; the core is sent
+    /// keyframe seeks while the clicks keep coming, and one exact seek `skipSettleDelaySec` after the
+    /// last of them.
+    private func seekForSkipClick(to target: Double) {
+        let now = ProcessInfo.processInfo.systemUptime
+        let props = cachedProps()
+        let burst = now - lastSkipClickUptime < Self.skipBurstGapSec || props.seekReplies > 0 || props.seeking
+        lastSkipClickUptime = now
+        skipExactWork?.cancel()
+        skipExactWork = nil
+        guard burst else {
+            postSeek(String(format: "%.3f", target), mode: "absolute+exact")
+            return
+        }
+        postSeek(String(format: "%.3f", target), mode: "absolute+keyframes")
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, self.mpv != nil else { return }
+            self.skipExactWork = nil
+            self.postSeek(String(format: "%.3f", target), mode: "absolute+exact")
+        }
+        skipExactWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.skipSettleDelaySec, execute: work)
     }
 
     /// The system's skip hint: "+10 ›" (or "‹ -10") in the bar's state slot, the seconds skipped by the
     /// clicks in a row added up. It stays up as long as the bar does after the last click, then the
     /// total starts over (docs/player-spec.md, "Skip": the reset is [MEASURE]).
-    private func showSkipHint(_ dir: Double) {
+    func showSkipHint(_ dir: Double, seconds: Double = PlayerSpec.Remote.skipSeconds) {
         let direction = dir < 0 ? -1 : 1
         let previous = state.skipHint
         let carried = (previous?.direction == direction) ? (previous?.seconds ?? 0) : 0
         state.skipHint = SkipHint(id: (previous?.id ?? 0) &+ 1, direction: direction,
-                                  seconds: carried + Int(Self.clickSeekSec))
+                                  seconds: carried + Int(seconds.rounded()))
         skipHintWork?.cancel()
         let work = DispatchWorkItem { [weak self] in self?.state.skipHint = nil }
         skipHintWork = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + PlayerSpec.Chrome.skipHintLifetime, execute: work)
+        // The hint leaves after the bar has finished fading out, not as it starts: the text used to
+        // vanish at once while the rest of the bar was still fading.
+        DispatchQueue.main.asyncAfter(deadline: .now() + PlayerSpec.Chrome.skipHintLifetime
+                                        + PlayerSpec.Chrome.fadeDuration, execute: work)
     }
 
     /// Starts the rate in `dir` (+1 forward, -1 back) at 2×, or steps an already running one in the
@@ -479,6 +553,8 @@ extension MPVTVPlayerViewController: UIGestureRecognizerDelegate {
             magnitude = rates[min(index + 1, rates.count - 1)]
         }
         state.fastForwardRate = dir * magnitude
+        skipExactWork?.cancel()
+        skipExactWork = nil
         rateStepTimer?.invalidate()
         rateStepTimer = nil
         if dir > 0, !state.isPaused {
@@ -513,7 +589,11 @@ extension MPVTVPlayerViewController: UIGestureRecognizerDelegate {
         // The bar follows at once; the core's own position events catch up behind the seek.
         updateProps { $0.position = target }
         state.positionSec = target
-        postSeek(String(format: "%.3f", target), mode: "absolute+keyframes")
+        // One seek out at a time: a tick that finds the last one unanswered only moves the head, so
+        // the keyframe seeks never queue up behind each other and the picture keeps pace.
+        if atEdge || cachedProps().seekReplies == 0 {
+            postSeek(String(format: "%.3f", target), mode: "absolute+keyframes")
+        }
         if atEdge {
             endFastForward()
             flashControls()
@@ -594,7 +674,10 @@ extension MPVTVPlayerViewController: UIGestureRecognizerDelegate {
         endFastForward()
         skipHintWork?.cancel()
         skipHintWork = nil
+        skipExactWork?.cancel()
+        skipExactWork = nil
         state.skipHint = nil
+        state.skipChipFocused = false
     }
 
     // MARK: Playback
@@ -646,10 +729,14 @@ extension MPVTVPlayerViewController: UIGestureRecognizerDelegate {
     /// Relative seek, asynchronous (held-arrow and Now Playing callers must not park the main thread
     /// on the core lock). `exact` decodes to the precise time instead of the nearest keyframe.
     func seekBy(_ seconds: Double, exact: Bool = false) {
+        skipExactWork?.cancel()
+        skipExactWork = nil
         postSeek(String(format: "%.3f", seconds), mode: exact ? "relative+exact" : "relative")
     }
 
     func seekAbsolute(_ seconds: Double, exact: Bool = false) {
+        skipExactWork?.cancel()
+        skipExactWork = nil
         postSeek(String(format: "%.3f", seconds), mode: exact ? "absolute+exact" : "absolute")
     }
 
@@ -660,8 +747,11 @@ extension MPVTVPlayerViewController: UIGestureRecognizerDelegate {
         hideWork?.cancel()
         let work = DispatchWorkItem { [weak self] in
             guard let self else { return }
-            // Paused, scrubbing or fast-forwarding: the bar stays (spec §6.9.3).
-            if !self.state.isPaused, !self.state.isScrubbing, self.state.fastForwardRate == nil {
+            // Scrubbing, fast-forwarding or under the focus layer: the bar stays (spec §6.9.3). Paused,
+            // `pauseChromeShown` holds it by itself, so the flag is cleared here as well: a resume that
+            // did not come through the remote (an interruption, Now Playing) must not leave the bar up.
+            if !self.state.isScrubbing, self.state.fastForwardRate == nil, !self.state.panelOpen {
+                self.state.skipChipFocused = false
                 self.state.controlsVisible = false
             }
         }

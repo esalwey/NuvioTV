@@ -198,7 +198,7 @@ extension NativePlayerHostController: AVPlayerViewControllerDelegate {
                               willTransitionToVisibilityOfTransportBar visible: Bool,
                               with coordinator: any AVPlayerViewControllerAnimationCoordinator) {
         onTransportBarVisibility?(visible)
-        SystemPlayerSpecProbe.shared.transportBar(visible: visible)
+        SystemPlayerSpecProbe.shared.transportBar(visible: visible, root: playerViewController.view)
     }
 }
 
@@ -214,6 +214,9 @@ protocol PlayerPanelPresenting: AnyObject {
 /// reaches the SwiftUI `fullScreenCover` that would pop the whole player); swipe up also closes.
 final class PlayerPanelHostController<Content: View>: UIHostingController<Content>, PlayerPanelPresenting {
     var onClosed: (() -> Void)?
+    /// The dismissal is about to start (before the transition), for whoever has to get the view
+    /// underneath ready.
+    var onWillClose: (() -> Void)?
     /// A swipe up closes the panel (the top panel). Set before presenting.
     var closesOnSwipeUp = true
     private var closing = false
@@ -258,6 +261,7 @@ final class PlayerPanelHostController<Content: View>: UIHostingController<Conten
             return
         }
         closing = true
+        onWillClose?()
         let onClosed = onClosed
         dismiss(animated: animated && !UIAccessibility.isReduceMotionEnabled) {
             onClosed?()

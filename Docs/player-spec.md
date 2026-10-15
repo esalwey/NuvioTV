@@ -226,6 +226,10 @@ remux signals it (`av01`, `av01.<profile>.<level><tier>.<depth>`); it has not be
 | Scrubber | Not glass. Thin; the playhead reads poorly over motion | [observed: Firecore, Six Colors] |
 | Sizes: scrubber thickness, knob, button diameter, spacing, title font, bottom gradient height | | [MEASURE] |
 
+The mpv bar's side and bottom insets are the values tuned on a device earlier (84 pt of content inset, 56 pt
+from the bottom), not the safe-area figures above: moving them to 90 / 60 without a capture to compare against
+would be one more guess, so they stay until section 6 measures the system bar.
+
 ### 3.2 Pause and resume
 
 | Event | Reaction | Tag |
@@ -289,7 +293,8 @@ elapsed or target time are [MEASURE].
 | Back, long press | Home Screen | | | |
 | Mute (silver remote) | If audio is muted, subtitles turn on | | | |
 
-[doc for each; "exits when hidden" inferred]. Siri: "skip ahead 15 seconds", "What did they say?" (enables captions
+[doc for each; "exits when hidden" inferred]. Click center is always Pause / Play: a contextual action (Skip
+Intro) is a focusable button and only reacts once focus is on it [doc: `contextualActions`]. Siri: "skip ahead 15 seconds", "What did they say?" (enables captions
 and rewinds), pause [doc]. Only the system player answers these.
 
 ### 3.8 Menus, tabs, panels
@@ -326,13 +331,16 @@ stand-ins to replace after section 6.
 | No centred pause or skip glyph | The old arrow-with-seconds glyph at the picture's edge (`PlayerSkipIndicator`, 120 pt, 900 ms: invented, no source) is **gone**. Pause, scan and skip are drawn in the bar's state slot only | `MPVPlayerOverlays.swift` (`stateSlot`) |
 | State slot | Right after the elapsed time (so the labels do not move): skip hint, else scan glyph + `2x` / `3x` / `4x`, else `pause.fill`; nothing while playing | `PlayerTransportBar.stateSlot` |
 | Pause | The bar stays until the viewer acts; Back hides it, the next Back exits; any input shows it again | `MPVPlaybackState.pauseChromeShown`, `MPVPlayerView+Remote` `menuPressed` |
-| ±10 s | One **exact absolute seek** to current time ± 10 s (from the freshest position, so clicks in a row add up exactly), the head and the time **jump at once** (they used to wait for the core's position events, held back up to 2 s during a seek), play / pause state kept | `skip(by:)` |
-| Skip hint | "+10 ›" / "‹ -10", the clicks in a row added (`+10`, `+20`, `+30`), up for `PlayerSpec.Chrome.skipHintLifetime` (= the auto-hide) after the last click, then the total starts over; the opposite direction starts over at once | `showSkipHint`, `SkipHint` |
+| ±10 s | An **exact absolute seek** to current time ± 10 s (from the freshest position, so clicks in a row add up exactly), the head and the time **jump at once** (they used to wait for the core's position events, held back up to 2 s during a seek), play / pause state kept. Clicks less than 0.5 s apart (or while a seek is still out) go to the core as keyframe seeks and settle on one exact seek 0.25 s after the last, so a burst on a 4K stream never queues exact decodes. Siri, iPhone Remote and CEC skips take the same path | `skip(by:)`, `seekForSkipClick`, `nowPlayingSkip` |
+| Skip hint | "+10 ›" / "‹ -10", the clicks in a row added (`+10`, `+20`, `+30`), up for `PlayerSpec.Chrome.skipHintLifetime` (= the auto-hide) **plus the bar's fade** after the last click (so it does not vanish while the bar is still fading), then the total starts over; the opposite direction starts over at once. The slot's content fades and scales in and out (0.18 s), the digits roll (`numericText`); the form is [MEASURE] | `showSkipHint`, `SkipHint`, `PlayerTransportBar.stateSlot` |
+| Select and the skip chip | Select is Pause / Play, always. The chip ("Skip Intro") is a focusable action: Up (with the bar showing) moves "focus" onto it, Select then skips; any other input, the bar hiding or the segment ending takes the focus off it. The trigger is [MEASURE] | `upRequested`, `selectPressed`, `MPVPlaybackState.skipChipFocused` |
+| Playhead between polls | The core is polled twice a second; the bar's head and both labels follow the clock in between (`TimelineView`, 30 Hz, only while the bar is on screen and the picture is playing; at most 1 s past the last poll). Pause, stall, scan and scrub stand still | `MPVPlaybackState.displayPosition`, `PlayerTransportBar` |
+| Focus layer handover | The passive bar stays drawn under the focus layer, which appears without a dissolve when the bar was already up (with one when it was away); the passive bar steps aside after the layer is presented and is back before it is dismissed, both without a fade. The bar never fades out while the layer fades in | `MPVPlaybackState.chromeCovered`, `onOpenChrome`, `PlayerPanelHostController.onWillClose` |
 | Back skip | Subtitles the language plan would pick are turned on for the replayed section when none is showing, and go off when the playhead is back at the first click's position. Nothing is saved; any pick of the viewer's ends it | `beginRewindSubtitles`, `endRewindSubtitlesIfDue` |
 | Click vs hold | The click acts on release; a press of `holdThresholdSec` (0.45 s) is a hold | `arrowPressBegan` |
-| Scan | 2x, then 3x, 4x on further presses of the same edge; the opposite edge, Select, Play/Pause or Back return to 1x; muted; rewind and any scan from a pause walk the head by timer (`scanStepIntervalSec`) with keyframe seeks | `startOrStepRate`, `rateStepTick` |
-| Scrub | Pause, then swipe (about 1 s per 8 pt, accelerating with speed); a time label over the head; Select / Play/Pause commits one exact seek, Back cancels with no seek issued. **No thumbnail**: the native engine has none either (no I-frame playlist), and mpv would need a second decoder | `handleTransportPan`, `commitScrub`, `cancelScrub` |
-| Show / hide | Resting a finger shows the bar; Up shows it, the next Up focuses the buttons; it hides `autoHideDelay` (4 s) after the last interaction while playing, never while paused, scrubbing or scanning | `flashControls`, `PlayerSpec.Chrome.autoHideDelay` |
+| Scan | 2x, then 3x, 4x on further presses of the same edge; the opposite edge, Select, Play/Pause or Back return to 1x; muted; rewind and any scan from a pause walk the head by timer (`scanStepIntervalSec`) with keyframe seeks, one out at a time (a tick that finds the last seek unanswered only moves the head) | `startOrStepRate`, `rateStepTick` |
+| Scrub | Pause, then swipe after 24 pt of travel and not within 0.4 s of an edge press (about 1 s per 8 pt, accelerating with speed; a click's drift stays a skip); a time label over the head; Select / Play/Pause commits one exact seek, Back cancels with no seek issued. **No thumbnail**: the native engine has none either (no I-frame playlist), and mpv would need a second decoder | `handleTransportPan`, `commitScrub`, `cancelScrub` |
+| Show / hide | Resting a finger shows the bar; Up shows it, the next Up focuses the buttons; it hides `autoHideDelay` (4 s) after the last interaction while playing, never while paused (the pause holds it, so a resume that did not come through the remote cannot leave it up), scrubbing, scanning or under the focus layer | `flashControls`, `PlayerSpec.Chrome.autoHideDelay` |
 | Animation | Fade (`fadeDuration` 0.3 s, ease in-out) with a `slideOffset` (16 pt) slide of the bar; the slide is dropped under Reduce Motion | `MPVPlayerScreen.body` |
 | Captions | While the bar is up the captions glide up above it (`sub-pos`, `chromeClearancePercent` 27 %) and back down over the bar's own fade (`fadeDuration`, 8 steps), as AVPlayer lifts its captions with the system bar. The 27 % is [inferred] from the bar's height; the distance is [MEASURE] | `setSubtitleChromeLift` |
 | Glass | The transport buttons wear the **Clear** variant of Liquid Glass (`PlayerChipStyle.transportGlass`) over the bar's own shade; Developer > "Dark Player Glass" brings the tinted regular glass back for an A/B. The scrubber is not glass | `PlayerTransportGlyphSurface` |
@@ -361,6 +369,9 @@ Player Interface), which both engines draw.
 | Scrubbing thumbnails | Needs a second decoder on mpv; the native engine has no trick-play playlist either |
 | Ring jog (fine scrub) | The silver remote's ring does not reach the app as a distinct input |
 | Mute turns subtitles on; Siri "What did they say?" | System features; only AVPlayerViewController answers |
+| Pause and skip form in the bar (glyph place, size, animation), the skip chip's trigger | No public source describes them; the in-bar state slot and the Up-then-Select chip are inferences. The probe's view-tree dump (section 6) may read them off the native engine, else an HDMI capture |
+| Left / right inside the focus layer, auto-hide while focus sits on a button | The system's behaviour is unmeasured; the focus layer moves focus among the buttons and has no idle timer |
+| Back-skip subtitles for "up to three clicks" | Kept until the playhead is back where the first click started, which covers any number of clicks |
 | `AVPlayerViewController.speeds`, `nextContentProposal` on the native engine | Possible follow-ups; the app's menus and Up Next card are kept |
 | Pause screen with synopsis (Apple TV app only) | Not part of `AVPlayerViewController` |
 
@@ -385,6 +396,10 @@ One session, about an hour, replaces the [MEASURE] stand-ins:
    from `willTransitionToVisibilityOfTransportBar`'s animation coordinator.
 4. Put the numbers in `PlayerSpec` (and the layout constants in `PlayerChromeLayout`), the tags here from
    [MEASURE] to [observed: probe, date], and run the same remote script against an mpv file to diff.
+5. The probe also prints the system player's view tree (`view tree, bar appearing / bar settled / after rate x`):
+   class, frame, alpha, label text and font, image, running animations. Read the pause glyph, the skip hint and the
+   fade off it when the controls are drawn in-process; an almost empty tree means they are not, and the capture in
+   step 3 is the only source.
 
 ## 7. Verification, and what to check after a build
 

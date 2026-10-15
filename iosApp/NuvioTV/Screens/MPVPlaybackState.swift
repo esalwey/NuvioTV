@@ -12,7 +12,13 @@ import SharedCore
 /// (~2x/sec) and pushes updates here on the main thread.
 @MainActor
 final class MPVPlaybackState: ObservableObject {
-    @Published var positionSec: Double = 0
+    @Published var positionSec: Double = 0 {
+        didSet { positionStampedAt = ProcessInfo.processInfo.systemUptime }
+    }
+    /// Uptime of the last write to `positionSec`. The playhead is polled twice a second; the bar draws
+    /// the time in between from this stamp (`displayPosition(at:)`) so the head and the labels move
+    /// smoothly, as the system player's do.
+    private(set) var positionStampedAt: TimeInterval = 0
     @Published var durationSec: Double = 0
     @Published var isPaused: Bool = false {
         didSet {
@@ -54,7 +60,18 @@ final class MPVPlaybackState: ObservableObject {
     @Published var subtitleSearchInFlight: Bool = false
 
     /// Active skip prompt ("Skip Intro"/"Skip Outro") when playback is inside a known segment.
-    @Published var skipPrompt: SkipPrompt?
+    @Published var skipPrompt: SkipPrompt? {
+        didSet { if skipPrompt == nil, skipChipFocused { skipChipFocused = false } }
+    }
+    /// Up moved "focus" onto the skip chip (the system's contextual action is a focusable button):
+    /// Select then skips, any other input hands it back. Select pauses and resumes otherwise, as on
+    /// the system player — a chip that stays up for a whole intro never takes the pause away.
+    @Published var skipChipFocused: Bool = false
+    /// The chrome's focus layer is drawn over the player and has taken the bar's place: the passive
+    /// bar underneath stays put, fully drawn, until the layer is on top of it, then steps aside
+    /// without a fade (and is back, still without a fade, before the layer goes) — two fades at once
+    /// made the bar dim and light up again.
+    @Published var chromeCovered: Bool = false
     /// "Intro skipped": the confirmation shown for a moment after Automatic Skipping skipped a segment.
     @Published var autoSkipToast: AutoSkipToast?
 
@@ -151,6 +168,28 @@ final class MPVPlaybackState: ObservableObject {
     }
 
     var isScrubbing: Bool { scrubTargetSec != nil }
+
+    /// The playhead as the bar draws it at `uptime`: the last polled position plus the time since, at the
+    /// playback speed, while the picture is actually playing (a pause, a stall, a scan, a scrub and a
+    /// rewind stand still or are driven by their own value). At most a second ahead of the last poll, so
+    /// a stalled poll cannot run the head away, and never past the end.
+    func displayPosition(at uptime: TimeInterval) -> Double {
+        guard isAdvancing, positionStampedAt > 0 else {
+            return positionSec
+        }
+        let elapsed = min(max(uptime - positionStampedAt, 0), 1)
+        let advanced = positionSec + elapsed * max(playbackSpeed, 0)
+        return durationSec > 0 ? min(advanced, durationSec) : advanced
+    }
+
+    /// The playhead is moving on its own (the bar's clock may run).
+    var isAdvancing: Bool {
+        !isPaused && !isBuffering && !isEnded && !isScrubbing && fastForwardRate == nil
+    }
+
+    func displayFraction(at uptime: TimeInterval) -> Double {
+        durationSec > 0 ? min(max(displayPosition(at: uptime) / durationSec, 0), 1) : 0
+    }
 
     /// Scrub head position on the progress bar (0…1), nil when not scrubbing.
     var scrubFraction: Double? {

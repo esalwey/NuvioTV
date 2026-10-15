@@ -52,10 +52,10 @@ nonisolated enum PlayerSpec {
         /// the system value is [MEASURE].
         static let autoHideDelay: TimeInterval = 4
 
-        /// The skip hint ("+10 ›") stays up as long as the bar does after the last click, and the
-        /// clicks in a row add up while it is up. [doc] says only that repeated clicks skip 10 s each;
-        /// that the hint is tied to the bar's auto-hide is [inferred]; the running total's reset is
-        /// [MEASURE].
+        /// The skip hint ("+10 ›") stays up as long as the bar does after the last click (it leaves
+        /// once the bar has finished fading, `fadeDuration` later), and the clicks in a row add up while
+        /// it is up. [doc] says only that repeated clicks skip 10 s each; that the hint is tied to the
+        /// bar's auto-hide is [inferred]; the running total's reset is [MEASURE].
         static let skipHintLifetime: TimeInterval = autoHideDelay
 
         /// The bar fades in and out with a short slide of its bottom group. [inferred] 0.25 to 0.35 s

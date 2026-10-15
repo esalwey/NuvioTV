@@ -42,7 +42,7 @@ private struct MPVPlayerRepresentable: UIViewControllerRepresentable {
         controller.onSwitchToNative = onSwitchToNative
         controller.onServerFallback = onServerFallback
         let state = state, makeChromeView = makeChromeView
-        controller.onOpenChrome = { [weak controller] entry in
+        controller.onOpenChrome = { [weak controller] entry, barWasShowing in
             guard let controller, controller.presentedViewController == nil else { return }
             let closer = PlayerChromeCloser()
             let host = PlayerPanelHostController(rootView: makeChromeView(entry, closer))
@@ -51,14 +51,26 @@ private struct MPVPlayerRepresentable: UIViewControllerRepresentable {
             host.modalPresentationStyle = .overFullScreen
             host.modalTransitionStyle = .crossDissolve
             closer.host = host
+            // The layer draws the same bar as the passive one. The passive bar stays drawn under it
+            // until the layer is up and steps aside without a fade; it is back, still without a
+            // fade, before the layer leaves — the bar never dims and lights up again.
+            host.onWillClose = { [weak state] in state?.chromeCovered = false }
             host.onClosed = { [weak state, weak controller] in
+                state?.chromeCovered = false
                 state?.panelOpen = false
                 state?.reclaimFocus?()     // libmpv's controller must be first responder again
                 // Back on the scrubber with the bar still up, like the system player.
                 controller?.flashControls()
             }
             state.panelOpen = true
-            controller.present(host, animated: !UIAccessibility.isReduceMotionEnabled)
+            // The bar was already up: the layer appears on top of an identical bar, with no dissolve.
+            // The bar was away (Down from nothing): the layer fades in with the bar coming back.
+            let animated = !barWasShowing && !UIAccessibility.isReduceMotionEnabled
+            controller.present(host, animated: animated) { [weak state] in
+                // A layer already closed again (a fast Back) leaves the passive bar where it is.
+                guard let state, state.panelOpen else { return }
+                state.chromeCovered = true
+            }
         }
         ctx.coordinator.attach(controller: controller, state: state, chromeModel: chromeModel)
         return controller
@@ -202,6 +214,7 @@ struct MPVPlayerScreen: View {
                 tabs: MPVChromeContent.tabs(
                     hasEpisodes: context.season != nil && !upNext.episodes.isEmpty,
                     hasChapters: !chromeModel.chapters(durationSec: state.durationSec).isEmpty),
+                live: chromeShown && !state.chromeCovered,
                 // Measured, not assumed: the prompts above it clear its real height (Larger Text,
                 // a movie's one-line title). They follow in step with the bar.
                 onContentHeightChange: { height in
@@ -211,14 +224,17 @@ struct MPVPlayerScreen: View {
             // Fades in and out with a short slide of the bottom group (docs/player-spec.md, "Layout").
             // A ±10 s click, a pause, a scan: all drawn inside this bar (its state slot), never as a
             // glyph over the picture — the system player has none.
-            .opacity(chromeShown ? 1 : 0)
+            // While the focus layer is up it has taken the bar's place: that handover is instant (only a
+            // change of `chromeShown` animates), so the two bars never cross-fade.
+            .opacity(chromeShown && !state.chromeCovered ? 1 : 0)
             .offset(y: chromeShown || reduceMotion ? 0 : PlayerSpec.Chrome.slideOffset)
             .animation(.easeInOut(duration: PlayerSpec.Chrome.fadeDuration), value: chromeShown)
 
             // Transient prompts, bottom-trailing — same chip family as the native screen's
             // contextual actions (PlayerChipStyle). libmpv owns the remote, so these are drawn
             // non-focusable and act on the remote (see `pressesBegan`); Up Next wins over a skip.
-            // The skip chip answers Select while playing (F6), so its Select hint shows only then.
+            // The skip chip is the system's focusable contextual action: Up moves "focus" onto it (it
+            // then wears the focused look) and Select skips; Select otherwise pauses and resumes.
             if upNext.isCardVisible {
                 UpNextCard(engine: upNext, fallbackArtwork: context.background ?? context.poster)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
@@ -234,7 +250,9 @@ struct MPVPlayerScreen: View {
                     .padding(.bottom, promptBottomInset)
                     .transition(.opacity)
             } else if let prompt = state.skipPrompt {
-                PlayerActionChip(label: prompt.label, symbol: PlayerChipStyle.skipSymbol, showsPressHint: !state.isPaused)
+                PlayerActionChip(label: prompt.label, symbol: PlayerChipStyle.skipSymbol,
+                                 hintSymbol: state.skipChipFocused ? nil : PlayerChipStyle.upHintSymbol,
+                                 focused: state.skipChipFocused)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
                     .padding(.trailing, PlayerChipStyle.edgePadding)
                     // Same clearance as the Up Next card: the chip used to sit on the bar's end.
@@ -354,10 +372,10 @@ struct MPVPlayerScreen: View {
     }
 
     /// The transport chrome is on screen: shown by an interaction, or held by a pause (the system
-    /// player never hides its bar while paused, until Back puts it away — F3), and not while the
-    /// focus layer draws it.
+    /// player never hides its bar while paused, until Back puts it away — F3). While the focus layer
+    /// draws it this stays true: the passive bar is only covered (`MPVPlaybackState.chromeCovered`).
     private var chromeShown: Bool {
-        firstFrameShown && !state.playbackErrorShown && !state.panelOpen
+        firstFrameShown && !state.playbackErrorShown
             && (state.controlsVisible || state.pauseChromeShown)
     }
 
