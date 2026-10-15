@@ -60,6 +60,13 @@ nonisolated struct VideoSignaling: Sendable {
     /// inside the fMP4 samples; this flag only makes the master say so (SUPPLEMENTAL-CODECS brand `cdm4`,
     /// see `SegmentMap.masterPlaylist`). Detected from the first packets of the first run.
     var hdr10Plus: Bool = false
+
+    /// The master declares HDR10+ (SUPPLEMENTAL-CODECS `<codecs>/cdm4`): detected, no Dolby Vision
+    /// signaling in that slot, and the base codec is PQ `hvc1` (the form Apple specifies for the brand).
+    /// `SegmentMap.masterPlaylist` writes the brand under exactly this condition.
+    var declaresHdr10Plus: Bool {
+        hdr10Plus && supplementalCodecs == nil && videoRange == "PQ" && codecs.hasPrefix("hvc1")
+    }
 }
 
 /// One audio stream of the source, as the remux worker inspected it (D4 audio track switching).

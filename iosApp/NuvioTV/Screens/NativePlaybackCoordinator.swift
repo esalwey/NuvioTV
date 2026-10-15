@@ -122,13 +122,15 @@ final class NativePlaybackCoordinator: ObservableObject {
     var itemReloads = 0
     /// Audio stream to select again on a reloaded item, so the viewer's pick survives the fallback.
     var pendingAudioRestoreStream: Int?
+    /// The viewer had paused when the item was reloaded: the new item waits for Play as well.
+    var resumePausedAfterReload = false
 
     /// The master declares HDR10+ (SUPPLEMENTAL-CODECS brand `cdm4`, see `Hdr10PlusDetector`): the
     /// stream carries the dynamic metadata, no Dolby Vision signaling takes the slot, and the
     /// signaling retry has not dropped it.
     var hdr10PlusDeclared: Bool {
         guard let signaling = remux?.videoSignaling else { return false }
-        return signaling.hdr10Plus && signaling.supplementalCodecs == nil && signalingAttempt == 0
+        return signaling.declaresHdr10Plus && signalingAttempt == 0
     }
 
     /// Language preferences (Settings → Playback → Preferred Audio/Subtitle Language + the
@@ -201,7 +203,7 @@ final class NativePlaybackCoordinator: ObservableObject {
     @Published var isRefetchingSubtitles = false
     /// Paused per `timeControlStatus` (drives the swipe-down hint re-show).
     @Published private(set) var isPaused = false
-    private var hasStartedPlaying = false
+    var hasStartedPlaying = false
     private var timeControlObserver: NSKeyValueObservation?
     /// The audio track (stream index) AVPlayer's audible media selection currently names — the
     /// server honours rendition-file requests only for THIS track (info-panel W3), so an in-flight
@@ -873,6 +875,13 @@ final class NativePlaybackCoordinator: ObservableObject {
         }
         guard signalingAttempt == 0, let servedURL else {
             print("[NativePlayer] failing over to mpv (item failed before playback started)")
+            // Lossless FLAC is the least proven audio on a device: when the item is lost with a FLAC
+            // track selected, play the next files with AAC (the toggle shows it off) rather than
+            // lose Dolby Vision or fall to mpv every time.
+            if remux?.audioTracks.contains(where: { $0.selected && $0.losslessOutput }) == true {
+                UserDefaults.standard.set(false, forKey: PlayerTuning.losslessAudioKey)
+                print("[NativePlayer] Lossless Surround Sound turned off after the item failed with FLAC audio")
+            }
             phase = .failed("item failed before start")
             return
         }
@@ -1062,7 +1071,12 @@ final class NativePlaybackCoordinator: ObservableObject {
                         guard !Task.isCancelled, self.player === player else { return }
                         self.lastPositionSec = resume
                     }
-                    self.startPlaybackIfForeground(player)
+                    if self.resumePausedAfterReload {
+                        self.resumePausedAfterReload = false
+                        print("[NativePlayer] reloaded item stays paused (the viewer had paused)")
+                    } else {
+                        self.startPlaybackIfForeground(player)
+                    }
                     if !self.traktStarted {
                         self.traktStarted = true
                         self.recorder.startTrakt(positionSec: self.lastPositionSec, durationSec: duration.isFinite ? duration : 0)
@@ -1077,6 +1091,11 @@ final class NativePlaybackCoordinator: ObservableObject {
                     // the new one still belongs to the signaling retry path.)
                     if !readied {
                         self.handlePrePlaybackItemFailure(player: player)
+                    } else if !self.spatialKinds.isEmpty,
+                              self.reloadWithoutSpatialAudio(streams: Array(self.spatialKinds.keys),
+                                                             reason: "item failed mid-play") {
+                        // A spatial rendition is the newest part of the stream: the standard audio takes
+                        // over at this position before the engine is given up on.
                     } else {
                         // Failed AFTER playback started — e.g. a forward seek past the linear remux
                         // frontier that the JIT server fast-503'd until AVPlayer gave up. Hand to mpv
@@ -1158,6 +1177,16 @@ final class NativePlaybackCoordinator: ObservableObject {
                         }
                         // Sustained stall (~30s at 3s/tick) with NO remux progress: dead/stalled
                         // source. Hand to mpv at the current position rather than spin forever.
+                        // A stall while the audio is an APAC rendition is the conversion's before it
+                        // is the source's: ~12 s of it and that track plays the standard way.
+                        if waitingTicks >= 4, let stream = self.currentAudioStreamIndex(),
+                           self.spatialKinds[stream] != nil {
+                            waitingTicks = 0
+                            print("[NativePlayer] spatial audio abandoned for stream \(stream): playback stalled on the APAC audio")
+                            if self.reloadWithoutSpatialAudio(streams: [stream], reason: "playback stalled on the APAC audio") {
+                                return      // the reloaded item has its own observer
+                            }
+                        }
                         if waitingTicks >= 10 {
                             self.fallbackMidPlay("stalled ~30s with no remux progress")
                             return

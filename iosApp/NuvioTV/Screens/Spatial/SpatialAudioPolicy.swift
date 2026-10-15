@@ -119,6 +119,42 @@ nonisolated enum SpatialAudioPolicy {
         }
     }
 
+    /// The track whose conversion the start waits for: the one the remux starts on when it is worth
+    /// converting, else the first track announced as Atmos / DTS:X. The remux prefers a stream-copyable
+    /// track (a Dolby Digital compatibility track beside the TrueHD Atmos one is the common layout), and
+    /// the viewer then still gets the Atmos rendition in the Audio menu.
+    static func startTrack(in tracks: [RemuxAudioTrack]) -> RemuxAudioTrack? {
+        if let selected = tracks.first(where: \.selected),
+           probeKind(codec: selected.codec, profile: selected.profile) != nil {
+            return selected
+        }
+        return tracks.first { track in
+            track.playable
+                && probeKind(codec: track.codec, profile: track.profile) != nil
+                && announcedKind(codec: track.codec, profile: track.profile, title: track.title) != nil
+        }
+    }
+
+    /// The Atmos / DTS:X track to start on instead of `base`, the track the remux would start on, when
+    /// it is a stream-copied compatibility track (Dolby Digital, AAC...) and a track of the same
+    /// language is announced as object-based. nil keeps `base`. E-AC-3 stays: it may carry Dolby Atmos
+    /// (JOC) that AVPlayer plays natively.
+    static func upgradedStart(from base: RemuxAudioTrack, in tracks: [RemuxAudioTrack]) -> Int? {
+        guard !base.transcodes, base.codec != "eac3" else { return nil }
+        let language = primaryLanguage(base.language)
+        return tracks.first { track in
+            track.playable && track.transcodes
+                && probeKind(codec: track.codec, profile: track.profile) != nil
+                && announcedKind(codec: track.codec, profile: track.profile, title: track.title) != nil
+                && primaryLanguage(track.language) == language
+        }?.streamIndex
+    }
+
+    private static func primaryLanguage(_ code: String?) -> String? {
+        guard let tag = TrackLabelFormatter.normalizedTag(code) else { return nil }
+        return tag.split(separator: "-").first.map { String($0).lowercased() }
+    }
+
     /// The first track of a probe that is announced to be object-based, for the router's label.
     static func announcedKind(in audio: [AudioStreamInfo]) -> SpatialAudioKind? {
         for stream in audio {

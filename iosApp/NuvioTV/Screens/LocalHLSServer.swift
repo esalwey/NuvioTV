@@ -121,7 +121,8 @@ nonisolated final class LocalHLSServer: @unchecked Sendable {
     /// Resume offset published as `EXT-X-START` in the media playlists (PLY-A5): AVPlayer starts the
     /// item at the resume segment the remux was repositioned to, instead of fetching segment 1.
     /// nil = start at zero.
-    private let startOffsetSec: Double?
+    private var _startOffsetSec: Double?
+    private var startOffsetSec: Double? { lock.lock(); defer { lock.unlock() }; return _startOffsetSec }
 
     var port: UInt16? { lock.lock(); defer { lock.unlock() }; return _port }
 
@@ -154,13 +155,19 @@ nonisolated final class LocalHLSServer: @unchecked Sendable {
         self.producingInfo = producingInfo
         self.requestReposition = requestReposition
         self.onSegmentRequest = onSegmentRequest
-        self.startOffsetSec = startOffsetSec
+        self._startOffsetSec = startOffsetSec
         self.token = UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased()
     }
 
     /// Swap the master-playlist signaling (used for the minimal-signaling retry).
     func setSignaling(_ signaling: VideoSignaling) {
         lock.lock(); _signaling = signaling; lock.unlock()
+    }
+
+    /// Where a reloaded item opens (`EXT-X-START`): the position the viewer was at when the item was
+    /// replaced, instead of the resume point the first item was planned with.
+    func setStartOffset(_ seconds: Double?) {
+        lock.lock(); _startOffsetSec = seconds; lock.unlock()
     }
 
     /// The spatial (APAC) rendition of an audio track, if it plays that way.

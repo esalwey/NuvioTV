@@ -215,7 +215,7 @@ nonisolated struct SegmentMap: Sendable {
         // every member must have its base codec in CODECS, which `signaling.codecs` is.
         if let supp = signaling.supplementalCodecs {
             streamInf += ",SUPPLEMENTAL-CODECS=\"\(supp)\""
-        } else if signaling.hdr10Plus, signaling.videoRange == "PQ", signaling.codecs.hasPrefix("hvc1") {
+        } else if signaling.declaresHdr10Plus {
             streamInf += ",SUPPLEMENTAL-CODECS=\"\(signaling.codecs)/cdm4\""
         }
         // VIDEO-RANGE is REQUIRED for HDR on tvOS 27: PQ media behind a master that doesn't declare it

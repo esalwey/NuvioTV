@@ -162,6 +162,10 @@ actor SpatialAudioSegmentEngine {
     private var waiting: [Int] = []
     /// A decoding or encoding failure that repeats on every run, which ends the stream.
     private var failure: (any Error)?
+    /// Runs in a row that ended on a transport error (a dropped connection, a server error) without a
+    /// segment reaching the player in between. They are retried, but not forever.
+    private var transportFailures = 0
+    private static let maxTransportFailures = 6
     private var stopped = false
 
     /// The furthest segment playback wants: the latest request, or a waiting one further ahead.
@@ -229,6 +233,7 @@ actor SpatialAudioSegmentEngine {
         waiting.append(index)
         defer { if let entry = waiting.firstIndex(of: index) { waiting.remove(at: entry) } }
         let data = try await wait(until: { $0.segment(index) }, while: { waitsForRun(index) })
+        transportFailures = 0
         publishSpeed()
         return data
     }
@@ -350,6 +355,8 @@ actor SpatialAudioSegmentEngine {
         let id = UUID()
         store.begin(run: id, first: index)
         let task = Task.detached { [weak self] in
+            // Declared outside the `do` so a failed or cancelled run ends its writer too.
+            var session: SpatialAudioTranscoder?
             do {
                 func transcoder(from inputStart: CMTime?) throws -> SpatialAudioTranscoder {
                     var settings = configuration
@@ -367,7 +374,6 @@ actor SpatialAudioSegmentEngine {
                     await self.paceRun(id)
                     return true
                 }
-                var session: SpatialAudioTranscoder?
                 var reachesEnd = true
                 for try await packet in file.packets(of: track, from: CMTimeAdd(start, origin)) {
                     try Task.checkCancellation()
@@ -389,8 +395,10 @@ actor SpatialAudioSegmentEngine {
                 }
                 store.end(run: id, failure: nil)
             } catch is CancellationError {
+                await session?.cancel()
                 store.end(run: id, failure: nil)
             } catch {
+                await session?.cancel()
                 store.end(run: id, failure: error)
                 await self?.runFailed(id, error: error)
             }
@@ -408,6 +416,10 @@ actor SpatialAudioSegmentEngine {
             record(error)
         } else {
             NativePlaybackMetrics.shared.noteSpatialFailure(String(describing: error))
+            // A transport error may succeed on a new run (the server answers 503, AVPlayer asks again),
+            // but one that keeps failing ends the stream so the track plays the standard way.
+            transportFailures += 1
+            if transportFailures >= Self.maxTransportFailures { record(error) }
         }
     }
 

@@ -114,8 +114,8 @@ nonisolated enum PlayerEngineRouter {
             }
         }
 
-        // At least one audio track must be AVPlayer-compatible (stream-copied) or TrueHD/DTS (the
-        // remux transcodes those to AAC — Phase 4 v2). Video-only files are fine.
+        // At least one audio track must be AVPlayer-compatible (stream-copied) or one the remux
+        // converts (TrueHD/DTS to lossless FLAC or AAC, or to Dolby Atmos). Video-only files are fine.
         let hasCompatibleAudio = p.audio.isEmpty
             || p.audio.contains { isNativeAudio($0.codec) || isTranscodableAudio($0.codec) }
         guard hasCompatibleAudio else {

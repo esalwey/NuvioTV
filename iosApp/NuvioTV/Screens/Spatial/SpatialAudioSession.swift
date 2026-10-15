@@ -118,7 +118,10 @@ nonisolated final class SpatialRendition: Sendable {
             case .stopped: return .gone
             }
         }
-        if error is CancellationError { return .retry }
+        // A transport error (the source dropped, a timeout, a server error) is not the converter's
+        // verdict: answer 503 so AVPlayer asks again, as a 500 on a media segment can fail the item.
+        // The engine ends the stream when they keep coming.
+        if error is CancellationError || error is URLError || error is POSIXError { return .retry }
         return .failed(String(describing: error))
     }
 }
@@ -135,6 +138,9 @@ nonisolated final class SpatialAudioSession: @unchecked Sendable {
     private var renditions: [Int: SpatialRendition] = [:]
     private var failureHandler: (@Sendable (Int, String) -> Void)?
     private var playheadSec = 0.0
+    /// The playback position has been reported (`notePosition`): it is a better playhead than the
+    /// newest video segment request, which AVPlayer's forward buffer puts up to 24 s ahead.
+    private var positionDriven = false
     private var stopped = false
 
     private init(urlSession: URLSession, file: MatroskaFile, origin: CMTime, totalFrames: Int64, priming: Int64,
@@ -283,7 +289,13 @@ nonisolated final class SpatialAudioSession: @unchecked Sendable {
     /// AVPlayer asked for video segment `number` (one-based): the playhead is about there.
     func noteVideoSegment(_ number: Int) {
         guard number >= 1, number <= videoSegmentStarts.count else { return }
-        lock.withLock { playheadSec = videoSegmentStarts[number - 1] }
+        lock.withLock { if !positionDriven { playheadSec = videoSegmentStarts[number - 1] } }
+    }
+
+    /// The player's position, in playlist seconds (the coordinator's 3 s tick).
+    func notePosition(_ seconds: Double) {
+        guard seconds.isFinite, seconds >= 0 else { return }
+        lock.withLock { playheadSec = seconds; positionDriven = true }
     }
 
     private var currentPlayhead: Double { lock.withLock { playheadSec } }

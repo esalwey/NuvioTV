@@ -185,10 +185,20 @@ extension NativePlaybackCoordinator {
         let savedLanguage = persistedTrackPreference?.audioLanguage
         let savedName = persistedTrackPreference?.audioName
         let savedTrackId = persistedTrackPreference?.audioTrackId
-        guard !targets.isEmpty || !(savedLanguage ?? "").isEmpty else { return nil }
+        let hasPreference = !targets.isEmpty || !(savedLanguage ?? "").isEmpty
+        // Spatial Audio on: a TrueHD Atmos / DTS:X track starts in place of a stream-copied compatibility
+        // track (Dolby Digital...) of its language, unless the viewer's own remembered pick is that track.
+        let upgrades = SpatialAudioPolicy.isEnabled && (savedName ?? "").isEmpty && (savedTrackId ?? "").isEmpty
+        guard hasPreference || upgrades else { return nil }
         return { tracks in
-            Self.preferredAudioStream(in: tracks, targets: targets, savedLanguage: savedLanguage,
-                                      savedName: savedName, savedTrackId: savedTrackId)
+            let picked = hasPreference
+                ? Self.preferredAudioStream(in: tracks, targets: targets, savedLanguage: savedLanguage,
+                                            savedName: savedName, savedTrackId: savedTrackId)
+                : nil
+            guard upgrades,
+                  let base = tracks.first(where: { $0.streamIndex == picked })
+                      ?? tracks.first(where: { $0.playable && !$0.transcodes }) else { return picked }
+            return SpatialAudioPolicy.upgradedStart(from: base, in: tracks) ?? picked
         }
     }
 
@@ -246,6 +256,11 @@ extension NativePlaybackCoordinator {
                 // A reloaded item (a spatial track fell back to the standard audio) opens on AVPlayer's
                 // own pick: put the viewer's back first.
                 self.restorePendingAudioSelection(item: item, group: group)
+                // The Atmos output was set up for the master's default audio: follow the real selection.
+                if !self.spatialKinds.isEmpty, let player = self.player,
+                   self.isSpatialAudioSelected(in: item) != self.defaultAudioIsSpatial {
+                    self.attachAtmosActivator(to: player)
+                }
                 self.syncAudioSelection(item: item, player: player)
             }
         } else {
@@ -266,7 +281,11 @@ extension NativePlaybackCoordinator {
         guard selectedAudioBox.value != stream else { return }
         selectedAudioBox.value = stream
         print("[NativePlayer] audio selection → stream \(stream) (\(option.displayName))")
-        remux?.selectAudio(streamIndex: stream, atSegment: nil)
+        // An APAC rendition is converted by the spatial engine, not the remux: restarting the remux
+        // for it would interrupt its read, re-seek the source and start a FLAC encode nobody hears
+        // while the conversion is starting. If the track later falls back to the standard audio,
+        // the server's first request for it switches the remux then.
+        if spatialKinds[stream] == nil { remux?.selectAudio(streamIndex: stream, atSegment: nil) }
         // A later change came from the system Audio popover (panel picks save in `select(audio:)`):
         // remember it for the show (LANG-09 / STAB-05).
         if didRelayInitialAudio, subtitleChoiceTrackingArmed, lastSavedAudioStream != stream {

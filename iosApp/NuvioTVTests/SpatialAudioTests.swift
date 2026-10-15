@@ -102,6 +102,53 @@ final class SpatialAudioTests: XCTestCase {
     }
     #endif
 
+    // MARK: - Which track starts
+
+    private func track(_ index: Int, _ codec: String, language: String? = "eng", title: String? = nil,
+                       profile: Int = FFmpegAudioProfile.unknown, transcodes: Bool? = nil,
+                       selected: Bool = false) -> RemuxAudioTrack {
+        let transcoding = transcodes ?? (codec == "truehd" || codec == "dts")
+        return RemuxAudioTrack(streamIndex: index, codec: codec, channels: 6, language: language, title: title,
+                               playable: true, codecToken: nil, transcodes: transcoding, selected: selected,
+                               profile: profile, losslessOutput: false)
+    }
+
+    func testTheConversionCheckFollowsTheSelectedTrackThenTheAnnouncedOne() {
+        // The remux started on TrueHD: that track decides.
+        let truehd = track(2, "truehd", selected: true)
+        XCTAssertEqual(SpatialAudioPolicy.startTrack(in: [track(1, "ac3"), truehd])?.streamIndex, 2)
+        // It started on the Dolby Digital companion: the announced Atmos track is converted instead.
+        let companion = [track(1, "ac3", selected: true), track(2, "truehd", profile: 30)]
+        XCTAssertEqual(SpatialAudioPolicy.startTrack(in: companion)?.streamIndex, 2)
+        // Nothing announced and nothing selected to try: no conversion.
+        XCTAssertNil(SpatialAudioPolicy.startTrack(in: [track(1, "ac3", selected: true), track(2, "truehd")]))
+        XCTAssertNil(SpatialAudioPolicy.startTrack(in: [track(1, "ac3", selected: true), track(2, "dts", profile: 20, title: "DTS:X")]))
+    }
+
+    func testAnAtmosTrackReplacesTheCompatibilityTrackOfItsLanguage() {
+        let tracks = [track(1, "ac3", language: "fre", selected: true), track(2, "ac3", language: "eng"),
+                      track(3, "truehd", language: "eng", profile: 30)]
+        let french = tracks[0], english = tracks[1]
+        XCTAssertEqual(SpatialAudioPolicy.upgradedStart(from: english, in: tracks), 3)
+        XCTAssertNil(SpatialAudioPolicy.upgradedStart(from: french, in: tracks), "another language")
+        // Dolby Digital Plus may be Atmos already, and a track that transcodes is not a compatibility track.
+        XCTAssertNil(SpatialAudioPolicy.upgradedStart(from: track(4, "eac3", language: "eng"), in: tracks))
+        XCTAssertNil(SpatialAudioPolicy.upgradedStart(from: tracks[2], in: tracks))
+    }
+
+    func testTransportErrorsAreRetriedNotFailed() {
+        guard case .retry = SpatialRendition.result(for: URLError(.networkConnectionLost)) else {
+            return XCTFail("a dropped connection is retried")
+        }
+        guard case .retry = SpatialRendition.result(for: CancellationError()) else {
+            return XCTFail("a cancelled request is retried")
+        }
+        struct ConverterError: Error {}
+        guard case .failed = SpatialRendition.result(for: ConverterError()) else {
+            return XCTFail("any other error is final")
+        }
+    }
+
     // MARK: - What the viewer reads
 
     /// The sentence around the format names is translated, the names are not, so these check the names.

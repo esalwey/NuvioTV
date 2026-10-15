@@ -36,7 +36,7 @@ extension NativePlaybackCoordinator {
     static let spatialMinimumSegments = 8
     /// ...and is too slow below this many seconds of audio per second of work (SpatialAudioBridge: below
     /// about 1.2 playback stalls; the strikes below keep one slow burst after a seek from counting).
-    static let spatialMinimumSpeed = 1.0
+    static let spatialMinimumSpeed = 1.2
 
     // MARK: - Names and renditions
 
@@ -78,8 +78,9 @@ extension NativePlaybackCoordinator {
 
     // MARK: - Start
 
-    /// Starts the conversion check of the track the viewer starts on. No-op when Spatial Audio is off,
-    /// the device cannot output Atmos, or that track is not TrueHD / lossless-capable DTS.
+    /// Starts the conversion check of the track the viewer starts on, or else of the first track
+    /// announced as Atmos / DTS:X. No-op when Spatial Audio is off, the device cannot output Atmos, or
+    /// no track is TrueHD / lossless-capable DTS.
     func beginSpatialStart(remux: RemuxSession, map: SegmentMap) {
         guard spatialOutcome == .idle else { return }
         guard SpatialAudioPolicy.isEnabled else {
@@ -87,8 +88,7 @@ extension NativePlaybackCoordinator {
             return
         }
         let tracks = remux.audioTracks
-        guard let initial = tracks.first(where: \.selected),
-              SpatialAudioPolicy.probeKind(codec: initial.codec, profile: initial.profile) != nil,
+        guard let initial = SpatialAudioPolicy.startTrack(in: tracks),
               let originSec = remux.timelineOriginSec else {
             spatialOutcome = .unavailable
             return
@@ -97,8 +97,14 @@ extension NativePlaybackCoordinator {
         spatialStartedAt = Date()
         let url = context.url
         let headers = context.requestHeaders
-        // The segment the item opens on: the resume point, else the start.
-        let startSec = plannedResumeSec ?? explicitStartSec ?? 0
+        // The video segment the item opens on (AVPlayer asks the audio for the same stretch): the one
+        // holding the resume point, else the first.
+        let resumeSec = plannedResumeSec ?? explicitStartSec ?? 0
+        var startSec = 0.0
+        for segment in map.segments {
+            if startSec + segment.durationSec > resumeSec { break }
+            startSec += segment.durationSec
+        }
         let began = Date()
         spatialStartTask = Task.detached(priority: .userInitiated) { [weak self] in
             // Off the main thread, all of it: the Matroska header and cue reads, the decode and the APAC
@@ -225,6 +231,7 @@ extension NativePlaybackCoordinator {
     /// Called on the 3 s playback tick: a conversion that cannot keep up with real time stalls playback
     /// (and would never recover), so after three slow checks in a row the track plays the standard way.
     func checkSpatialAudioHealth() {
+        if !spatialKinds.isEmpty { spatialSession?.notePosition(lastPositionSec) }
         guard !spatialKinds.isEmpty, let stream = currentAudioStreamIndex(), spatialKinds[stream] != nil,
               let progress = NativePlaybackMetrics.shared.spatialSpeed else {
             spatialSlowStrikes = 0
@@ -276,12 +283,18 @@ extension NativePlaybackCoordinator {
         // Reload: a new URL (the server ignores the query), so AVPlayer fetches the master again.
         itemReloads += 1
         let position = CMTimeGetSeconds(player.currentTime())
+        // A viewer who had paused stays paused on the new item.
+        let wasPaused = hasStartedPlaying && player.timeControlStatus == .paused
         if position.isFinite, position > 1 {
             // Playback had started: resume where it was. An item that never became ready keeps the
-            // resume point it was planned with.
+            // resume point it was planned with. The media playlists open the new item there
+            // (EXT-X-START), so the remux repositions once instead of once for the old resume point
+            // and again for the seek.
             explicitStartSec = position
             plannedResumeSec = nil
+            server?.setStartOffset(position)
         }
+        resumePausedAfterReload = wasPaused
         pendingAudioRestoreStream = selected
         observeTask?.cancel()
         let url = URL(string: servedURL.absoluteString + "?s=\(itemReloads)") ?? servedURL
