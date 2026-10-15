@@ -36,6 +36,7 @@ Requirements: Apple TV 4K (any generation) or Apple TV HD on tvOS 26 or later, o
 
 - Native SwiftUI tvOS app (`iosApp/NuvioTV`) using the system sidebar, search, focus effects and transport bar.
 - Two playback engines: AVPlayer for files tvOS plays natively (HDR, Dolby Vision, frame-rate matching) and mpv for everything else.
+- Dolby Atmos from TrueHD Atmos and DTS:X tracks on the AVPlayer engine: the track is converted on the Apple TV to Apple Positional Audio Codec (APAC 7.1.4) with its height channels, and the receiver switches to Atmos. Plain TrueHD and DTS-HD MA play as lossless FLAC 5.1 / 7.1 instead of AAC 5.1. Both are switches in Settings > Playback > Audio.
 - Siri Remote handling: layered Back, swipe scrubbing, ±10 s clicks, hold to fast-forward, Up Next.
 - Audio and subtitle language preferences remembered per show, with readable track names.
 - Full French localization.
@@ -49,5 +50,6 @@ The app builds off-Mac on GitHub Actions (`.github/workflows/tvos-device-ipa.yml
 - [Nuvio](https://github.com/NuvioMedia/NuvioMobile) by the Nuvio team: the app, shared core and brand.
 - [youngchris29-art](https://github.com/youngchris29-art/NuvioMobile): original native tvOS port this project continues.
 - [MPVKit](https://github.com/mpvkit/MPVKit) and mpv for the playback engine.
+- [SpatialAudioBridge](https://github.com/kristofferR/SpatialAudioBridge) by kristofferR (Apache-2.0): decodes TrueHD Atmos and DTS:X, renders their objects to 7.1.4 and encodes APAC for Dolby Atmos output. It bundles the [truehdd](https://github.com/truehdd/truehdd), [dca](https://github.com/harletty/harletty-bridge/tree/a717bae441b116485f0254603dc20a6ede65d8c6/dca) and [oamd](https://github.com/truehdd/oamd) decoders and other Rust components; their licenses are listed in the app under Settings > About > Licenses & Attributions.
 
 Licensed under the GNU General Public License v3.0, like upstream Nuvio. See [LICENSE](LICENSE). The upstream README is kept in [README.upstream.md](README.upstream.md).
