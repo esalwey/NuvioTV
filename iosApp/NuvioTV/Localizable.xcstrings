@@ -7846,6 +7846,40 @@
         }
       }
     },
+    "Calibrates the mpv player against the system player: on the native player, the console prints when the transport bar appears and goes away, every playback rate change and every jump of the playhead. Perform the remote script of the player spec, then read the [SpecProbe] lines. Applies to the next playback.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kalibriert den mpv-Player am Systemplayer: Auf dem nativen Player gibt die Konsole aus, wann die Transportleiste erscheint und verschwindet, jede Änderung der Wiedergabegeschwindigkeit und jeden Sprung des Abspielkopfs. Führe das Fernbedienungsskript der Player-Spezifikation aus und lies dann die [SpecProbe]-Zeilen. Gilt für die nächste Wiedergabe."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Calibra el reproductor mpv con el del sistema: en el reproductor nativo, la consola muestra cuándo aparece y desaparece la barra de transporte, cada cambio de velocidad de reproducción y cada salto del cabezal. Realiza el guion de mando de la especificación del reproductor y lee las líneas [SpecProbe]. Se aplica a la próxima reproducción."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Étalonne le lecteur mpv sur le lecteur système : sur le lecteur natif, la console indique quand la barre de transport apparaît et disparaît, chaque changement de vitesse de lecture et chaque saut de la tête de lecture. Effectuez le scénario de télécommande de la spécification du lecteur, puis lisez les lignes [SpecProbe]. S’applique à la prochaine lecture."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Calibra il lettore mpv su quello di sistema: sul lettore nativo, la console mostra quando la barra di trasporto compare e scompare, ogni cambio di velocità di riproduzione e ogni salto della testina. Esegui lo script del telecomando della specifica del lettore, poi leggi le righe [SpecProbe]. Si applica alla prossima riproduzione."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hiệu chỉnh trình phát mpv theo trình phát hệ thống: trên trình phát gốc, bảng điều khiển in ra thời điểm thanh điều khiển xuất hiện và biến mất, mọi thay đổi tốc độ phát và mọi lần nhảy của đầu phát. Thực hiện kịch bản điều khiển trong đặc tả trình phát, rồi đọc các dòng [SpecProbe]. Áp dụng cho lần phát tiếp theo."
+          }
+        }
+      }
+    },
     "Camera": {
       "localizations": {
         "de": {
@@ -15221,36 +15255,36 @@
         }
       }
     },
-    "Dolby Vision files play as HDR10 on the mpv player, for displays that show Dolby Vision artifacts. Profile 5 has no HDR10 layer and keeps playing as Dolby Vision.": {
+    "Dolby Vision files play as HDR10, their base layer, for displays that show Dolby Vision artifacts. Profile 5 has no HDR10 layer and keeps playing as Dolby Vision.": {
       "localizations": {
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dolby-Vision-Dateien werden im mpv-Player als HDR10 abgespielt, für Displays, die Dolby-Vision-Artefakte zeigen. Profile 5 hat keine HDR10-Ebene und wird weiterhin als Dolby Vision abgespielt."
+            "value": "Dolby-Vision-Dateien werden als HDR10 abgespielt (ihre Basisebene), für Displays, die Dolby-Vision-Artefakte zeigen. Profile 5 hat keine HDR10-Ebene und wird weiterhin als Dolby Vision abgespielt."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Los archivos Dolby Vision se reproducen como HDR10 en el reproductor mpv, para pantallas que muestran artefactos de Dolby Vision. El Perfil 5 no tiene capa HDR10 y se sigue reproduciendo como Dolby Vision."
+            "value": "Los archivos Dolby Vision se reproducen como HDR10 (su capa base), para pantallas que muestran artefactos de Dolby Vision. El Perfil 5 no tiene capa HDR10 y se sigue reproduciendo como Dolby Vision."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Les fichiers Dolby Vision sont lus en HDR10 sur le lecteur mpv, pour les écrans qui affichent des artefacts Dolby Vision. Le Profile 5 n’a pas de couche HDR10 et reste lu en Dolby Vision."
+            "value": "Les fichiers Dolby Vision sont lus en HDR10, leur couche de base, pour les écrans qui affichent des artefacts Dolby Vision. Le Profile 5 n’a pas de couche HDR10 et reste lu en Dolby Vision."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "I file Dolby Vision vengono riprodotti come HDR10 sul lettore mpv, per i display che mostrano artefatti Dolby Vision. Il profilo 5 non ha un livello HDR10 e continua a essere riprodotto come Dolby Vision."
+            "value": "I file Dolby Vision vengono riprodotti come HDR10 (il loro livello base), per i display che mostrano artefatti Dolby Vision. Il profilo 5 non ha un livello HDR10 e continua a essere riprodotto come Dolby Vision."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tệp Dolby Vision phát dưới dạng HDR10 trên trình phát mpv, dành cho màn hình hiển thị lỗi Dolby Vision. Profile 5 không có lớp HDR10 nên vẫn phát dưới dạng Dolby Vision."
+            "value": "Tệp Dolby Vision phát dưới dạng HDR10 (lớp cơ sở của chúng), dành cho màn hình hiển thị lỗi Dolby Vision. Profile 5 không có lớp HDR10 nên vẫn phát dưới dạng Dolby Vision."
           }
         }
       }
@@ -16801,6 +16835,74 @@
           "stringUnit": {
             "state": "translated",
             "value": "Mọi thứ phát trên trình phát mpv, và Dolby Vision hiển thị dưới dạng HDR10."
+          }
+        }
+      }
+    },
+    "Everything plays on the mpv player, except Dolby Vision files, which keep the Apple player for true Dolby Vision output.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alles läuft im mpv-Player, außer Dolby-Vision-Dateien, die für die echte Dolby-Vision-Ausgabe beim Apple-Player bleiben."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Todo se reproduce con mpv, salvo los archivos Dolby Vision, que conservan el reproductor de Apple para una salida Dolby Vision real."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tout est lu avec mpv, sauf les fichiers Dolby Vision, qui gardent le lecteur Apple pour une vraie sortie Dolby Vision."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tutto viene riprodotto con mpv, tranne i file Dolby Vision, che restano sul lettore Apple per un vero output Dolby Vision."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mọi thứ đều phát bằng mpv, trừ các tệp Dolby Vision vẫn dùng trình phát của Apple để có đầu ra Dolby Vision thực sự."
+          }
+        }
+      }
+    },
+    "Everything the Apple player can open plays on it, even if that means doing without image subtitles or a stream that could not be read first. mpv only takes what the Apple player cannot play.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alles, was der Apple-Player öffnen kann, läuft auch dort, selbst wenn dafür Bilduntertitel oder ein vorab nicht lesbarer Stream entfallen. mpv übernimmt nur, was der Apple-Player nicht abspielen kann."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Todo lo que el reproductor de Apple puede abrir se reproduce con él, aunque eso suponga prescindir de los subtítulos en imagen o de una transmisión que no se pudo analizar antes. mpv solo se encarga de lo que el reproductor de Apple no puede reproducir."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tout ce que le lecteur Apple peut ouvrir est lu avec lui, quitte à se passer des sous-titres en image ou d’un flux qui n’a pas pu être analysé au préalable. mpv ne prend que ce que le lecteur Apple ne sait pas lire."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tutto ciò che il lettore Apple può aprire viene riprodotto con esso, anche se questo significa rinunciare ai sottotitoli in formato immagine o a un flusso che non è stato possibile analizzare prima. mpv si occupa solo di ciò che il lettore Apple non può riprodurre."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mọi thứ trình phát của Apple mở được đều phát bằng nó, kể cả khi phải bỏ phụ đề dạng hình ảnh hoặc một luồng không đọc được trước. mpv chỉ nhận những gì trình phát của Apple không phát được."
           }
         }
       }
@@ -25261,6 +25363,40 @@
         }
       }
     },
+    "Native first: each file plays on the Apple player, with the system controls, whenever it can, and on the mpv player for the formats it cannot play. A file whose subtitles in your language exist only as images stays on mpv.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nativ zuerst: Jede Datei läuft nach Möglichkeit im Apple-Player mit den Systemsteuerungen, Formate, die er nicht abspielen kann, im mpv-Player. Eine Datei, deren Untertitel in deiner Sprache nur als Bilder vorliegen, bleibt bei mpv."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nativo primero: cada archivo se reproduce con el reproductor de Apple, con los controles del sistema, siempre que puede, y con mpv para los formatos que no puede reproducir. Un archivo cuyos subtítulos en tu idioma solo existen como imágenes se queda en mpv."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Natif d’abord : chaque fichier est lu avec le lecteur Apple, avec les commandes du système, dès qu’il le peut, et avec mpv pour les formats qu’il ne sait pas lire. Un fichier dont les sous-titres dans votre langue n’existent que sous forme d’images reste sur mpv."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prima il nativo: ogni file viene riprodotto con il lettore Apple, con i controlli di sistema, quando possibile, e con mpv per i formati che non può riprodurre. Un file i cui sottotitoli nella tua lingua esistono solo come immagini resta su mpv."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ưu tiên trình phát gốc: mỗi tệp được phát bằng trình phát của Apple, với các nút điều khiển của hệ thống, bất cứ khi nào có thể, và bằng mpv với các định dạng mà nó không phát được. Tệp có phụ đề ngôn ngữ của bạn chỉ ở dạng hình ảnh sẽ ở lại mpv."
+          }
+        }
+      }
+    },
     "Native player (Dolby Vision & HDR)": {
       "localizations": {
         "de": {
@@ -32309,6 +32445,40 @@
         }
       }
     },
+    "Player": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Player"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reproductor"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lecteur"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lettore"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trình phát"
+          }
+        }
+      }
+    },
     "Player Interface": {
       "localizations": {
         "de": {
@@ -33136,6 +33306,40 @@
         }
       }
     },
+    "Prefer mpv": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "mpv bevorzugen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preferir mpv"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Préférer mpv"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preferisci mpv"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ưu tiên mpv"
+          }
+        }
+      }
+    },
     "Prefer MyAnimeList": {
       "localizations": {
         "de": {
@@ -33166,6 +33370,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Ưu tiên MyAnimeList"
+          }
+        }
+      }
+    },
+    "Prefer Native": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nativ bevorzugen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preferir nativo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Préférer natif"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preferisci nativo"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ưu tiên native"
           }
         }
       }
@@ -33676,6 +33914,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Xem trước"
+          }
+        }
+      }
+    },
+    "Print the system player's timings to the console": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zeiten des Systemplayers in der Konsole ausgeben"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar en la consola los tiempos del reproductor del sistema"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher dans la console les temps du lecteur système"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stampa nella console i tempi del lettore di sistema"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In thời gian của trình phát hệ thống ra bảng điều khiển"
           }
         }
       }
@@ -57197,6 +57469,40 @@
         }
       }
     },
+    "System Player Probe": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Systemplayer-Sonde"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sonda del reproductor del sistema"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sonde du lecteur système"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sonda del lettore di sistema"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đầu dò trình phát hệ thống"
+          }
+        }
+      }
+    },
     "Template": {
       "localizations": {
         "de": {
@@ -57397,6 +57703,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "The Movie Database (TMDB)"
+          }
+        }
+      }
+    },
+    "The native player is turned off in Dolby Vision settings, so everything plays on mpv.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der native Player ist in den Dolby-Vision-Einstellungen ausgeschaltet, daher läuft alles über mpv."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El reproductor nativo está desactivado en los ajustes de Dolby Vision, así que todo se reproduce con mpv."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le lecteur natif est désactivé dans les réglages Dolby Vision : tout est lu avec mpv."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il lettore nativo è disattivato nelle impostazioni Dolby Vision, quindi tutto viene riprodotto con mpv."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trình phát gốc đã tắt trong cài đặt Dolby Vision nên mọi nội dung đều phát bằng mpv."
           }
         }
       }

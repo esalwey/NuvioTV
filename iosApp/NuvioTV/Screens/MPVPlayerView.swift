@@ -50,6 +50,19 @@ final class MPVTVPlayerViewController: UIViewController {
     private var didLoad = false
     private var pollTimer: Timer?
     var hideWork: DispatchWorkItem?
+    /// Clears the skip hint a while after the last ±10 s click (`MPVPlayerView+Remote`).
+    var skipHintWork: DispatchWorkItem?
+    /// When the last ±10 s click happened, and the exact seek still owed to a burst of clicks
+    /// (`MPVPlayerView+Remote`, `skip(by:)`). Main thread only.
+    var lastSkipClickUptime: TimeInterval = 0
+    var skipExactWork: DispatchWorkItem?
+    /// When a left / right edge last went down: a touch-surface pan that starts right after it is the
+    /// click's own drift, not a scrub.
+    var lastEdgePressUptime: TimeInterval = 0
+    /// Skip back (docs/player-spec.md, "Skip"): the subtitles turned on for the section being replayed
+    /// go off again once the playhead is back at this position. nil = none turned on that way.
+    /// Main thread only (`MPVPlayerView+Tracks`).
+    var rewindSubtitlesUntil: Double?
     private var lastSaveUptime: TimeInterval = 0
     private var pendingResumeSec: Double?
     /// A saved row with a percentage and no timecode (Simkl episode or Trakt playback row, upstream
@@ -271,7 +284,8 @@ final class MPVTVPlayerViewController: UIViewController {
     var swallowMenuRelease = false
     /// Hand focus to the chrome's focus layer: the transport buttons (Up, a swipe up, with the bar
     /// showing) or the content tabs (Down with nothing else to do, or a down swipe).
-    var onOpenChrome: ((PlayerChromeEntry) -> Void)?
+    /// The Bool says whether the passive bar was already showing (no dissolve then).
+    var onOpenChrome: ((PlayerChromeEntry, Bool) -> Void)?
     /// Explicit start position handed over by a native → mpv fallback (NE-7/PLY-8). Wins over the
     /// saved progress — which may already be marked completed near the end, and would restart the
     /// episode from 0.
@@ -347,6 +361,11 @@ final class MPVTVPlayerViewController: UIViewController {
         state.replay = { [weak self] in self?.replay() }
         state.rememberTracks = { [weak self] in self?.rememberTracksForEngineSwitch() }
         state.reclaimFocus = { [weak self] in self?.becomeFirstResponder() }
+        state.togglePlayPause = { [weak self] in
+            // A press is proof someone is watching (as in `pressesBegan`).
+            NextEpisodeEngine.consecutiveAutoPlays = 0
+            self?.playPausePressed()
+        }
         state.seekTo = { [weak self] seconds in
             guard let self else { return }
             let target = self.state.durationSec > 0 ? min(seconds, max(self.state.durationSec - 1, 0)) : seconds
@@ -980,7 +999,10 @@ final class MPVTVPlayerViewController: UIViewController {
         NextEpisodeEngine.consecutiveAutoPlays = 0
         // Going back means the viewer is still watching — same rule as the remote's left arrow.
         if seconds < 0 { state.upNextCancel?() }
-        postSeek(String(format: "%.3f", seconds), mode: "relative+exact")
+        // The same answer as a click on the remote's edge: the head and the time jump at once, the
+        // hint adds the skips up, and skipping back turns subtitles on for the replayed section.
+        skip(by: seconds)
+        showSkipHint(seconds < 0 ? -1 : 1, seconds: abs(seconds))
         flashControls()
     }
 
@@ -1304,6 +1326,8 @@ final class MPVTVPlayerViewController: UIViewController {
         }
 
         updateSkipPrompt(position: snap.position, durationSec: snap.duration)
+        // The replayed section is over: the subtitles skip-back turned on go off again.
+        endRewindSubtitlesIfDue(position: snap.position)
 
         nowPlaying?.update(
             positionSec: state.positionSec,

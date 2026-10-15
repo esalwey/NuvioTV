@@ -150,6 +150,8 @@ enum SettingsSearchIndex {
             ["gpu-next", "libplacebo", "tone mapping", "mpv", "renderer"])
         add(.playback, playback, "nativePlayer", String(localized: "Native player (Dolby Vision & HDR)"),
             ["avplayer", "dolby vision", "hdr10", "dv", "mkv", "engine"])
+        add(.playback, advancedPlayback, "enginePreference", String(localized: "Player"),
+            ["engine", "native", "mpv", "avplayer", "prefer", "automatic", "system player", "controls"])
         add(.playback, playback, "trailerSound", String(localized: "Trailer Sound by Default"),
             ["mute", "audio", "trailers"])
         add(.playback, advancedPlayback, "buffer", String(localized: "Streaming Buffer"),

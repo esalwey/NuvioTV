@@ -150,11 +150,11 @@ enum PlayerContentTab: String, Identifiable, Hashable {
     }
 }
 
-/// Chrome timing shared by both engines.
+/// Chrome timing shared by both engines. The values are `PlayerSpec`'s, with their sources.
 enum PlayerChromeMetrics {
     /// The transport bar hides this long after the last interaction while playing (paused,
     /// scrubbing or fast-forwarding it stays).
-    static let autoHideDelay: TimeInterval = 5
+    static let autoHideDelay: TimeInterval = PlayerSpec.Chrome.autoHideDelay
 }
 
 /// A chapter mark as the file carries it: where it starts and the name the muxer gave it (if any).

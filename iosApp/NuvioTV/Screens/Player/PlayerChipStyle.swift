@@ -17,6 +17,8 @@ enum PlayerChipStyle {
     /// Trailing hint on the mpv chip: a click of the touch surface centre (Select), which is what
     /// triggers it (F6, VIS-05 point 3). Replaces the old D-pad-down chevron.
     static let selectHintSymbol = "smallcircle.filled.circle"
+    /// Trailing hint on the mpv chip while it is not "focused": Up moves focus onto it.
+    static let upHintSymbol = "chevron.up"
     /// Neutral Liquid Glass (docs/design/hig-hybrid-contract.md): a prompt is an action, not a
     /// selection, so it never wears the brand accent. The tvOS 26 system player floats plain,
     /// untinted glass over the video and lets the glass and its vibrancy carry the text, so the
@@ -25,6 +27,13 @@ enum PlayerChipStyle {
     /// brings the old tint back for an on-device A/B.
     static var glass: Glass {
         PlayerTuning.darkGlassTint ? .regular.tint(Color.black.opacity(0.45)) : .regular
+    }
+    /// The transport buttons of the mpv bar: the Clear variant of Liquid Glass over the picture, on the
+    /// bar's own shade (`PlayerChromeScrim`). docs/player-spec.md, "Layout": the system player floats Clear
+    /// glass over video and supplies its own dimming layer under it (HIG Materials); the Developer pane's
+    /// "Dark Player Glass" switch brings the tinted regular glass back for an on-device A/B.
+    static var transportGlass: Glass {
+        PlayerTuning.darkGlassTint ? .regular.tint(Color.black.opacity(0.45)) : .clear
     }
     /// Text-heavy cards (Up Next, pause info) only get a very light dark tint under their copy.
     static var cardGlass: Glass {
@@ -59,25 +68,33 @@ extension View {
 struct PlayerActionChip: View {
     let label: String
     let symbol: String
-    /// Trailing Select glyph — the mpv screen's trigger hint.
-    var showsPressHint = false
+    /// Trailing glyph: the mpv screen's hint of what moves "focus" onto the chip (nil = none).
+    var hintSymbol: String? = nil
+    /// "Focused": a white capsule with black text, as the system's focused glass buttons.
+    var focused = false
 
     var body: some View {
         HStack(spacing: Theme.Spacing.sm) {
             Image(systemName: symbol)
             Text(label)
-            if showsPressHint {
-                Image(systemName: PlayerChipStyle.selectHintSymbol)
+            if let hintSymbol {
+                Image(systemName: hintSymbol)
                     .foregroundStyle(Theme.Palette.textSecondary)
             }
         }
         .font(Theme.Font.sectionTitle)
-        .foregroundStyle(Theme.Palette.textPrimary)
+        .foregroundStyle(focused ? Color.black : Theme.Palette.textPrimary)
         .padding(.horizontal, Theme.Spacing.lg + Theme.Spacing.xs)
         .padding(.vertical, Theme.Spacing.md)
+        .background {
+            if focused { Capsule().fill(Color.white) }
+        }
         .glassEffect(PlayerChipStyle.glass, in: .capsule)
+        .scaleEffect(focused ? 1.06 : 1)
+        .animation(.easeOut(duration: 0.18), value: focused)
         .playerPanelShadow()
         .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(focused ? AccessibilityTraits.isSelected : AccessibilityTraits())
     }
 }
 

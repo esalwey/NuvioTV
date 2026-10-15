@@ -80,6 +80,7 @@ struct NativePlayerScreen: View {
          upNext: NextEpisodeEngine,
          onFallback: ((Double) -> Void)? = nil,
          routingNote: String? = nil,
+         plan: NativePlaybackPlan = NativePlaybackPlan(),
          onExitToDetails: (() -> Void)? = nil,
          onPickNextSource: ((MetaVideo) -> Void)? = nil,
          canSwitchStreams: Bool = false,
@@ -100,7 +101,8 @@ struct NativePlayerScreen: View {
         _playbackRate = State(initialValue: PlayerTrackPreferenceStorage.shared
             .loadPlaybackSpeed(contentId: context.parentMetaId)?.floatValue ?? 1)
         _aspectMode = State(initialValue: PlayerOverlaySettings.shared.aspectMode)
-        _coordinator = StateObject(wrappedValue: NativePlaybackCoordinator(context: context, engineNote: routingNote))
+        _coordinator = StateObject(wrappedValue: NativePlaybackCoordinator(context: context, engineNote: routingNote,
+                                                                           plan: plan))
         // Still the source of the Stream Info rows and of the subtitle-timing support flag, now
         // that the swipe-down panel it used to feed is gone on this engine (D3).
         _panelModel = StateObject(wrappedValue: PlayerTopPanelModel(

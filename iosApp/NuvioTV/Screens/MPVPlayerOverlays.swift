@@ -54,16 +54,21 @@ struct PlayerTransportBar<Buttons: View, ScrubberOverlay: View, Tabs: View>: Vie
     let buttons: Buttons
     let scrubberOverlay: ScrubberOverlay
     let tabs: Tabs
+    /// The bar is on screen: its head and times follow the playhead between the polls. Off while the
+    /// passive bar is hidden, so nothing ticks for a bar nobody sees.
+    let live: Bool
 
     @Environment(\.colorSchemeContrast) private var contrast
 
     init(state: MPVPlaybackState,
          summary: PlayerInfoSummary,
+         live: Bool = true,
          @ViewBuilder buttons: () -> Buttons,
          @ViewBuilder scrubberOverlay: () -> ScrubberOverlay,
          @ViewBuilder tabs: () -> Tabs) {
         _state = ObservedObject(wrappedValue: state)
         self.summary = summary
+        self.live = live
         self.buttons = buttons()
         self.scrubberOverlay = scrubberOverlay()
         self.tabs = tabs()
@@ -77,13 +82,20 @@ struct PlayerTransportBar<Buttons: View, ScrubberOverlay: View, Tabs: View>: Vie
                 buttons
             }
             .padding(.bottom, Theme.Spacing.lg)
-            ProgressBar(fraction: state.fraction,
-                        scrubFraction: state.scrubFraction,
-                        scrubLabel: state.scrubTargetSec.map { PlayerChromeFormat.time($0) })
-                .frame(height: ProgressBar.headSize.height)
-                .overlay { scrubberOverlay }
-            timeRow
-                .padding(.top, Theme.Spacing.sm)
+            // The playhead is polled twice a second; between two polls the head and the labels follow
+            // the clock, so they move continuously (the system bar's do) instead of in half-second steps.
+            TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !live || !state.isAdvancing)) { _ in
+                let uptime = ProcessInfo.processInfo.systemUptime
+                VStack(alignment: .leading, spacing: 0) {
+                    ProgressBar(fraction: state.displayFraction(at: uptime),
+                                scrubFraction: state.scrubFraction,
+                                scrubLabel: state.scrubTargetSec.map { PlayerChromeFormat.time($0) })
+                        .frame(height: ProgressBar.headSize.height)
+                        .overlay { scrubberOverlay }
+                    timeRow(position: state.displayPosition(at: uptime))
+                        .padding(.top, Theme.Spacing.sm)
+                }
+            }
             tabs
                 .padding(.top, Theme.Spacing.md)
         }
@@ -119,24 +131,16 @@ struct PlayerTransportBar<Buttons: View, ScrubberOverlay: View, Tabs: View>: Vie
 
     // MARK: - Times
 
-    /// Elapsed on the leading end, remaining on the trailing end, as on the system bar.
-    private var timeRow: some View {
+    /// Elapsed on the leading end, remaining on the trailing end, as on the system bar. The state slot
+    /// beside the elapsed time is where this bar shows what playback is doing — never a glyph in the
+    /// middle of the picture (docs/player-spec.md, "Pause" and "Skip"). It follows the elapsed time
+    /// rather than leading it, so the labels stay where they are when it comes and goes.
+    private func timeRow(position: Double) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: Theme.Spacing.sm) {
-            if let rate = state.fastForwardRate {
-                // Hold fast-forward / rewind rate (2×, 3×, 4×), as the system bar names it.
-                Label {
-                    Text(verbatim: "\(Int(abs(rate)))\u{00D7}")
-                } icon: {
-                    Image(systemName: rate < 0 ? "backward.fill" : "forward.fill")
-                }
-                .labelStyle(.titleAndIcon)
-            } else if state.isPaused {
-                Image(systemName: "pause.fill")
-                    .accessibilityLabel(Text("Paused"))
-            }
-            Text(verbatim: PlayerChromeFormat.time(state.positionSec))
+            Text(verbatim: PlayerChromeFormat.time(position))
+            stateSlot
             Spacer(minLength: Theme.Spacing.lg)
-            Text(verbatim: "-" + PlayerChromeFormat.time(max(state.durationSec - state.positionSec, 0)))
+            Text(verbatim: "-" + PlayerChromeFormat.time(max(state.durationSec - position, 0)))
         }
         .font(Font.callout)
         .monospacedDigit()
@@ -145,8 +149,64 @@ struct PlayerTransportBar<Buttons: View, ScrubberOverlay: View, Tabs: View>: Vie
         .playerChromeTextShadow()
     }
 
+    /// What playback is doing, in the order the system bar shows it: the skip hint of a ±10 s click
+    /// ("+10 ›"), else the scan glyph with its rate (2×, 3×, 4×), else the pause glyph; nothing while
+    /// playing at normal speed.
+    private var stateSlot: some View {
+        ZStack(alignment: .leading) {
+            if let hint = state.skipHint {
+                PlayerSkipHintLabel(hint: hint)
+                    .transition(PlayerBarSlot.transition)
+            } else if let rate = state.fastForwardRate {
+                // Hold fast-forward / rewind rate (2×, 3×, 4×), as the system bar names it.
+                Label {
+                    Text(verbatim: "\(Int(abs(rate)))\u{00D7}")
+                        .contentTransition(.numericText())
+                } icon: {
+                    Image(systemName: rate < 0 ? "backward.fill" : "forward.fill")
+                }
+                .labelStyle(.titleAndIcon)
+                .transition(PlayerBarSlot.transition)
+            } else if state.isPaused {
+                Image(systemName: "pause.fill")
+                    .accessibilityLabel(Text("Paused"))
+                    .transition(PlayerBarSlot.transition)
+            }
+        }
+        // Each state arrives and leaves with a short fade, and the digits of a running total roll, so a
+        // click, a pause or a scan is felt as an answer rather than a pop (the form itself is [MEASURE]).
+        .animation(PlayerBarSlot.animation, value: state.skipHint)
+        .animation(PlayerBarSlot.animation, value: state.fastForwardRate)
+        .animation(PlayerBarSlot.animation, value: state.isPaused)
+    }
+
     private var secondaryStyle: Color {
         .white.opacity(contrast == .increased ? 0.9 : 0.7)
+    }
+}
+
+/// How the state slot's content comes and goes (a static stored property cannot live in the generic bar).
+private enum PlayerBarSlot {
+    static let animation = Animation.easeOut(duration: 0.18)
+    static let transition = AnyTransition.opacity.combined(with: .scale(scale: 0.85, anchor: .leading))
+}
+
+/// The skip hint the system bar draws for a click on the left / right edge: the seconds skipped by the
+/// clicks in a row, with a chevron pointing the way ("+10 ›", mirrored for back: "‹ -10"). It is the
+/// system's own and has no off switch (an Apple engineer, developer forums thread 651514). Its exact
+/// place and form are [MEASURE]; the state slot of the time row is where this engine puts it.
+private struct PlayerSkipHintLabel: View {
+    let hint: SkipHint
+
+    var body: some View {
+        HStack(spacing: Theme.Spacing.xxs) {
+            if hint.direction < 0 { Image(systemName: "chevron.left") }
+            Text(verbatim: (hint.direction < 0 ? "-" : "+") + "\(hint.seconds)")
+                .contentTransition(.numericText())
+            if hint.direction > 0 { Image(systemName: "chevron.right") }
+        }
+        .fontWeight(.semibold)
+        .accessibilityHidden(true)
     }
 }
 
@@ -196,7 +256,7 @@ private struct PlayerTransportGlyphSurface: ViewModifier {
                 .background(Circle().fill(Color.black.opacity(0.7)))
                 .overlay(Circle().strokeBorder(Color.white.opacity(0.2), lineWidth: 1))
         } else {
-            content.glassEffect(PlayerChipStyle.glass, in: .circle)
+            content.glassEffect(PlayerChipStyle.transportGlass, in: .circle)
         }
     }
 }
@@ -306,13 +366,15 @@ struct PlayerControlsOverlay: View {
     let summary: PlayerInfoSummary
     var items: [PlayerTransportItem] = []
     var tabs: [PlayerContentTab] = []
+    /// The bar is on screen (see `PlayerTransportBar.live`).
+    var live = true
     /// Height of the chrome content (scrim excluded), for the prompts stacked above it.
     var onContentHeightChange: ((CGFloat) -> Void)? = nil
 
     var body: some View {
         ZStack(alignment: .bottom) {
             PlayerChromeScrim()
-            PlayerTransportBar(state: state, summary: summary) {
+            PlayerTransportBar(state: state, summary: summary, live: live) {
                 PlayerTransportGlyphRow(items: items)
             } scrubberOverlay: {
                 EmptyView()
@@ -327,58 +389,6 @@ struct PlayerControlsOverlay: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
         .allowsHitTesting(false)
-    }
-}
-
-/// The system player's skip indicator: a click on the left / right edge of the touch surface draws
-/// the circular arrow with the seconds skipped on that side of the picture (clicks in a row add up:
-/// 10, 20, 30...), and it fades a moment after the last one. Passive; the bar shows alongside.
-struct PlayerSkipIndicator: View {
-    let feedback: SkipFeedback?
-    /// Called once the indicator has been on screen long enough; the owner clears it.
-    let onExpired: (SkipFeedback) -> Void
-
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    private static let visibleDuration: Duration = .milliseconds(900)
-    /// Distance of the arrow from the screen edge: it sits over the picture, well inside the edge
-    /// the click was made on.
-    private static let sideInset: CGFloat = Theme.Spacing.screen * 3
-    private static let glyphSize: CGFloat = 120
-
-    var body: some View {
-        ZStack {
-            if let feedback {
-                glyph(feedback)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity,
-                           alignment: feedback.direction < 0 ? .leading : .trailing)
-                    .padding(.horizontal, Self.sideInset)
-                    .transition(.opacity)
-            }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .animation(reduceMotion ? nil : .easeOut(duration: 0.18), value: feedback)
-        .task(id: feedback?.id) {
-            guard let feedback else { return }
-            try? await Task.sleep(for: Self.visibleDuration)
-            guard !Task.isCancelled else { return }
-            onExpired(feedback)
-        }
-        .allowsHitTesting(false)
-        .accessibilityHidden(true)
-    }
-
-    private func glyph(_ feedback: SkipFeedback) -> some View {
-        ZStack {
-            Image(systemName: feedback.direction < 0 ? "gobackward" : "goforward")
-                .font(.system(size: Self.glyphSize, weight: .regular))
-            Text(verbatim: "\(feedback.seconds)")
-                .font(.system(size: feedback.seconds >= 100 ? 30 : 40, weight: .semibold, design: .rounded))
-                .monospacedDigit()
-                .offset(y: 4)
-        }
-        .foregroundStyle(.white)
-        .shadow(color: .black.opacity(0.5), radius: 12, y: 2)
     }
 }
 

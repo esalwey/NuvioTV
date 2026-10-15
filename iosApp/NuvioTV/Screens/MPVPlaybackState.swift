@@ -12,19 +12,25 @@ import SharedCore
 /// (~2x/sec) and pushes updates here on the main thread.
 @MainActor
 final class MPVPlaybackState: ObservableObject {
-    @Published var positionSec: Double = 0
+    @Published var positionSec: Double = 0 {
+        didSet { positionStampedAt = ProcessInfo.processInfo.systemUptime }
+    }
+    /// Uptime of the last write to `positionSec`. The playhead is polled twice a second; the bar draws
+    /// the time in between from this stamp (`displayPosition(at:)`) so the head and the labels move
+    /// smoothly, as the system player's do.
+    private(set) var positionStampedAt: TimeInterval = 0
     @Published var durationSec: Double = 0
     @Published var isPaused: Bool = false {
         didSet {
-            // Playing again: the next pause shows its chrome and card again (F3).
+            // Playing again: the next pause shows its chrome again (F3).
             if oldValue, !isPaused, pauseChromeDismissed { pauseChromeDismissed = false }
         }
     }
     @Published var isBuffering: Bool = true
     @Published var controlsVisible: Bool = false
-    /// Back hid the transport bar and the pause card while paused (F3, spec §6.9.4 "chrome visible →
-    /// hide chrome"): the player stays, and the next Back leaves it. Cleared by any interaction that
-    /// shows the chrome again (`flashControls()`) and when playback resumes.
+    /// Back hid the transport bar while paused (F3, docs/player-spec.md "Pause": Back hides the
+    /// controls and does not exit): the player stays, and the next Back leaves it. Cleared by any
+    /// interaction that shows the chrome again (`flashControls()`) and when playback resumes.
     @Published var pauseChromeDismissed: Bool = false
 
     /// Touch-surface scrubbing while paused (PLY-A3, spec gap 2): the time the scrub head points
@@ -38,8 +44,9 @@ final class MPVPlaybackState: ObservableObject {
     /// Where the head is while a rewind (or a hold while paused) walks it by timer; nil otherwise.
     /// The bar shows this rather than the keyframe each seek lands on.
     var rateSeekTarget: Double?
-    /// The skip indicator of a ±10 s click, on screen until the overlay clears it.
-    @Published var skipFeedback: SkipFeedback?
+    /// The skip hint of a ±10 s click ("+10 ›" / "‹ -10", the clicks in a row added up), drawn in the
+    /// bar's state slot for as long as the bar stays up after the last click.
+    @Published var skipHint: SkipHint?
 
     @Published var audioTracks: [PlayerTrack] = []
     @Published var subtitleTracks: [PlayerTrack] = []
@@ -53,7 +60,18 @@ final class MPVPlaybackState: ObservableObject {
     @Published var subtitleSearchInFlight: Bool = false
 
     /// Active skip prompt ("Skip Intro"/"Skip Outro") when playback is inside a known segment.
-    @Published var skipPrompt: SkipPrompt?
+    @Published var skipPrompt: SkipPrompt? {
+        didSet { if skipPrompt == nil, skipChipFocused { skipChipFocused = false } }
+    }
+    /// Up moved "focus" onto the skip chip (the system's contextual action is a focusable button):
+    /// Select then skips, any other input hands it back. Select pauses and resumes otherwise, as on
+    /// the system player — a chip that stays up for a whole intro never takes the pause away.
+    @Published var skipChipFocused: Bool = false
+    /// The chrome's focus layer is drawn over the player and has taken the bar's place: the passive
+    /// bar underneath stays put, fully drawn, until the layer is on top of it, then steps aside
+    /// without a fade (and is back, still without a fade, before the layer goes) — two fades at once
+    /// made the bar dim and light up again.
+    @Published var chromeCovered: Bool = false
     /// "Intro skipped": the confirmation shown for a moment after Automatic Skipping skipped a segment.
     @Published var autoSkipToast: AutoSkipToast?
 
@@ -96,6 +114,9 @@ final class MPVPlaybackState: ObservableObject {
     var setDialogueBoost: ((Int) -> Void)?
     var replay: (() -> Void)?
     var reclaimFocus: (() -> Void)?
+    /// Play/Pause as the remote answers it (scrub commit, scan stop, toggle): the chrome's focus layer
+    /// calls it for a Play/Pause press while focus sits in the bar or in a tab.
+    var togglePlayPause: (() -> Void)?
     /// Exact seek to an absolute time (the Chapters tab).
     var seekTo: ((Double) -> Void)?
     /// Start Over (PLY-A13, the transport bar): back to 0:00, dropping any resume still pending.
@@ -139,13 +160,36 @@ final class MPVPlaybackState: ObservableObject {
     }
     var hasTracks: Bool { !audioTracks.isEmpty || !subtitleTracks.isEmpty }
 
-    /// The pause chrome (transport bar + pause card) belongs on screen: paused mid-file, and Back
-    /// hasn't put it away (F3).
+    /// The pause chrome belongs on screen: paused mid-file, and Back hasn't put it away (F3). It is
+    /// the transport bar alone — the system player has no centred pause glyph and no pause card — and
+    /// it stays up until the viewer acts (docs/player-spec.md, "Pause").
     var pauseChromeShown: Bool {
         isPaused && !isEnded && !playbackErrorShown && !pauseChromeDismissed
     }
 
     var isScrubbing: Bool { scrubTargetSec != nil }
+
+    /// The playhead as the bar draws it at `uptime`: the last polled position plus the time since, at the
+    /// playback speed, while the picture is actually playing (a pause, a stall, a scan, a scrub and a
+    /// rewind stand still or are driven by their own value). At most a second ahead of the last poll, so
+    /// a stalled poll cannot run the head away, and never past the end.
+    func displayPosition(at uptime: TimeInterval) -> Double {
+        guard isAdvancing, positionStampedAt > 0 else {
+            return positionSec
+        }
+        let elapsed = min(max(uptime - positionStampedAt, 0), 1)
+        let advanced = positionSec + elapsed * max(playbackSpeed, 0)
+        return durationSec > 0 ? min(advanced, durationSec) : advanced
+    }
+
+    /// The playhead is moving on its own (the bar's clock may run).
+    var isAdvancing: Bool {
+        !isPaused && !isBuffering && !isEnded && !isScrubbing && fastForwardRate == nil
+    }
+
+    func displayFraction(at uptime: TimeInterval) -> Double {
+        durationSec > 0 ? min(max(displayPosition(at: uptime) / durationSec, 0), 1) : 0
+    }
 
     /// Scrub head position on the progress bar (0…1), nil when not scrubbing.
     var scrubFraction: Double? {
@@ -154,9 +198,9 @@ final class MPVPlaybackState: ObservableObject {
     }
 }
 
-/// The system player's skip indicator for a click on the left / right edge: which side, and the
-/// seconds skipped by the clicks in a row. A new `id` restarts the overlay's short display.
-struct SkipFeedback: Equatable {
+/// The system player's skip hint for a click on the left / right edge ("+10 ›", mirrored for back):
+/// which side, and the seconds skipped by the clicks in a row. A new `id` per click.
+struct SkipHint: Equatable {
     let id: Int
     /// -1 = back, 1 = forward.
     let direction: Int

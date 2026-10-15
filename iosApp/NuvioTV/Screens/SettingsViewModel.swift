@@ -356,6 +356,8 @@ final class SettingsViewModel: ObservableObject {
     /// How Dolby Vision files are played (native player, Profile 7 handling, HDR10 only, or off).
     /// Replaces the old native-DV and keep-FEL-on-mpv switches; stored through their keys.
     @Published var dolbyVisionMode: DolbyVisionMode = DolbyVisionMode.current
+    /// Which engine plays a file when more than one could (Settings > Playback > Advanced > Player).
+    @Published var enginePreference: PlayerEnginePreference = PlayerEnginePreference.current
 
     func setBufferMB(_ value: Int) {
         bufferMB = value
@@ -380,6 +382,11 @@ final class SettingsViewModel: ObservableObject {
     func setDolbyVisionMode(_ mode: DolbyVisionMode) {
         dolbyVisionMode = mode
         mode.store()
+    }
+
+    func setEnginePreference(_ preference: PlayerEnginePreference) {
+        enginePreference = preference
+        preference.store()
     }
 
     // MARK: - Up Next (Settings → Playback → Next Episode)

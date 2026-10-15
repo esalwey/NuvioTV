@@ -36,23 +36,38 @@ nonisolated enum DVELKind: String, Sendable {
 /// One instance per remux session (state accumulates across seek-anywhere runs — the conversion is
 /// stateless per packet, only the counters persist). Used on the remux worker thread only.
 nonisolated final class DoviRpuConverter {
+    /// What the walker does with the Dolby Vision NALs of each packet.
+    enum Mode {
+        /// Profile 7 → 8.1: EL NALs dropped, every RPU rewritten by libdovi.
+        case convertToP81
+        /// The base layer alone (`DolbyVisionHandling.stripToBase`): EL NALs and RPUs dropped, nothing
+        /// converted. The stream plays as the plain HDR10 / HLG / SDR one its base layer is.
+        case stripToBase
+    }
+
     /// NAL length-prefix size from the stream's hvcC (in practice always 4).
     private let nalLengthSize: Int
+    private let mode: Mode
     private(set) var rpusConverted = 0
     private(set) var rpusFailed = 0
+    private(set) var rpusStripped = 0
     private(set) var elNalsDropped = 0
     private(set) var abortReason: String?
     private var videoPackets = 0
     private var loggedFailure = false
 
     var statsDescription: String {
-        "\(rpusConverted) RPUs converted, \(elNalsDropped) EL NALs dropped"
+        if mode == .stripToBase {
+            return "\(rpusStripped) RPUs and \(elNalsDropped) EL NALs dropped (base layer only)"
+        }
+        return "\(rpusConverted) RPUs converted, \(elNalsDropped) EL NALs dropped"
             + (rpusFailed > 0 ? ", \(rpusFailed) RPU failures (stripped)" : "")
     }
 
-    init?(videoPar: UnsafeMutablePointer<AVCodecParameters>) {
+    init?(videoPar: UnsafeMutablePointer<AVCodecParameters>, mode: Mode = .convertToP81) {
         guard let size = Self.hvccNalLengthSize(videoPar) else { return nil }
         nalLengthSize = size
+        self.mode = mode
     }
 
     /// hvcC `lengthSizeMinusOne` (byte 21, low 2 bits) + 1. nil when the extradata isn't hvcC-shaped —
@@ -102,6 +117,10 @@ nonisolated final class DoviRpuConverter {
                 // Enhancement layer (UNSPEC63-wrapped or genuinely layered) — drop.
                 beginRewrite(upTo: pos)
                 elNalsDropped += 1
+            } else if nalType == 62, mode == .stripToBase {
+                // RPU of a stream that plays as its base layer alone — drop.
+                beginRewrite(upTo: pos)
+                rpusStripped += 1
             } else if nalType == 62 {
                 // RPU — convert to the 8.1 flavor.
                 beginRewrite(upTo: pos)
@@ -122,15 +141,20 @@ nonisolated final class DoviRpuConverter {
 
         // Abort policies. A P7-tagged stream whose packets never produce a converted RPU would play
         // as DV-signaled video with no dynamic metadata — worse than mpv. 120 packets ≈ 5 s of video.
-        if videoPackets >= 120, rpusConverted == 0 {
-            return abort(rpusFailed == 0 ? "no RPUs in stream (two-track source?)" : "RPU conversion failing from the start")
-        }
-        if rpusFailed > 100, rpusFailed * 4 > rpusConverted {
-            return abort("sustained RPU conversion failures (\(rpusFailed)/\(rpusFailed + rpusConverted))")
+        // (Not when only stripping: that stream is declared as its base layer, RPUs or none.)
+        if mode == .convertToP81 {
+            if videoPackets >= 120, rpusConverted == 0 {
+                return abort(rpusFailed == 0 ? "no RPUs in stream (two-track source?)" : "RPU conversion failing from the start")
+            }
+            if rpusFailed > 100, rpusFailed * 4 > rpusConverted {
+                return abort("sustained RPU conversion failures (\(rpusFailed)/\(rpusFailed + rpusConverted))")
+            }
         }
 
         guard changed else { return true }
-        guard !out.isEmpty else { return abort("packet reduced to zero NALs") }
+        // A packet that was nothing but Dolby Vision NALs: when stripping, it goes on as it came (a
+        // decoder skips the NALs), never aborting a stream whose picture is fine.
+        guard !out.isEmpty else { return mode == .stripToBase ? true : abort("packet reduced to zero NALs") }
         return replacePacketData(pkt, with: out)
     }
 

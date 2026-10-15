@@ -180,6 +180,10 @@ struct MPVTransportFocusView: View {
             }
         }
         .onExitCommand { actions.close() }
+        // Play/Pause always plays or pauses, wherever focus sits in the bar or in a tab — the system
+        // player never lets a focused button swallow it. Answered here, at once, rather than left to
+        // bubble up to libmpv's controller or to arrive as a (debounced) Now Playing command.
+        .onPlayPauseCommand { state.togglePlayPause?() }
     }
 
     private var initialFocus: Focus {

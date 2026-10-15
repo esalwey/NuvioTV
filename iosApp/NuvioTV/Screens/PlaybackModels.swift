@@ -24,8 +24,13 @@ nonisolated enum PlayerTuning {
     /// unaffected by this preference).
     static let dvP7FelMpvKey = "player.dvP7FelPreferMpv"
     /// Dolby Vision picker value that the two keys above cannot express: play Dolby Vision files as
-    /// HDR10 on mpv (see `DolbyVisionMode.hdr10Only`). `DolbyVisionMode.store` keeps all three in step.
+    /// their HDR10 base layer (see `DolbyVisionMode.hdr10Only`). `DolbyVisionMode.store` keeps all three in step.
     static let dvHdr10OnlyKey = "player.dvHdr10Only"
+    /// Settings > Playback > Advanced > Player: which engine plays a file when more than one could
+    /// (`PlayerEnginePreference` raw value). Absent = Automatic (native first, mpv for what the
+    /// native player cannot play). The Dolby Vision picker keeps its own say: its Off still turns
+    /// the native player off for good.
+    static let enginePreferenceKey = "player.enginePreference"
     /// mpv audio output layout (`AudioOutputMode` raw value). Absent = Auto. Applies to the next playback.
     static let audioOutputKey = "player.audio.output"
     /// Software volume boost in dB (0, 3, 6, 10), remembered between playbacks (mpv engine).
@@ -60,6 +65,11 @@ nonisolated enum PlayerTuning {
     /// debrid redirect plus TLS plus the Matroska header on a cold link, so Dolby Vision files fell
     /// back to mpv (no true DV) for no reason. The loading view's spinner shows from 2 s either way.
     static let probeTimeoutSec: Double = 4
+    /// A probe that ran into its deadline (not one that failed outright) gets one more try this
+    /// long before the router gives up and plays on mpv: a cold debrid redirect plus TLS plus the
+    /// Matroska header over a slow link outlasts `probeTimeoutSec`, and the file would then play on
+    /// the wrong engine for no reason of its own. The loading view shows meanwhile.
+    static let probeRetryTimeoutSec: Double = 8
 
     // MARK: - Player look A/B (Developer pane)
 
@@ -73,6 +83,9 @@ nonisolated enum PlayerTuning {
     /// glass (round buttons, chips) over the mpv picture rendered as a dark block instead of the
     /// blurred video.
     static let framebufferOnlyKey = "debug.player.framebufferOnly"
+    /// Developer: the native engine prints the system player's own behaviour (`SystemPlayerSpecProbe`)
+    /// so docs/player-spec.md's [MEASURE] values can be read off a device. Off by default.
+    static let specProbeKey = "debug.playerSpecProbe"
 
     static var darkGlassTint: Bool { UserDefaults.standard.bool(forKey: darkGlassTintKey) }
     static var framebufferOnly: Bool { UserDefaults.standard.bool(forKey: framebufferOnlyKey) }

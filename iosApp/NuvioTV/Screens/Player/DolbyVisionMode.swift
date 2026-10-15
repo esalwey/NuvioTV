@@ -10,7 +10,8 @@ nonisolated enum DolbyVisionMode: String, CaseIterable, Identifiable, Sendable {
     case automatic
     /// Automatic, but Profile 7 FEL releases play on mpv as HDR10 so nothing is discarded.
     case hdr10Fel
-    /// Dolby Vision files play as HDR10 on mpv (Profile 5, which has no HDR10 layer, excepted).
+    /// Dolby Vision files play as their HDR10 base layer, on the native player with the Dolby Vision
+    /// data stripped (Profile 5, which has no HDR10 layer, excepted).
     case hdr10Only
     /// No native player at all: everything plays on mpv.
     case off
@@ -33,7 +34,7 @@ nonisolated enum DolbyVisionMode: String, CaseIterable, Identifiable, Sendable {
         case .hdr10Fel:
             return String(localized: "Like Automatic, but Profile 7 FEL releases, whose enhancement data the 8.1 conversion must discard, play on the mpv player as HDR10 with nothing discarded. MEL releases still play natively.")
         case .hdr10Only:
-            return String(localized: "Dolby Vision files play as HDR10 on the mpv player, for displays that show Dolby Vision artifacts. Profile 5 has no HDR10 layer and keeps playing as Dolby Vision.")
+            return String(localized: "Dolby Vision files play as HDR10, their base layer, for displays that show Dolby Vision artifacts. Profile 5 has no HDR10 layer and keeps playing as Dolby Vision.")
         case .off:
             return String(localized: "Everything plays on the mpv player, and Dolby Vision shows as HDR10.")
         }
@@ -45,7 +46,8 @@ nonisolated enum DolbyVisionMode: String, CaseIterable, Identifiable, Sendable {
     /// Profile 7 FEL goes to mpv instead of being converted (`PlayerTuning.dvP7FelMpvKey`).
     var sendsP7FelToMpv: Bool { self == .hdr10Fel }
 
-    /// Dolby Vision files are routed to mpv to play their HDR10 layer.
+    /// Dolby Vision files play as their HDR10 base layer: the native player's remux drops the Dolby
+    /// Vision data (`DolbyVisionHandling.stripToBase`), and a stream it cannot rewrite goes to mpv.
     var stripsDolbyVision: Bool { self == .hdr10Only }
 
     /// A Dolby Vision file can reach the screen as Dolby Vision (the stream ranking asks).
