@@ -107,6 +107,28 @@ struct PlaybackSettingsPane: View {
             )
         }
 
+        // Audio of the native player: Atmos / DTS:X as Dolby Atmos (APAC, SpatialAudioBridge) and FLAC
+        // instead of AAC 5.1 for TrueHD / DTS-HD MA. The mpv player's own audio settings are in
+        // Advanced > Audio and Video. Device-local, applied from the next video.
+        SettingsSection(
+            String(localized: "Audio"),
+            footer: String(localized: "These apply to the native player, from the next video. Dolby Atmos needs Audio Format on Auto and Dolby Atmos switched on in tvOS Settings \u{2192} Video and Audio, and a receiver or soundbar that plays Atmos from Apple TV.")
+        ) {
+            // Apple TV HD has no Dolby Atmos output: no row to switch on.
+            if SpatialAudioPolicy.deviceCanOutputAtmos {
+                SettingsToggleRow(
+                    title: String(localized: "Spatial Audio for TrueHD Atmos and DTS:X"),
+                    subtitle: String(localized: "Play TrueHD Atmos and DTS:X tracks as Dolby Atmos, with their height channels. The Apple TV converts the audio as it plays; tracks it cannot convert play as before."),
+                    isOn: Binding(get: { model.spatialAudio }, set: { model.setSpatialAudio($0) })
+                )
+            }
+            SettingsToggleRow(
+                title: String(localized: "Lossless Surround Sound"),
+                subtitle: String(localized: "Play TrueHD and DTS-HD Master Audio tracks without objects as lossless 5.1 or 7.1 instead of AAC 5.1."),
+                isOn: Binding(get: { model.losslessAudio }, set: { model.setLosslessAudio($0) })
+            )
+        }
+
         SettingsSection(String(localized: "Player Interface")) {
             SettingsToggleRow(
                 title: String(localized: "Show Loading Screen"),

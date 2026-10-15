@@ -46,8 +46,13 @@ nonisolated final class LocalHLSServer: @unchecked Sendable {
     /// strict AVPlayer rejects the full DV form at the master stage.
     private var _signaling: VideoSignaling
     /// Audio renditions of the master's `aud` group (info-panel W3): every playable source track,
-    /// each an audio-only representation produced only while it is the remux's active track.
-    private let audioRenditions: [AudioRendition]
+    /// each an audio-only representation produced only while it is the remux's active track — except
+    /// the spatial (APAC) ones, converted on demand by the spatial audio engine. Replaced as a whole
+    /// (guarded by `lock`) when a spatial track falls back to the standard audio.
+    private var _audioRenditions: [AudioRendition]
+    /// The renditions served by the spatial audio engine, by avformat stream index.
+    private var _spatialRenditions: [Int: SpatialRendition]
+    private var audioRenditions: [AudioRendition] { lock.lock(); defer { lock.unlock() }; return _audioRenditions }
     /// The track whose files the remux is producing right now (its stream index).
     private let activeAudio: @Sendable () -> Int
     /// The track AVPlayer's audible media selection currently names (nil = unknown). Only requests
@@ -122,6 +127,7 @@ nonisolated final class LocalHLSServer: @unchecked Sendable {
 
     init(rootDir: URL, map: SegmentMap, signaling: VideoSignaling,
          audioRenditions: [AudioRendition] = [],
+         spatialRenditions: [Int: SpatialRendition] = [:],
          activeAudio: @escaping @Sendable () -> Int = { -1 },
          selectedAudio: @escaping @Sendable () -> Int? = { nil },
          requestAudioTrack: @escaping @Sendable (Int, Int?) -> Void = { _, _ in },
@@ -136,7 +142,8 @@ nonisolated final class LocalHLSServer: @unchecked Sendable {
         self.rootDir = rootDir
         self.map = map
         self._signaling = signaling
-        self.audioRenditions = audioRenditions
+        self._audioRenditions = audioRenditions
+        self._spatialRenditions = spatialRenditions
         self.activeAudio = activeAudio
         self.selectedAudio = selectedAudio
         self.requestAudioTrack = requestAudioTrack
@@ -154,6 +161,22 @@ nonisolated final class LocalHLSServer: @unchecked Sendable {
     /// Swap the master-playlist signaling (used for the minimal-signaling retry).
     func setSignaling(_ signaling: VideoSignaling) {
         lock.lock(); _signaling = signaling; lock.unlock()
+    }
+
+    /// The spatial (APAC) rendition of an audio track, if it plays that way.
+    func spatialRendition(forStream stream: Int) -> SpatialRendition? {
+        lock.lock(); defer { lock.unlock() }
+        return _spatialRenditions[stream]
+    }
+
+    /// Change which tracks play as APAC: the master (rendered on every fetch) and the rendition
+    /// playlists follow. The coordinator calls it when a spatial track falls back to the standard audio
+    /// and reloads the item, since AVPlayer keeps the playlists of the item it has loaded.
+    func setAudio(renditions: [AudioRendition], spatial: [Int: SpatialRendition]) {
+        lock.lock()
+        _audioRenditions = renditions
+        _spatialRenditions = spatial
+        lock.unlock()
     }
 
     // MARK: - Subtitle delay (native-engine re-timing)
@@ -267,6 +290,10 @@ nonisolated final class LocalHLSServer: @unchecked Sendable {
             // aud-T.m3u8 — an audio rendition: same segment grid as the video playlist, its own
             // init map and segment names.
             if let audio = audioRenditions.first(where: { $0.playlistName == name }) {
+                // An APAC rendition lists its own 3.2 s segments (the converter's grid), not the video's.
+                if let spatial = spatialRendition(forStream: audio.streamIndex) {
+                    return spatial.mediaPlaylist(startOffsetSec: startOffsetSec)
+                }
                 return map.mediaPlaylist(initName: audio.initName, segmentPrefix: audio.segmentPrefix,
                                          startOffsetSec: startOffsetSec)
             }
@@ -468,6 +495,16 @@ nonisolated final class LocalHLSServer: @unchecked Sendable {
             return
         }
 
+        // Spatial (APAC) audio renditions are converted on demand by the spatial audio engine, not
+        // produced by the remux. They run on their own 3.2 s grid, so their segment numbers are not
+        // video segment numbers and must not reach the remux as a playhead, and a request for one
+        // never switches the remux's active audio track.
+        if let audio = RemuxAudioTrack.parseFileName(name), let spatial = spatialRendition(forStream: audio.track) {
+            serveSpatial(spatial, segment: audio.segment, name: name, rangeHeader: rangeHeader, isHead: isHead,
+                         on: connection, live: live)
+            return
+        }
+
         // The segment AVPlayer is asking for is the playhead the remux paces itself against.
         if name.hasPrefix("seg-") || name.hasPrefix("aud-"), let requested = Self.segmentIndex(name) {
             onSegmentRequest(requested)
@@ -492,6 +529,36 @@ nonisolated final class LocalHLSServer: @unchecked Sendable {
         serveSegmentJIT(name: name, rangeHeader: rangeHeader, isHead: isHead, on: connection,
                         deadline: Date().addingTimeInterval(blockTimeout), mode: nil, live: live,
                         arrived: Date())
+    }
+
+    /// Serve the initialization segment (`segment` nil) or a segment of a spatial rendition: converted
+    /// on request, answered inside CoreMedia's no-response window (`blockTimeout`) — a conversion that
+    /// is not ready by then gets a retryable 503 and carries on. Nothing blocks a thread: the request
+    /// awaits the engine on a task.
+    private func serveSpatial(_ rendition: SpatialRendition, segment: Int?, name: String, rangeHeader: String?,
+                              isHead: Bool, on connection: NWConnection, live: ConnLive) {
+        let window = blockTimeout
+        Task { [weak self] in
+            let result = await rendition.serve(segment: segment, deadline: window)
+            guard let self, live.alive else { connection.cancel(); return }
+            switch result {
+            case .data(let data):
+                self.serveBytes(data, name: name, rangeHeader: rangeHeader, isHead: isHead, on: connection)
+            case .notFound:
+                self.send(status: "404 Not Found", contentType: "text/plain", body: Data("Out of range".utf8),
+                          on: connection, requestPath: name)
+            case .retry:
+                self.send(status: "503 Service Unavailable", contentType: "text/plain", body: Data("Converting".utf8),
+                          on: connection, extraHeaders: ["Retry-After": "1"], requestPath: name)
+            case .gone:
+                self.send(status: "410 Gone", contentType: "text/plain", body: Data("Stopped".utf8),
+                          on: connection, requestPath: name)
+            case .failed(let message):
+                print("[HLS] spatial audio \(name) failed: \(message)")
+                self.send(status: "500 Internal Server Error", contentType: "text/plain", body: Data("Conversion failed".utf8),
+                          on: connection, requestPath: name)
+            }
+        }
     }
 
     /// Serve a subtitle rendition: cached VTT if present, else download the addon file, convert

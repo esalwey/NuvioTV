@@ -243,6 +243,9 @@ extension NativePlaybackCoordinator {
                 let group = (try? await item.asset.loadMediaSelectionGroup(for: .audible)) ?? nil
                 guard let self, self.playerItem === item, let group else { return }
                 self.audibleGroup = group
+                // A reloaded item (a spatial track fell back to the standard audio) opens on AVPlayer's
+                // own pick: put the viewer's back first.
+                self.restorePendingAudioSelection(item: item, group: group)
                 self.syncAudioSelection(item: item, player: player)
             }
         } else {
@@ -294,8 +297,8 @@ extension NativePlaybackCoordinator {
     /// Map an audible option back to our track. `displayName` is AVFoundation's LOCALIZED language
     /// ("French"), not the rendition NAME — the NAME is the option's common-metadata title. Fall back
     /// to the language tag when it identifies exactly one playable track.
-    private static func renditionStream(for option: AVMediaSelectionOption, byName: [String: Int],
-                                        tracks: [RemuxAudioTrack]) -> Int? {
+    static func renditionStream(for option: AVMediaSelectionOption, byName: [String: Int],
+                                tracks: [RemuxAudioTrack]) -> Int? {
         let title = AVMetadataItem.metadataItems(from: option.commonMetadata,
                                                  filteredByIdentifier: .commonIdentifierTitle).first?.stringValue
         if let title, let stream = byName[title] { return stream }
@@ -558,7 +561,7 @@ extension NativePlaybackCoordinator {
             else if s.height >= 700 { chips.append(PlayerPanelChip(text: "720p")) }
             else if s.height > 0 { chips.append(PlayerPanelChip(text: "SD")) }
             if s.supplementalCodecs != nil { chips.append(PlayerPanelChip(text: "Dolby Vision")) }
-            else if s.videoRange == "PQ" { chips.append(PlayerPanelChip(text: "HDR10")) }
+            else if s.videoRange == "PQ" { chips.append(PlayerPanelChip(text: hdr10PlusDeclared ? "HDR10+" : "HDR10")) }
             else if s.videoRange == "HLG" { chips.append(PlayerPanelChip(text: "HLG")) }
             let codec = s.codecs.lowercased()
             if codec.hasPrefix("hvc1") || codec.hasPrefix("hev1") || codec.hasPrefix("dvh1") || codec.hasPrefix("dvhe") {
@@ -666,8 +669,9 @@ extension NativePlaybackCoordinator {
     /// 10-foot menu label: localized language with its variant, codec + channel layout, the
     /// release tag, then the container's track title when it adds information. E.g.
     /// "Français (Canada) · Dolby Digital+ 5.1 · VFQ", "English · Dolby Atmos · Commentary".
-    /// Same pieces as the mpv engine's rows (`MPVTrackFields`).
-    static func audioTrackDisplayName(_ track: RemuxAudioTrack) -> String {
+    /// Same pieces as the mpv engine's rows (`MPVTrackFields`). A track played as an APAC rendition
+    /// (`spatial`) is named for what the viewer picks it for: "English · Dolby Atmos", "English · DTS:X".
+    static func audioTrackDisplayName(_ track: RemuxAudioTrack, spatial: SpatialAudioKind? = nil) -> String {
         var parts: [String] = []
         let title = track.title?.trimmingCharacters(in: .whitespaces) ?? ""
         // Shared formatter (contract C3, LANG-07/10): ISO 639-2/B codes ("fre") read "French", and
@@ -681,7 +685,8 @@ extension NativePlaybackCoordinator {
         }
         let hasLanguage = !parts.isEmpty
         let atmos = TrackLabelFormatter.looksAtmos(title)
-        let detail = TrackLabelFormatter.audioDetail(codec: track.codec, channels: track.channels, atmos: atmos)
+        let detail = spatial?.menuName
+            ?? TrackLabelFormatter.audioDetail(codec: track.codec, channels: track.channels, atmos: atmos)
             ?? "\(Self.audioCodecDisplay[track.codec] ?? track.codec.uppercased()) \(Self.channelText(track.channels))"
         parts.append(detail)
         // The release tag ("VFF", "VFQ"): two French dubs must read apart.

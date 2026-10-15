@@ -31034,36 +31034,36 @@
         }
       }
     },
-    "Play Dolby Vision, HDR10 and other compatible files on the native player for true Dolby Vision output on Apple TV 4K; everything else stays on the mpv player. Profile 7 discs convert to 8.1 on the fly, and TrueHD/DTS-only audio plays as AAC 5.1.": {
+    "Play Dolby Vision, HDR10 and other compatible files on the native player for true Dolby Vision output on Apple TV 4K; everything else stays on the mpv player. Profile 7 discs convert to 8.1 on the fly.": {
       "localizations": {
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Spiele Dolby Vision, HDR10 und andere kompatible Dateien im nativen Player ab, um auf dem Apple TV 4K echte Dolby-Vision-Ausgabe zu erhalten; alles andere bleibt im mpv-Player. Profile-7-Discs werden live in 8.1 umgewandelt, und Audio nur in TrueHD/DTS wird als AAC 5.1 abgespielt."
+            "value": "Spiele Dolby Vision, HDR10 und andere kompatible Dateien im nativen Player ab, um auf dem Apple TV 4K echte Dolby-Vision-Ausgabe zu erhalten; alles andere bleibt im mpv-Player. Profile-7-Discs werden live in 8.1 umgewandelt."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Reproduce Dolby Vision, HDR10 y otros archivos compatibles en el reproductor nativo para una salida Dolby Vision real en el Apple TV 4K; el resto se reproduce en el reproductor mpv. Los discos Perfil 7 se convierten sobre la marcha a 8.1, y el audio solo TrueHD/DTS se reproduce como AAC 5.1."
+            "value": "Reproduce Dolby Vision, HDR10 y otros archivos compatibles en el reproductor nativo para una salida Dolby Vision real en el Apple TV 4K; el resto se reproduce en el reproductor mpv. Los discos Perfil 7 se convierten sobre la marcha a 8.1."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Lit les fichiers Dolby Vision, HDR10 et autres fichiers compatibles avec le lecteur natif pour une vraie sortie Dolby Vision sur l’Apple TV 4K ; tout le reste reste sur le lecteur mpv. Les disques Profile 7 sont convertis en 8.1 à la volée, et l’audio TrueHD/DTS seul est lu en AAC 5.1."
+            "value": "Lit les fichiers Dolby Vision, HDR10 et autres fichiers compatibles avec le lecteur natif pour une vraie sortie Dolby Vision sur l’Apple TV 4K ; tout le reste reste sur le lecteur mpv. Les disques Profile 7 sont convertis en 8.1 à la volée."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Riproduci Dolby Vision, HDR10 e altri file compatibili con il lettore nativo per un vero output Dolby Vision su Apple TV 4K; tutto il resto rimane sul lettore mpv. I dischi di profilo 7 si convertono a 8.1 al volo e l’audio solo TrueHD/DTS viene riprodotto come AAC 5.1."
+            "value": "Riproduci Dolby Vision, HDR10 e altri file compatibili con il lettore nativo per un vero output Dolby Vision su Apple TV 4K; tutto il resto rimane sul lettore mpv. I dischi di profilo 7 si convertono a 8.1 al volo."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Phát Dolby Vision, HDR10 và các tệp tương thích khác trên trình phát gốc để có đầu ra Dolby Vision thực sự trên Apple TV 4K; mọi thứ khác vẫn dùng trình phát mpv. Đĩa Profile 7 được chuyển sang 8.1 ngay lập tức, và âm thanh chỉ có TrueHD/DTS sẽ phát dưới dạng AAC 5.1."
+            "value": "Phát Dolby Vision, HDR10 và các tệp tương thích khác trên trình phát gốc để có đầu ra Dolby Vision thực sự trên Apple TV 4K; mọi thứ khác vẫn dùng trình phát mpv. Đĩa Profile 7 được chuyển sang 8.1 ngay lập tức."
           }
         }
       }
@@ -57805,6 +57805,448 @@
           "stringUnit": {
             "state": "translated",
             "value": "Nơi lấy đề xuất trên trang phim."
+          }
+        }
+      }
+    },
+    "Spatial Audio for TrueHD Atmos and DTS:X": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Räumlicher Klang für TrueHD Atmos und DTS:X"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Audio espacial para TrueHD Atmos y DTS:X"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Audio spatial pour TrueHD Atmos et DTS:X"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Audio spaziale per TrueHD Atmos e DTS:X"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Âm thanh không gian cho TrueHD Atmos và DTS:X"
+          }
+        }
+      }
+    },
+    "Play TrueHD Atmos and DTS:X tracks as Dolby Atmos, with their height channels. The Apple TV converts the audio as it plays; tracks it cannot convert play as before.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spielt TrueHD-Atmos- und DTS:X-Spuren als Dolby Atmos mit ihren Höhenkanälen ab. Die Apple TV wandelt den Ton während der Wiedergabe um; Spuren, die sich nicht umwandeln lassen, werden wie bisher abgespielt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reproduce las pistas TrueHD Atmos y DTS:X como Dolby Atmos, con sus canales de altura. El Apple TV convierte el audio durante la reproducción; las pistas que no puede convertir se reproducen como antes."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lit les pistes TrueHD Atmos et DTS:X en Dolby Atmos, avec leurs canaux de hauteur. L’Apple TV convertit le son pendant la lecture ; les pistes qu’elle ne peut pas convertir sont lues comme avant."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Riproduce le tracce TrueHD Atmos e DTS:X come Dolby Atmos, con i loro canali in altezza. L’Apple TV converte l’audio durante la riproduzione; le tracce che non può convertire vengono riprodotte come prima."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Phát các bản âm thanh TrueHD Atmos và DTS:X dưới dạng Dolby Atmos, cùng các kênh độ cao. Apple TV chuyển đổi âm thanh trong khi phát; những bản không thể chuyển đổi sẽ phát như trước."
+          }
+        }
+      }
+    },
+    "Lossless Surround Sound": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verlustfreier Surround-Klang"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sonido envolvente sin pérdidas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Son surround sans perte"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Audio surround lossless"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Âm thanh vòm không mất dữ liệu"
+          }
+        }
+      }
+    },
+    "Play TrueHD and DTS-HD Master Audio tracks without objects as lossless 5.1 or 7.1 instead of AAC 5.1.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spielt TrueHD- und DTS-HD-Master-Audio-Spuren ohne Objekte verlustfrei in 5.1 oder 7.1 ab statt in AAC 5.1."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reproduce las pistas TrueHD y DTS-HD Master Audio sin objetos en 5.1 o 7.1 sin pérdidas, en lugar de AAC 5.1."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lit les pistes TrueHD et DTS-HD Master Audio sans objets en 5.1 ou 7.1 sans perte, au lieu de l’AAC 5.1."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Riproduce le tracce TrueHD e DTS-HD Master Audio senza oggetti in 5.1 o 7.1 lossless invece che in AAC 5.1."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Phát các bản TrueHD và DTS-HD Master Audio không có đối tượng ở dạng 5.1 hoặc 7.1 không mất dữ liệu thay vì AAC 5.1."
+          }
+        }
+      }
+    },
+    "These apply to the native player, from the next video. Dolby Atmos needs Audio Format on Auto and Dolby Atmos switched on in tvOS Settings → Video and Audio, and a receiver or soundbar that plays Atmos from Apple TV.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Einstellungen gelten für den nativen Player, ab dem nächsten Video. Für Dolby Atmos muss in tvOS-Einstellungen → Video und Audio das Audioformat auf Automatisch stehen und Dolby Atmos eingeschaltet sein, außerdem ein Receiver oder eine Soundbar, die Atmos von der Apple TV wiedergibt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se aplican al reproductor nativo, desde el siguiente vídeo. Dolby Atmos requiere que Formato de audio esté en Automático y Dolby Atmos activado en Configuración de tvOS → Vídeo y audio, y un receptor o barra de sonido que reproduzca Atmos desde el Apple TV."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ces réglages s’appliquent au lecteur natif, dès la prochaine vidéo. Dolby Atmos nécessite que Format audio soit sur Auto et que Dolby Atmos soit activé dans Réglages tvOS → Vidéo et audio, ainsi qu’un récepteur ou une barre de son qui lit l’Atmos depuis l’Apple TV."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Valgono per il player nativo, dal prossimo video. Dolby Atmos richiede Formato audio su Auto e Dolby Atmos attivo in Impostazioni tvOS → Video e audio, oltre a un ricevitore o una soundbar che riproduca Atmos dall’Apple TV."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Áp dụng cho trình phát gốc, từ video tiếp theo. Dolby Atmos cần đặt Định dạng âm thanh ở Tự động và bật Dolby Atmos trong Cài đặt tvOS → Video và Âm thanh, cùng bộ thu hoặc loa thanh phát được Atmos từ Apple TV."
+          }
+        }
+      }
+    },
+    "Dolby Atmos via APAC 7.1.4 (from %@)": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dolby Atmos über APAC 7.1.4 (aus %@)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dolby Atmos mediante APAC 7.1.4 (desde %@)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dolby Atmos via APAC 7.1.4 (depuis %@)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dolby Atmos tramite APAC 7.1.4 (da %@)"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dolby Atmos qua APAC 7.1.4 (từ %@)"
+          }
+        }
+      }
+    },
+    "%@ · lossless from %@": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ · verlustfrei aus %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ · sin pérdidas desde %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ · sans perte depuis %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ · lossless da %@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ · không mất dữ liệu từ %@"
+          }
+        }
+      }
+    },
+    "SpatialAudioBridge": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SpatialAudioBridge"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SpatialAudioBridge"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SpatialAudioBridge"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SpatialAudioBridge"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SpatialAudioBridge"
+          }
+        }
+      }
+    },
+    "Converts TrueHD Atmos and DTS:X to Dolby Atmos (APAC) so the native player can play them with their height channels.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wandelt TrueHD Atmos und DTS:X in Dolby Atmos (APAC) um, damit der native Player sie mit ihren Höhenkanälen abspielen kann."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Convierte TrueHD Atmos y DTS:X a Dolby Atmos (APAC) para que el reproductor nativo los reproduzca con sus canales de altura."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Convertit le TrueHD Atmos et le DTS:X en Dolby Atmos (APAC) pour que le lecteur natif les lise avec leurs canaux de hauteur."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Converte TrueHD Atmos e DTS:X in Dolby Atmos (APAC) così che il player nativo possa riprodurli con i loro canali in altezza."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chuyển TrueHD Atmos và DTS:X sang Dolby Atmos (APAC) để trình phát gốc phát được cùng các kênh độ cao."
+          }
+        }
+      }
+    },
+    "Licensed under the Apache License 2.0. Includes the truehd, dca and oamd decoders (Apache-2.0) and other open-source Rust components, whose license texts follow.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lizenziert unter der Apache License 2.0. Enthält die Decoder truehd, dca und oamd (Apache-2.0) und weitere Open-Source-Rust-Komponenten, deren Lizenztexte folgen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Con licencia Apache 2.0. Incluye los decodificadores truehd, dca y oamd (Apache-2.0) y otros componentes Rust de código abierto, cuyos textos de licencia figuran a continuación."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sous licence Apache 2.0. Inclut les décodeurs truehd, dca et oamd (Apache-2.0) et d’autres composants Rust open source, dont les textes de licence suivent."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Concesso in licenza Apache 2.0. Include i decoder truehd, dca e oamd (Apache-2.0) e altri componenti Rust open source, di cui seguono i testi di licenza."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cấp phép theo Apache License 2.0. Bao gồm các bộ giải mã truehd, dca và oamd (Apache-2.0) cùng các thành phần Rust mã nguồn mở khác, với văn bản giấy phép nêu bên dưới."
+          }
+        }
+      }
+    },
+    "SpatialAudioBridge Notices": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SpatialAudioBridge-Hinweise"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Avisos de SpatialAudioBridge"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mentions légales de SpatialAudioBridge"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Avvisi di SpatialAudioBridge"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thông báo của SpatialAudioBridge"
+          }
+        }
+      }
+    },
+    "The license texts of SpatialAudioBridge and the components it includes.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Lizenztexte von SpatialAudioBridge und den enthaltenen Komponenten."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los textos de licencia de SpatialAudioBridge y de los componentes que incluye."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les textes de licence de SpatialAudioBridge et des composants qu’il inclut."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I testi di licenza di SpatialAudioBridge e dei componenti che include."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Văn bản giấy phép của SpatialAudioBridge và các thành phần mà nó bao gồm."
+          }
+        }
+      }
+    },
+    "The notices are not available.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Hinweise sind nicht verfügbar."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los avisos no están disponibles."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les mentions ne sont pas disponibles."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gli avvisi non sono disponibili."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không có thông báo."
           }
         }
       }

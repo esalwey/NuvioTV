@@ -3,6 +3,7 @@ import AVKit
 import Combine
 import Foundation
 import SharedCore
+import SpatialAudioPlayback
 import UIKit
 
 // Phase 3 of the hybrid player: ties Phase 2's remux + loopback server to an AVPlayer for one
@@ -90,14 +91,45 @@ final class NativePlaybackCoordinator: ObservableObject {
     let context: PlaybackContext
     private let recorder: PlaybackProgressRecorder
     var remux: RemuxSession?
-    private var server: LocalHLSServer?
+    var server: LocalHLSServer?
     var playerItem: AVPlayerItem?
     private var pollTask: Task<Void, Never>?
-    private var observeTask: Task<Void, Never>?
-    private var servedURL: URL?
+    var observeTask: Task<Void, Never>?
+    var servedURL: URL?
     /// 0 = full signaling (RFC 6381 + DV supplemental + range); 1 = minimal (bare sample-entry tag).
     /// A strict AVPlayer that rejects the full form at the master stage gets one retry at minimal.
     private var signalingAttempt = 0
+
+    // MARK: Spatial audio (TrueHD Atmos / DTS:X → Dolby Atmos via APAC)
+
+    /// Where the start of the spatial audio session stands. `beginPlayback` waits for it (bounded), so
+    /// the master — rendered once — lists the right renditions. See NativePlaybackCoordinator+SpatialAudio.
+    enum SpatialOutcome { case idle, pending, ready, unavailable }
+    var spatialOutcome: SpatialOutcome = .idle
+    var spatialStartedAt: Date?
+    var spatialStartTask: Task<Void, Never>?
+    var spatialSession: SpatialAudioSession?
+    /// The spatial renditions of the master by avformat stream index, and what each converts from.
+    var spatialKinds: [Int: SpatialAudioKind] = [:]
+    /// Keeps Apple TV's HDMI output in Dolby Atmos while an APAC rendition plays.
+    var atmosActivator: AtmosOutputActivator?
+    /// The master's default audio is an APAC rendition: what the activator assumes until the item's
+    /// audible group has loaded and the real selection can be read.
+    var defaultAudioIsSpatial = false
+    /// Consecutive health checks that found the APAC conversion slower than real time.
+    var spatialSlowStrikes = 0
+    /// Times the item was reloaded to leave the spatial audio (the cache-busting query number).
+    var itemReloads = 0
+    /// Audio stream to select again on a reloaded item, so the viewer's pick survives the fallback.
+    var pendingAudioRestoreStream: Int?
+
+    /// The master declares HDR10+ (SUPPLEMENTAL-CODECS brand `cdm4`, see `Hdr10PlusDetector`): the
+    /// stream carries the dynamic metadata, no Dolby Vision signaling takes the slot, and the
+    /// signaling retry has not dropped it.
+    var hdr10PlusDeclared: Bool {
+        guard let signaling = remux?.videoSignaling else { return false }
+        return signaling.hdr10Plus && signaling.supplementalCodecs == nil && signalingAttempt == 0
+    }
 
     /// Language preferences (Settings → Playback → Preferred Audio/Subtitle Language + the
     /// forced/only-preferred subtitle options), resolved through the shared KMP helpers so the
@@ -222,7 +254,7 @@ final class NativePlaybackCoordinator: ObservableObject {
 
     /// An in-player source switch's start position (c69b643a6): used once, at the first
     /// readyToPlay, instead of the saved progress.
-    private var explicitStartSec: Double?
+    var explicitStartSec: Double?
 
     // MARK: Segment resume (PLY-A5)
 
@@ -237,7 +269,7 @@ final class NativePlaybackCoordinator: ObservableObject {
     private static let resumeSegmentWaitSec: TimeInterval = 20
     /// The resume position planned against the segment map (published as `EXT-X-START`), consumed
     /// at the first readyToPlay.
-    private var plannedResumeSec: Double?
+    var plannedResumeSec: Double?
     /// `MainThreadStallMonitor` was told this player is on screen.
     private var stallSessionOpen = false
     /// Startup clock for the time-to-first-frame log line.
@@ -356,7 +388,15 @@ final class NativePlaybackCoordinator: ObservableObject {
         // write, addon files at VTT conversion), so a mid-playback toggle flip deliberately applies
         // from the next playback session — no invalidation machinery.
         config.stripSdh = playerSettings?.subtitleStyle.stripSdh ?? false
+        // Lossless Surround Sound (Settings > Playback > Audio): FLAC instead of AAC 5.1 for TrueHD / DTS-HD MA.
+        config.losslessAudio = SpatialAudioPolicy.losslessEnabled
         config.preferredAudioPicker = preferredAudioPicker()
+        // Lossless 5.1 / 7.1 and APAC 7.1.4 are multichannel: tell the audio session so, off the main
+        // thread like the app's startup activation (an AVAudioSession activation on the main thread
+        // trips Xcode's hang-risk diagnostic).
+        if SpatialAudioPolicy.losslessEnabled || SpatialAudioPolicy.isEnabled {
+            Task.detached(priority: .userInitiated) { SpatialAudioPolicy.prepareAudioSession() }
+        }
         let remux = RemuxSession(config: config)
         self.remux = remux
         NativePlaybackMetrics.shared.reset()
@@ -400,6 +440,8 @@ final class NativePlaybackCoordinator: ObservableObject {
                             flush: true, isEnded: completed)
         }
         recorder.stopTrakt(positionSec: finalPositionSec, durationSec: lastDurationSec)
+        // The silent Atmos stream and the APAC conversion end with the playback they served.
+        tearDownSpatialAudio()
         player?.pause()
         server?.stop(); server = nil
         remux?.stop()
@@ -458,6 +500,10 @@ final class NativePlaybackCoordinator: ObservableObject {
                         firstSegment = segment
                         resumeWaitDeadline = Date().addingTimeInterval(Self.resumeSegmentWaitSec)
                     }
+                    // Spatial audio: convert the first segment of the track the viewer starts on, in
+                    // parallel with the remux's first segment, to know before the master is rendered
+                    // whether that track can be played as Dolby Atmos.
+                    self.beginSpatialStart(remux: remux, map: map)
                 }
                 let hasMap = map != nil
                 let hasInit = Self.fileSize(dir, "init.mp4") > 0
@@ -473,6 +519,10 @@ final class NativePlaybackCoordinator: ObservableObject {
                     hasFirst = true
                 }
                 if hasMap && hasInit && hasFirst {
+                    if let self, self.spatialStartIsPending() {
+                        try? await Task.sleep(nanoseconds: 250_000_000)   // waiting only on the APAC check now
+                        continue
+                    }
                     if let self, !self.subsFetchCompleted(), Date() < subsDeadline {
                         try? await Task.sleep(nanoseconds: 250_000_000)   // waiting only on subtitles now
                         continue
@@ -523,7 +573,7 @@ final class NativePlaybackCoordinator: ObservableObject {
         // Audio menu data (D4): the worker published the full track list with its selection when it
         // inspected the streams — always before the map exists, so it's complete here.
         audioTracks = remux.audioTracks.map {
-            NativeAudioTrack(streamIndex: $0.streamIndex, name: Self.audioTrackDisplayName($0),
+            NativeAudioTrack(streamIndex: $0.streamIndex, name: audioDisplayName(for: $0),
                              playable: $0.playable, selected: $0.selected)
         }
         // VERIFIED-LANGUAGES: remember the file's own tracks for the stream it was picked from.
@@ -588,28 +638,14 @@ final class NativePlaybackCoordinator: ObservableObject {
         // A device that already fell back to the reduced master form keeps it across an
         // audio-switch rebuild (same video stream — the full form would just fail again).
         var signaling = remux.videoSignaling ?? VideoSignaling(codecs: "")
-        if signalingAttempt > 0 { signaling.supplementalCodecs = nil }
+        if signalingAttempt > 0 { signaling.supplementalCodecs = nil; signaling.hdr10Plus = false }
         let selectedAudio = remux.audioTracks.first(where: \.selected)
-        // Audio renditions (info-panel W3): every playable track, the initially produced one DEFAULT.
-        var audioNames = Set<String>()
-        let audioRenditions = remux.audioTracks.filter(\.playable).map { track -> AudioRendition in
-            // NAME must be unique within the group (two untitled tracks with the same language,
-            // codec and layout otherwise collide) — suffix duplicates.
-            let base = Self.audioTrackDisplayName(track)
-            var name = base, n = 2
-            while !audioNames.insert(name).inserted { name = "\(base) \(n)"; n += 1 }
-            // LANGUAGE in BCP 47 form (LANG-07): "fre" → "fr", so AVPlayer's criteria and the
-            // system Audio popover read it.
-            return AudioRendition(streamIndex: track.streamIndex, name: name,
-                                  // With the variant the title states (LANG-10): a "fre" track
-                                  // titled "VFQ" is "fr-CA", so the criteria tell the dubs apart.
-                                  language: TrackLabelFormatter.trackLanguageTag(language: track.language,
-                                                                                 title: track.title) ?? track.language,
-                                  channels: track.channels,
-                                  codecToken: track.codecToken, isDefault: track.selected)
-        }
+        // Audio renditions (info-panel W3): every playable track, the initially produced one DEFAULT;
+        // a track that converts to Dolby Atmos is an APAC rendition served by the spatial audio engine.
+        let audioRenditions = makeAudioRenditions(remux: remux)
         audioRenditionsByName = Dictionary(uniqueKeysWithValues: audioRenditions.map { ($0.name, $0.streamIndex) })
         selectedAudioBox.value = selectedAudio?.streamIndex
+        defaultAudioIsSpatial = selectedAudio.map { spatialKinds[$0.streamIndex] != nil } ?? false
         // The forced-only decision needs the audio the viewer will hear (shared plan semantics).
         resolveLanguagePlan(selectedAudioTrack: selectedAudio.map { track in
             AudioTrack(
@@ -617,13 +653,16 @@ final class NativePlaybackCoordinator: ObservableObject {
                 label: track.title ?? track.language ?? "",
                 language: track.language, isSelected: true)
         })
+        let spatialPlayhead = spatialSession
         let server = LocalHLSServer(rootDir: remux.outputDir, map: map,
                                     signaling: signaling,
                                     audioRenditions: audioRenditions,
+                                    spatialRenditions: spatialRenditionsForServer(),
                                     activeAudio: { remux.activeAudioStream },
                                     selectedAudio: { [box = selectedAudioBox] in box.value },
                                     requestAudioTrack: { remux.selectAudio(streamIndex: $0, atSegment: $1) },
-                                    bandwidth: remux.estimatedBandwidth,
+                                    // An APAC rendition adds its 3 Mb/s to the variant's peak.
+                                    bandwidth: remux.estimatedBandwidth + (spatialKinds.isEmpty ? 0 : SpatialAudioPolicy.apacBitRate),
                                     subtitles: subtitleRenditions,
                                     subtitleFlags: subtitleFlags(for: subtitleRenditions),
                                     // SDH stripping, native path (mpv sets sub-filter-sdh instead) —
@@ -633,7 +672,11 @@ final class NativePlaybackCoordinator: ObservableObject {
                                     requestReposition: { remux.reposition(toSegment: $0) },
                                     // The segment AVPlayer asks for is the playhead the remux paces
                                     // itself against (bounded disk + CPU on 90 GB 4K files).
-                                    onSegmentRequest: { remux.notePlayhead(segment: $0) },
+                                    onSegmentRequest: {
+                                        remux.notePlayhead(segment: $0)
+                                        // A spatial rendition nobody has played yet converts where playback is.
+                                        spatialPlayhead?.noteVideoSegment($0)
+                                    },
                                     // Resume (PLY-A5): the item opens at the segment the remux was
                                     // repositioned to — no segment-1 fetch, no first-frame flash.
                                     startOffsetSec: plannedResumeSec)
@@ -662,6 +705,8 @@ final class NativePlaybackCoordinator: ObservableObject {
             self.applyLanguagePlan(to: player)
             self.playerItem = item
             self.player = player
+            // Dolby Atmos output while an APAC rendition is the audio (a no-op with no spatial renditions).
+            self.attachAtmosActivator(to: player)
             self.audibleGroup = nil
             self.didRelayInitialAudio = false
             // `isPaused` means a pause DURING playback: the pre-playback `.paused` state a fresh
@@ -691,7 +736,7 @@ final class NativePlaybackCoordinator: ObservableObject {
 
     /// Per-item setup shared by the first item and the signaling retry's item: Now Playing /
     /// title-view metadata (PLY-A7) and the subtitle appearance (LANG-06).
-    private func prepareItem(_ item: AVPlayerItem) {
+    func prepareItem(_ item: AVPlayerItem) {
         applyExternalMetadata(to: item)
         applySubtitleAppearance(to: item)
     }
@@ -820,6 +865,12 @@ final class NativePlaybackCoordinator: ObservableObject {
             let listing = names.sorted().prefix(24).map { "\($0)=\(Self.fileSize(dir, $0))b" }.joined(separator: " ")
             print("[NativePlayer] output dir: \(listing)")
         }
+        // The newest, least proven part of the master is an APAC rendition: before blaming the video
+        // signaling, serve every spatial track the standard way and load the master again.
+        if !spatialKinds.isEmpty,
+           reloadWithoutSpatialAudio(streams: Array(spatialKinds.keys), reason: "item failed before start") {
+            return
+        }
         guard signalingAttempt == 0, let servedURL else {
             print("[NativePlayer] failing over to mpv (item failed before playback started)")
             phase = .failed("item failed before start")
@@ -830,8 +881,10 @@ final class NativePlaybackCoordinator: ObservableObject {
         // reject the DV supplemental form at the master stage). The full RFC 6381 CODECS token and
         // VIDEO-RANGE MUST stay — bare tags are non-compliant, and PQ media without a declared
         // VIDEO-RANGE is itself rejected on tvOS 27 (the retry would fail for the wrong reason).
+        // The HDR10+ brand is a supplemental codec too (SegmentMap.masterPlaylist): it goes with it.
         var reduced = remux?.videoSignaling ?? VideoSignaling(codecs: "hvc1")
         reduced.supplementalCodecs = nil
+        reduced.hdr10Plus = false
         server?.setSignaling(reduced)
         print("[NativePlayer] retrying without SUPPLEMENTAL-CODECS (CODECS=\(reduced.codecs) RANGE=\(reduced.videoRange ?? "-"))")
         observeTask?.cancel()
@@ -967,7 +1020,7 @@ final class NativePlaybackCoordinator: ObservableObject {
 
     // MARK: - AVPlayer observation (resume + progress + Trakt)
 
-    private func observePlayback(player: AVPlayer, item: AVPlayerItem) {
+    func observePlayback(player: AVPlayer, item: AVPlayerItem) {
         observeEnd(item: item)
         observeStalls(item: item)
         startPositionTicks(player: player, item: item)
@@ -1078,6 +1131,7 @@ final class NativePlaybackCoordinator: ObservableObject {
                         self.recorder.record(positionSec: pos, durationSec: dur, isPaused: paused, speed: 1, flush: false,
                                              isBuffering: player.timeControlStatus == .waitingToPlayAtSpecifiedRate)
                         self.refreshActiveAudioTrack()
+                        self.checkSpatialAudioHealth()
                         if self.audibleGroup == nil { self.handleMediaSelectionChange(item: item, player: player) }
                         else { self.syncAudioSelection(item: item, player: player) }
                         self.onTick?(pos, dur)
@@ -1306,7 +1360,17 @@ final class NativePlaybackCoordinator: ObservableObject {
     private func refreshActiveAudioTrack() {
         guard let remux, remux.activeAudioStream != audioTracks.first(where: \.selected)?.streamIndex else { return }
         audioTracks = remux.audioTracks.map {
-            NativeAudioTrack(streamIndex: $0.streamIndex, name: Self.audioTrackDisplayName($0),
+            NativeAudioTrack(streamIndex: $0.streamIndex, name: audioDisplayName(for: $0),
+                             playable: $0.playable, selected: $0.selected)
+        }
+    }
+
+    /// Rebuilds the Audio tab's track list, e.g. after a track stopped playing as an APAC rendition and
+    /// its name changed back (`reloadWithoutSpatialAudio`).
+    func rebuildAudioTracks() {
+        guard let remux else { return }
+        audioTracks = remux.audioTracks.map {
+            NativeAudioTrack(streamIndex: $0.streamIndex, name: audioDisplayName(for: $0),
                              playable: $0.playable, selected: $0.selected)
         }
     }
@@ -1326,7 +1390,7 @@ final class NativePlaybackCoordinator: ObservableObject {
         if let s = remux?.videoSignaling {
             add(String(localized: "Video"), s.codecs)
             add("Dolby Vision", s.supplementalCodecs)
-            add(String(localized: "Dynamic range"), s.videoRange)
+            add(String(localized: "Dynamic range"), hdr10PlusDeclared ? "\(s.videoRange ?? "PQ") \u{00B7} HDR10+" : s.videoRange)
             if s.width > 0, s.height > 0 {
                 let fps = s.frameRate > 0 ? " \u{00B7} " + LocalizedNumberFormat.frameRate(Double(s.frameRate)) : ""
                 add(String(localized: "Resolution"), "\(s.width)\u{00D7}\(s.height)\(fps)")

@@ -13,6 +13,9 @@ import Foundation
 //  - "timestamp fixups" must stay at 0 on a healthy file: it counts decode timestamps the segmenter had
 //    to repair (reorder depth beyond its window), the kind of defect that draws as frames jumping back.
 //  - dropped frames / stalls / indicated + observed bitrate come from AVPlayerItem.accessLog().
+//  - "APAC audio" (spatial audio, TrueHD Atmos / DTS:X): conversion speed in x realtime since the latest
+//    start or seek (below about 1.2 the audio cannot keep up and playback stalls), restarts (each seek the
+//    audio converter had to restart), failures of the converter and fallbacks to the standard audio.
 nonisolated final class NativePlaybackMetrics: @unchecked Sendable {
     static let shared = NativePlaybackMetrics()
 
@@ -55,6 +58,19 @@ nonisolated final class NativePlaybackMetrics: @unchecked Sendable {
     private var playbackStalls = 0
     private var lastStallNote = ""
 
+    // Spatial audio (APAC conversion of TrueHD Atmos / DTS:X).
+    private var spatialRenditions = 0
+    private var spatialStartupSec = 0.0
+    private var spatialSpeedNow = 0.0
+    private var spatialSpeedWorst = Double.infinity
+    private var spatialRunSegments = 0
+    private var spatialCacheBytes = 0
+    private var spatialRestarts = 0
+    private var spatialFailures = 0
+    private var spatialLastFailure = ""
+    private var spatialFallbacks = 0
+    private var spatialLastFallback = ""
+
     private init() {}
 
     /// A new playback session starts: forget the previous one's numbers.
@@ -67,6 +83,9 @@ nonisolated final class NativePlaybackMetrics: @unchecked Sendable {
         served = 0; servedBytes = 0; lateServes = 0; maxServeWaitSec = 0; serveTimeouts = 0
         indicatedBps = 0; observedBps = 0; droppedFrames = 0; accessLogStalls = 0; downloadOverdue = 0
         playbackStalls = 0; lastStallNote = ""
+        spatialRenditions = 0; spatialStartupSec = 0; spatialSpeedNow = 0; spatialSpeedWorst = .infinity
+        spatialRunSegments = 0; spatialCacheBytes = 0; spatialRestarts = 0; spatialFailures = 0
+        spatialLastFailure = ""; spatialFallbacks = 0; spatialLastFallback = ""
     }
 
     // MARK: Writers
@@ -133,7 +152,50 @@ nonisolated final class NativePlaybackMetrics: @unchecked Sendable {
         lastStallNote = note
     }
 
+    // MARK: Spatial audio writers
+
+    /// The spatial audio session is up: how many renditions it serves and how long the first segment of
+    /// the track the viewer started on took (the extra start-up the viewer waits for).
+    func noteSpatialStart(renditions: Int, startupSec: Double) {
+        lock.lock(); defer { lock.unlock() }
+        spatialRenditions = renditions
+        spatialStartupSec = startupSec
+    }
+
+    /// Conversion speed of the engine's current run (multiples of real time), how many segments the run
+    /// has produced, and the converted audio held in memory. The worst speed ignores a run's first
+    /// segments, which carry the start-up cost.
+    func recordSpatialSpeed(_ speed: Double, segmentsInRun: Int, cachedBytes: Int) {
+        lock.lock(); defer { lock.unlock() }
+        spatialSpeedNow = speed
+        spatialRunSegments = segmentsInRun
+        spatialCacheBytes = cachedBytes
+        if segmentsInRun >= 4 { spatialSpeedWorst = min(spatialSpeedWorst, speed) }
+    }
+
+    func noteSpatialRestart() { lock.lock(); spatialRestarts += 1; lock.unlock() }
+
+    func noteSpatialFailure(_ message: String) {
+        lock.lock(); defer { lock.unlock() }
+        spatialFailures += 1
+        spatialLastFailure = String(message.prefix(160))
+    }
+
+    /// A spatial rendition was given up for the standard audio (conversion failed or was too slow).
+    func noteSpatialFallback(_ reason: String) {
+        lock.lock(); defer { lock.unlock() }
+        spatialFallbacks += 1
+        spatialLastFallback = String(reason.prefix(160))
+    }
+
     // MARK: Readers
+
+    /// The latest conversion speed and the segments it was measured over, for the playback health check.
+    var spatialSpeed: (speed: Double, segments: Int)? {
+        lock.lock(); defer { lock.unlock() }
+        guard spatialRunSegments > 0 else { return nil }
+        return (spatialSpeedNow, spatialRunSegments)
+    }
 
     var droppedVideoFrames: Int { lock.lock(); defer { lock.unlock() }; return droppedFrames }
 
@@ -148,6 +210,12 @@ nonisolated final class NativePlaybackMetrics: @unchecked Sendable {
             rows.append((label: "Remux",
                          value: String(format: "seg %d \u{00B7} %.1fx realtime (worst %.1fx) \u{00B7} %d MB/seg \u{00B7} ahead %d/%d",
                                        lastSegment, avg, worst, lastSegmentBytes / 1_048_576, aheadSegments, aheadLimit)))
+        }
+        if spatialRenditions > 0 {
+            var apac = spatialRunSegments > 0 ? String(format: "%.1fx realtime", spatialSpeedNow) : "starting"
+            apac += " \u{00B7} \(spatialFailures) failures"
+            if spatialFallbacks > 0 { apac += " \u{00B7} \(spatialFallbacks) fallbacks" }
+            rows.append((label: "APAC audio", value: apac))
         }
         var player: [String] = []
         if observedBps > 0 { player.append(String(format: "observed %.0f Mb/s", observedBps / 1_000_000)) }
@@ -180,6 +248,15 @@ nonisolated final class NativePlaybackMetrics: @unchecked Sendable {
                    indicatedBps / 1_000_000, observedBps / 1_000_000),
             "AVPlayer frames     \(droppedFrames) dropped, \(accessLogStalls) stalls (access log), \(playbackStalls) stall events, \(downloadOverdue) overdue",
         ]
+        if spatialRenditions > 0 || spatialFailures > 0 || spatialFallbacks > 0 {
+            let worst = spatialSpeedWorst.isFinite ? String(format: "%.2fx", spatialSpeedWorst) : "-"
+            out.append(String(format: "APAC conversion     %.2fx realtime, worst %@ (run: %d segs, started in %.1fs)",
+                              spatialSpeedNow, worst, spatialRunSegments, spatialStartupSec))
+            out.append("APAC audio          \(spatialRenditions) renditions, \(spatialCacheBytes / 1_048_576) MB cached, \(spatialRestarts) restarts")
+            out.append("APAC failures       \(spatialFailures), \(spatialFallbacks) fallbacks to standard audio"
+                       + (spatialLastFailure.isEmpty ? "" : " (last: \(spatialLastFailure))"))
+            if !spatialLastFallback.isEmpty { out.append("APAC fallback       \(spatialLastFallback)") }
+        }
         if !lastStallNote.isEmpty { out.append("last stall           \(lastStallNote)") }
         return out
     }

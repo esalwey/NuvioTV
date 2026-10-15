@@ -211,11 +211,14 @@ struct PlayerScreen: View {
         let felToMpv = dvMode.sendsP7FelToMpv
         let stripDV = dvMode.stripsDolbyVision
         let timeoutSec = PlayerTuning.probeTimeoutSec
+        // Spatial Audio (Settings > Playback > Audio): labels a native decision whose file has an
+        // announced TrueHD Atmos / DTS:X track; the engine choice itself does not depend on it.
+        let spatialAudio = SpatialAudioPolicy.isEnabled
         // `.userInitiated`: the viewer is staring at the loading view while this runs.
         let (result, nativeCanPlay) = await Task.detached(priority: .userInitiated) { () -> (EngineDecision, Bool) in
             let probe = MediaProbe.probe(url: url, timeoutSec: timeoutSec, requestHeaders: requestHeaders)
             let decision = PlayerEngineRouter.route(probe: probe, nativeDVEnabled: true, dvP7FelToMpv: felToMpv,
-                                                    stripDolbyVision: stripDV)
+                                                    stripDolbyVision: stripDV, spatialAudio: spatialAudio)
             // Could the native engine play it at all, the viewer's routing preferences aside (Dolby
             // Vision as HDR10, Profile 7 FEL on mpv)? A probe that found nothing proves nothing.
             let possible = probe == nil || PlayerEngineRouter.route(probe: probe, nativeDVEnabled: true).engine == .native

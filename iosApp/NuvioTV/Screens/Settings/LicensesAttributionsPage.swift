@@ -32,6 +32,19 @@ struct LicensesAttributionsPage: View {
                     license: String(localized: "MPVKit source alone is licensed under LGPL v3.0. MPVKit bundles, including libmpv and FFmpeg libraries, are also licensed under LGPL v3.0."),
                     address: "github.com/mpvkit/MPVKit"
                 )
+                LicenseEntryRow(
+                    title: String(localized: "SpatialAudioBridge"),
+                    detail: String(localized: "Converts TrueHD Atmos and DTS:X to Dolby Atmos (APAC) so the native player can play them with their height channels."),
+                    license: String(localized: "Licensed under the Apache License 2.0. Includes the truehd, dca and oamd decoders (Apache-2.0) and other open-source Rust components, whose license texts follow."),
+                    address: "github.com/kristofferR/SpatialAudioBridge"
+                )
+                SettingsLinkRow(
+                    title: String(localized: "SpatialAudioBridge Notices"),
+                    subtitle: String(localized: "The license texts of SpatialAudioBridge and the components it includes."),
+                    systemImage: "doc.text"
+                ) {
+                    SpatialAudioNoticesPage()
+                }
             }
 
             SettingsSection(String(localized: "Typeface")) {

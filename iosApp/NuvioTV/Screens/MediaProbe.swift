@@ -36,6 +36,11 @@ nonisolated struct AudioStreamInfo: Sendable {
     var codec: String         // canonical FFmpeg name: "aac", "ac3", "eac3", "truehd", "dts", ...
     var channels: Int
     var language: String?
+    /// Raw `AVCodecParameters.profile`: how TrueHD Atmos and DTS-HD MA / DTS:X are told apart from their
+    /// plain forms (`FFmpegAudioProfile`). `FFmpegAudioProfile.unknown` when FFmpeg reports none.
+    var profile: Int32 = Int32(FFmpegAudioProfile.unknown)
+    /// The track title the muxer wrote ("TrueHD Atmos 7.1"), when there is one.
+    var title: String? = nil
 }
 
 nonisolated struct SubtitleStreamInfo: Sendable {
@@ -141,7 +146,9 @@ nonisolated enum MediaProbe {
                     index: i,
                     codec: codecName(par.codec_id),
                     channels: Int(par.ch_layout.nb_channels),
-                    language: lang
+                    language: lang,
+                    profile: par.profile,
+                    title: dictValue(stream.pointee.metadata, "title")
                 ))
             case AVMEDIA_TYPE_SUBTITLE:
                 let props = avcodec_descriptor_get(par.codec_id)?.pointee.props ?? 0

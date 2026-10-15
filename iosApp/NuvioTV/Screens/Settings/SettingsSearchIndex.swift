@@ -152,6 +152,11 @@ enum SettingsSearchIndex {
             ["avplayer", "dolby vision", "hdr10", "dv", "mkv", "engine"])
         add(.playback, playback, "trailerSound", String(localized: "Trailer Sound by Default"),
             ["mute", "audio", "trailers"])
+        let audioOutput = String(localized: "Audio")
+        add(.playback, audioOutput, "spatialAudio", String(localized: "Spatial Audio for TrueHD Atmos and DTS:X"),
+            ["atmos", "dolby atmos", "dts:x", "dtsx", "truehd", "apac", "heights", "spatial", "receiver", "soundbar", "surround"])
+        add(.playback, audioOutput, "losslessAudio", String(localized: "Lossless Surround Sound"),
+            ["flac", "truehd", "dts-hd", "master audio", "lossless", "5.1", "7.1", "aac", "surround"])
         add(.playback, advancedPlayback, "buffer", String(localized: "Streaming Buffer"),
             ["cache", "memory", "buffering", "stutter"])
         add(.playback, advancedPlayback, "readahead", String(localized: "Network Readahead"),

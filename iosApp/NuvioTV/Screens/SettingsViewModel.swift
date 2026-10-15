@@ -356,6 +356,10 @@ final class SettingsViewModel: ObservableObject {
     /// How Dolby Vision files are played (native player, Profile 7 handling, HDR10 only, or off).
     /// Replaces the old native-DV and keep-FEL-on-mpv switches; stored through their keys.
     @Published var dolbyVisionMode: DolbyVisionMode = DolbyVisionMode.current
+    /// Native player: TrueHD Atmos and DTS:X tracks play as Dolby Atmos (APAC). ON unless switched off.
+    @Published var spatialAudio: Bool = SpatialAudioPolicy.userEnabled
+    /// Native player: TrueHD / DTS-HD MA without objects play as lossless FLAC instead of AAC 5.1.
+    @Published var losslessAudio: Bool = SpatialAudioPolicy.losslessEnabled
 
     func setBufferMB(_ value: Int) {
         bufferMB = value
@@ -380,6 +384,16 @@ final class SettingsViewModel: ObservableObject {
     func setDolbyVisionMode(_ mode: DolbyVisionMode) {
         dolbyVisionMode = mode
         mode.store()
+    }
+
+    func setSpatialAudio(_ value: Bool) {
+        spatialAudio = value
+        UserDefaults.standard.set(value, forKey: PlayerTuning.spatialAudioKey)
+    }
+
+    func setLosslessAudio(_ value: Bool) {
+        losslessAudio = value
+        UserDefaults.standard.set(value, forKey: PlayerTuning.losslessAudioKey)
     }
 
     // MARK: - Up Next (Settings → Playback → Next Episode)
