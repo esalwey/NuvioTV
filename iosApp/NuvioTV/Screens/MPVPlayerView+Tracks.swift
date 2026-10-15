@@ -705,7 +705,8 @@ extension MPVTVPlayerViewController {
     }
 
     /// The transport chrome came or went (main thread): the captions glide up above it and back down,
-    /// as they do on the system player, in a few steps of `sub-pos` posted to the core.
+    /// as they do on the system player, in a few steps of `sub-pos` posted to the core. The glide takes
+    /// as long as the bar's own fade (`PlayerSpec.Chrome.fadeDuration`), so the two move together.
     func setSubtitleChromeLift(_ lifted: Bool) {
         guard mpv != nil, lifted != subtitlesLifted else { return }
         subtitlesLifted = lifted
@@ -716,9 +717,10 @@ extension MPVTVPlayerViewController {
         guard from != to else { return }
         subtitleLiftGeneration += 1
         let generation = subtitleLiftGeneration
-        let steps = 6
+        let steps = 8
+        let stepInterval = PlayerSpec.Chrome.fadeDuration / Double(steps)
         for step in 1...steps {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.04 * Double(step)) { [weak self] in
+            DispatchQueue.main.asyncAfter(deadline: .now() + stepInterval * Double(step)) { [weak self] in
                 guard let self, self.mpv != nil, self.subtitleLiftGeneration == generation else { return }
                 let t = Double(step) / Double(steps)
                 let eased = t * t * (3 - 2 * t)
