@@ -28,9 +28,9 @@ enum PlayerChipStyle {
     static var glass: Glass {
         PlayerTuning.darkGlassTint ? .regular.tint(Color.black.opacity(0.45)) : .regular
     }
-    /// The transport buttons of the mpv bar: the Clear variant of Liquid Glass over the picture, on the
-    /// bar's own shade (`PlayerChromeScrim`). docs/player-spec.md, "Layout": the system player floats Clear
-    /// glass over video and supplies its own dimming layer under it (HIG Materials); the Developer pane's
+    /// The transport buttons and the tab pills of the mpv bar: the Clear variant of Liquid Glass over the
+    /// picture. docs/player-spec.md, "Layout": the system player floats Clear glass over video; the
+    /// owner's recording shows no dimming of the picture under it (section 9); the Developer pane's
     /// "Dark Player Glass" switch brings the tinted regular glass back for an on-device A/B.
     static var transportGlass: Glass {
         PlayerTuning.darkGlassTint ? .regular.tint(Color.black.opacity(0.45)) : .clear

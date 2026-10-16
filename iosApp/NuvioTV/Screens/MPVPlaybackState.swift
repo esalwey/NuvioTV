@@ -22,10 +22,20 @@ final class MPVPlaybackState: ObservableObject {
     @Published var durationSec: Double = 0
     @Published var isPaused: Bool = false {
         didSet {
-            // Playing again: the next pause shows its chrome again (F3).
-            if oldValue, !isPaused, pauseChromeDismissed { pauseChromeDismissed = false }
+            // Playing again: the next pause shows its chrome again (F3), after its own delay.
+            if oldValue, !isPaused {
+                if pauseChromeDismissed { pauseChromeDismissed = false }
+                if pauseChromeRevealed { pauseChromeRevealed = false }
+            }
         }
     }
+    /// The chrome of the current pause has come in. The picture freezes at once; the chrome follows
+    /// `PlayerSpec.Chrome.pauseRevealDelaySec` later when it was away (the controller arms it), at
+    /// once when it was already up.
+    @Published var pauseChromeRevealed: Bool = false
+    /// How the chrome's parts fade in this time: the cascade after a pause, or the quick one of every
+    /// other way the chrome comes back (`PlayerSpec.Chrome`).
+    @Published var chromeCascade: MPVChromeCascade = .show
     @Published var isBuffering: Bool = true
     @Published var controlsVisible: Bool = false
     /// Back hid the transport bar while paused (F3, docs/player-spec.md "Pause": Back hides the
@@ -38,15 +48,31 @@ final class MPVPlaybackState: ObservableObject {
     @Published var scrubTargetSec: Double?
     /// Where the scrub started (Back returns here — no seek was issued meanwhile).
     var scrubOriginSec: Double?
-    /// Hold fast-forward / rewind rate (2×, 3×, 4×; negative = rewind); nil = normal speed
-    /// (spec §6.9.4, decision D9).
-    @Published var fastForwardRate: Double?
-    /// Where the head is while a rewind (or a hold while paused) walks it by timer; nil otherwise.
-    /// The bar shows this rather than the keyframe each seek lands on.
-    var rateSeekTarget: Double?
-    /// The skip hint of a ±10 s click ("+10 ›" / "‹ -10", the clicks in a row added up), drawn in the
-    /// bar's state slot for as long as the bar stays up after the last click.
+    /// A finger rests on the touch surface (the controller's `touchesBegan` / `touchesEnded`).
+    @Published var fingerDown: Bool = false
+    /// The knob is drawn on the playhead: a finger has rested on a paused player for
+    /// `PlayerSpec.Scrub.knobDelaySec` without swiping.
+    @Published var knobShown: Bool = false
+    /// A finger touched the paused player: the chrome is the bar alone (its title, buttons and pills
+    /// faded out) until the scrub is committed or cancelled, as on the system player.
+    @Published var scrubChrome: Bool = false
+    /// The bar alone, brought up by a ±10 s click while the chrome was away (it hides
+    /// `PlayerSpec.Chrome.skimLifetime` after the last click, and shows no clock pill).
+    @Published var skimVisible: Bool = false
+    /// The bar's fill is the pale lavender it takes after a skip click (it is white until then).
+    @Published var barTinted: Bool = false
+    /// A hold on an edge (rewind or fast-forward): the head runs by its own clock while the picture
+    /// stays frozen on the frame it stopped on (`MPVScan`); nil = no hold.
+    @Published var scan: MPVScan?
+    /// After a hold's release the seek is still out: the bar shows a spinner on the badge's side
+    /// (-1 left, 1 right) until the picture has arrived.
+    @Published var seekSettleDirection: Double?
+    /// The skip glyph of a ±10 s click, drawn beside the elapsed time for
+    /// `PlayerSpec.Skip.glyphLifetimeSec` after the click.
     @Published var skipHint: SkipHint?
+    /// "Subtitles on for N seconds": what the system draws under the remaining time while the
+    /// subtitles a back skip turned on are up. nil = no hint.
+    @Published var subtitleHint: Int?
 
     @Published var audioTracks: [PlayerTrack] = []
     @Published var subtitleTracks: [PlayerTrack] = []
@@ -56,6 +82,9 @@ final class MPVPlaybackState: ObservableObject {
     /// The chrome's focus layer (transport menus, content tabs — `MPVTransportFocusView`) is
     /// presented over the player and owns the remote.
     @Published var panelOpen: Bool = false
+    /// The focus layer shows the content tabs' view (pills and panel, no transport bar): the captions
+    /// ride above it.
+    @Published var tabViewOpen: Bool = false
     /// Addon subtitle fetch in flight — the picker shows "Searching…" instead of hiding the row.
     @Published var subtitleSearchInFlight: Bool = false
 
@@ -160,20 +189,21 @@ final class MPVPlaybackState: ObservableObject {
     }
     var hasTracks: Bool { !audioTracks.isEmpty || !subtitleTracks.isEmpty }
 
-    /// The pause chrome belongs on screen: paused mid-file, and Back hasn't put it away (F3). It is
-    /// the transport bar alone — the system player has no centred pause glyph and no pause card — and
-    /// it stays up until the viewer acts (docs/player-spec.md, "Pause").
+    /// The pause chrome belongs on screen: paused mid-file, its reveal delay is over, and Back hasn't
+    /// put it away (F3). It is the transport bar alone — the system player has no centred pause glyph
+    /// and no pause card — and it stays up until the viewer acts (docs/player-spec.md, "Pause").
     var pauseChromeShown: Bool {
-        isPaused && !isEnded && !playbackErrorShown && !pauseChromeDismissed
+        isPaused && pauseChromeRevealed && !isEnded && !playbackErrorShown && !pauseChromeDismissed
     }
 
     var isScrubbing: Bool { scrubTargetSec != nil }
 
     /// The playhead as the bar draws it at `uptime`: the last polled position plus the time since, at the
-    /// playback speed, while the picture is actually playing (a pause, a stall, a scan, a scrub and a
-    /// rewind stand still or are driven by their own value). At most a second ahead of the last poll, so
+    /// playback speed, while the picture is actually playing (a pause, a stall and a scrub stand still);
+    /// during a hold, where the hold's own clock has put it. At most a second ahead of the last poll, so
     /// a stalled poll cannot run the head away, and never past the end.
     func displayPosition(at uptime: TimeInterval) -> Double {
+        if let scan { return scan.position(at: uptime) }
         guard isAdvancing, positionStampedAt > 0 else {
             return positionSec
         }
@@ -184,7 +214,27 @@ final class MPVPlaybackState: ObservableObject {
 
     /// The playhead is moving on its own (the bar's clock may run).
     var isAdvancing: Bool {
-        !isPaused && !isBuffering && !isEnded && !isScrubbing && fastForwardRate == nil
+        !isPaused && !isBuffering && !isEnded && !isScrubbing && scan == nil
+    }
+
+    /// What the slot beside the elapsed time shows at `uptime`, in the order the system bar gives it:
+    /// the spinner of a hold's seek, the hold's badge, the skip glyph of a click, the pause glyph.
+    /// The pause glyph is away while a finger rests on the surface (the knob) and while the head is
+    /// scrubbed, and comes back when neither is left (6.083 s, and never during the 12 flicks).
+    func slot(at uptime: TimeInterval) -> MPVBarSlot? {
+        if let direction = seekSettleDirection {
+            return .seeking(direction: direction < 0 ? -1 : 1)
+        }
+        if let scan, scan.badgeVisible(at: uptime) {
+            return .scan(direction: scan.direction < 0 ? -1 : 1, digit: scan.digit(at: uptime))
+        }
+        if let skipHint {
+            return .skip(direction: skipHint.direction, id: skipHint.id)
+        }
+        if isPaused, scan == nil, !isScrubbing, !knobShown {
+            return .pause
+        }
+        return nil
     }
 
     func displayFraction(at uptime: TimeInterval) -> Double {
@@ -198,11 +248,138 @@ final class MPVPlaybackState: ObservableObject {
     }
 }
 
-/// The system player's skip hint for a click on the left / right edge ("+10 ›", mirrored for back):
-/// which side, and the seconds skipped by the clicks in a row. A new `id` per click.
+/// The system player's skip glyph for a click on the left / right edge (the circular arrow with the
+/// seconds in it, on the right of the elapsed time for a forward click and on its left for a back
+/// one): which side, and how many seconds that click skipped. A new `id` per click.
 struct SkipHint: Equatable {
     let id: Int
     /// -1 = back, 1 = forward.
     let direction: Int
     let seconds: Int
+}
+
+/// How far the captions ride up: with the transport chrome, or with the content tabs' view.
+enum MPVSubtitleLift: Equatable {
+    case none
+    case chrome
+    case tabs
+}
+
+/// How the chrome's parts fade in: after a pause, or in the quick cascade of every other way the
+/// chrome returns (a commit, a touch while playing, Play) — `PlayerSpec.Chrome`.
+enum MPVChromeCascade: Equatable {
+    case show
+    case pause
+}
+
+/// What fills the slot beside the elapsed time (`MPVPlaybackState.slot(at:)`).
+enum MPVBarSlot: Equatable {
+    case pause
+    case skip(direction: Int, id: Int)
+    case scan(direction: Int, digit: Int?)
+    case seeking(direction: Int)
+
+    /// -1 = the slot hangs off the left of the elapsed time, 1 = off its right. The skip glyph, the
+    /// hold's badge and its spinner lead the way the head is going; the pause glyph is on the right.
+    var side: Int {
+        switch self {
+        case .pause: return 1
+        case .skip(let direction, _): return direction
+        case .scan(let direction, _): return direction
+        case .seeking(let direction): return direction
+        }
+    }
+}
+
+/// A hold on a left / right edge, as the system player runs it: the picture freezes on the frame it
+/// stopped on, the head runs by its own clock in three tiers (8, 24 then 48 media seconds per second,
+/// each lasting 2.4 s from the freeze) and a bare digit joins the badge from the second tier on. The
+/// release seeks to wherever the head got to (`PlayerSpec.Remote`).
+struct MPVScan: Equatable {
+    /// -1 = rewind, 1 = fast-forward.
+    let direction: Double
+    /// Where the head was when the picture froze.
+    let startPosition: Double
+    /// `ProcessInfo.systemUptime` of the freeze.
+    let startUptime: TimeInterval
+    /// The file's length (0 = unknown): the head stops short of the end.
+    let duration: Double
+
+    func elapsed(at uptime: TimeInterval) -> TimeInterval {
+        max(uptime - startUptime, 0)
+    }
+
+    /// The tier (1, 2 or 3) the hold is in `uptime`.
+    func tier(at uptime: TimeInterval) -> Int {
+        let tiers = PlayerSpec.Remote.scanRates.count
+        let step = Int(elapsed(at: uptime) / PlayerSpec.Remote.scanTierSec)
+        return min(step + 1, tiers)
+    }
+
+    /// The digit beside the badge: none in the first tier, then the tier's number.
+    func digit(at uptime: TimeInterval) -> Int? {
+        PlayerSpec.Remote.scanDigits[tier(at: uptime) - 1]
+    }
+
+    /// The badge's glyph appears a moment after the picture freezes.
+    func badgeVisible(at uptime: TimeInterval) -> Bool {
+        elapsed(at: uptime) >= PlayerSpec.Remote.scanBadgeDelaySec
+    }
+
+    /// Where the head is at `uptime`: the freeze position plus the distance the tiers have run, kept
+    /// inside the file.
+    func position(at uptime: TimeInterval) -> Double {
+        let raw = startPosition + direction * Self.distance(atElapsed: elapsed(at: uptime))
+        let upper = duration > 0 ? max(duration - PlayerSpec.Remote.scanEndMarginSec, 0) : raw
+        return min(max(raw, 0), max(upper, 0))
+    }
+
+    /// How fast the head runs `elapsed` seconds after the freeze (media seconds per second): still
+    /// for the start delay, then the first tier's rate, and a short ramp to each next tier's.
+    static func rate(atElapsed elapsed: TimeInterval) -> Double {
+        interpolated(knots, at: elapsed)
+    }
+
+    /// The distance the head has run `elapsed` seconds after the freeze (media seconds).
+    static func distance(atElapsed elapsed: TimeInterval) -> Double {
+        guard elapsed > 0 else { return 0 }
+        var area = 0.0
+        for index in 0..<(knots.count - 1) {
+            let a = knots[index], b = knots[index + 1]
+            if elapsed <= a.t { break }
+            guard b.t > a.t else { continue }
+            let end = min(elapsed, b.t)
+            let rateAtEnd = a.r + (b.r - a.r) * (end - a.t) / (b.t - a.t)
+            area += (end - a.t) * (a.r + rateAtEnd) / 2
+        }
+        if let last = knots.last, elapsed > last.t {
+            area += (elapsed - last.t) * last.r
+        }
+        return area
+    }
+
+    /// Breakpoints of the rate: (elapsed, rate). Tier changes ramp over `scanRampSec`.
+    private static let knots: [(t: Double, r: Double)] = {
+        let rates = PlayerSpec.Remote.scanRates
+        let start = PlayerSpec.Remote.scanStartDelaySec
+        let tier = PlayerSpec.Remote.scanTierSec
+        let ramp = PlayerSpec.Remote.scanRampSec
+        var points: [(t: Double, r: Double)] = [(0, 0), (start, 0), (start, rates[0])]
+        for index in 1..<rates.count {
+            points.append((tier * Double(index), rates[index - 1]))
+            points.append((tier * Double(index) + ramp, rates[index]))
+        }
+        return points
+    }()
+
+    private static func interpolated(_ points: [(t: Double, r: Double)], at time: Double) -> Double {
+        guard let first = points.first, time > first.t else { return 0 }
+        for index in 0..<(points.count - 1) {
+            let a = points[index], b = points[index + 1]
+            if time < b.t, b.t > a.t, time >= a.t {
+                return a.r + (b.r - a.r) * (time - a.t) / (b.t - a.t)
+            }
+        }
+        return points.last?.r ?? 0
+    }
 }

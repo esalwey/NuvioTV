@@ -62,9 +62,9 @@ enum PlayerTransportItem: String, CaseIterable, Identifiable, Hashable {
         case .subtitleTiming: return "clock.arrow.circlepath"
         case .engine: return "arrow.left.arrow.right"
         case .serverSubtitles: return "captions.bubble.fill"
-        case .serverAudio: return "waveform"
+        case .serverAudio: return "speaker.wave.2"
         case .subtitles: return "captions.bubble"
-        case .audio: return "speaker.wave.2"
+        case .audio: return "waveform"
         }
     }
 
@@ -131,8 +131,8 @@ enum PlayerTransportMenus {
     }
 }
 
-/// The content tabs under the scrubber ("swipe down"), in the order the native screen shows them:
-/// the system Info tab, the app's Episodes tab, the system Chapters tab, the app's Stream Info tab.
+/// The content tabs of the tab view ("swipe down"). The native screen shows them as Info, Chapters,
+/// Episodes, Stream Info (the system's two, then the app's two); `MPVChromeContent.tabs` orders them so.
 enum PlayerContentTab: String, Identifiable, Hashable {
     case info, episodes, chapters, streamInfo
 

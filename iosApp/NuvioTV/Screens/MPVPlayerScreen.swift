@@ -45,6 +45,7 @@ private struct MPVPlayerRepresentable: UIViewControllerRepresentable {
         controller.onOpenChrome = { [weak controller] entry, barWasShowing in
             guard let controller, controller.presentedViewController == nil else { return }
             let closer = PlayerChromeCloser()
+            closer.barWasShowing = barWasShowing
             let host = PlayerPanelHostController(rootView: makeChromeView(entry, closer))
             // Up moves focus inside the layer (tabs → scrubber); it must not close it.
             host.closesOnSwipeUp = false
@@ -58,14 +59,17 @@ private struct MPVPlayerRepresentable: UIViewControllerRepresentable {
             host.onClosed = { [weak state, weak controller] in
                 state?.chromeCovered = false
                 state?.panelOpen = false
+                state?.tabViewOpen = false
                 state?.reclaimFocus?()     // libmpv's controller must be first responder again
                 // Back on the scrubber with the bar still up, like the system player.
                 controller?.flashControls()
             }
             state.panelOpen = true
             // The bar was already up: the layer appears on top of an identical bar, with no dissolve.
-            // The bar was away (Down from nothing): the layer fades in with the bar coming back.
-            let animated = !barWasShowing && !UIAccessibility.isReduceMotionEnabled
+            // The transport buttons with the bar away: the layer fades in with the bar coming back.
+            // The content tabs with the bar away: no dissolve either — the tab view slides up from the
+            // bottom edge by itself (230 ms, 29.557 s of the owner's recording).
+            let animated = entry == .transport && !barWasShowing && !UIAccessibility.isReduceMotionEnabled
             controller.present(host, animated: animated) { [weak state] in
                 // A layer already closed again (a fast Back) leaves the passive bar where it is.
                 guard let state, state.panelOpen else { return }
@@ -128,7 +132,6 @@ struct MPVPlayerScreen: View {
 
     @StateObject private var state: MPVPlaybackState
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @StateObject private var panelModel: PlayerTopPanelModel
     @State private var panelAdapter: MPVPlayerPanelAdapter?
     /// The end screen's cover was closed with Menu: leave for the details page once it's gone.
@@ -205,6 +208,10 @@ struct MPVPlayerScreen: View {
 
             // The system player's transport bar, at rest (nothing focusable: libmpv owns the remote).
             // While the focus layer is up it draws the same bar itself, so this one steps aside.
+            // Each part fades by itself, in pure opacity with no slide (`PlayerBarFade`): the bar
+            // alone for a skip click or a touch on a paused player, the title, the buttons and the
+            // pills too for the full chrome. A ±10 s click, a pause, a hold: all drawn inside this bar
+            // (its state slot), never as a glyph over the picture — the system player has none.
             PlayerControlsOverlay(
                 state: state,
                 summary: summary,
@@ -214,21 +221,18 @@ struct MPVPlayerScreen: View {
                 tabs: MPVChromeContent.tabs(
                     hasEpisodes: context.season != nil && !upNext.episodes.isEmpty,
                     hasChapters: !chromeModel.chapters(durationSec: state.durationSec).isEmpty),
-                live: chromeShown && !state.chromeCovered,
+                parts: barParts,
+                skim: skimShown,
+                live: (chromeShown || skimShown) && !state.chromeCovered,
                 // Measured, not assumed: the prompts above it clear its real height (Larger Text,
                 // a movie's one-line title). They follow in step with the bar.
                 onContentHeightChange: { height in
                     withAnimation(PlayerChipStyle.animation) { transportHeight = height }
                 }
             )
-            // Fades in and out with a short slide of the bottom group (docs/player-spec.md, "Layout").
-            // A ±10 s click, a pause, a scan: all drawn inside this bar (its state slot), never as a
-            // glyph over the picture — the system player has none.
-            // While the focus layer is up it has taken the bar's place: that handover is instant (only a
-            // change of `chromeShown` animates), so the two bars never cross-fade.
-            .opacity(chromeShown && !state.chromeCovered ? 1 : 0)
-            .offset(y: chromeShown || reduceMotion ? 0 : PlayerSpec.Chrome.slideOffset)
-            .animation(.easeInOut(duration: PlayerSpec.Chrome.fadeDuration), value: chromeShown)
+            // While the focus layer is up it has taken the bar's place: that handover is instant (only
+            // the parts' own fades animate), so the two bars never cross-fade.
+            .opacity(state.chromeCovered ? 0 : 1)
 
             // Transient prompts, bottom-trailing — same chip family as the native screen's
             // contextual actions (PlayerChipStyle). libmpv owns the remote, so these are drawn
@@ -379,6 +383,19 @@ struct MPVPlayerScreen: View {
             && (state.controlsVisible || state.pauseChromeShown)
     }
 
+    /// The bar alone that a ±10 s click brought up while the chrome was away.
+    private var skimShown: Bool {
+        firstFrameShown && !state.playbackErrorShown && state.skimVisible && !chromeShown
+    }
+
+    /// The parts of the chrome on screen: the bar (with its labels and glyph) for the full chrome and
+    /// for a skip's bar alone, the title, the buttons and the pills for the full chrome only — and not
+    /// while a finger rests on a paused player or a scrub is on (they fade out, the bar stays).
+    private var barParts: PlayerBarParts {
+        let full = chromeShown && !state.scrubChrome
+        return PlayerBarParts(bar: chromeShown || skimShown, title: full, buttons: full, pills: full)
+    }
+
     /// The clock pill rides with the chrome, including the focus layer that replaces the passive bar.
     private var clockShown: Bool {
         firstFrameShown && !state.playbackErrorShown
@@ -450,7 +467,8 @@ struct MPVPlayerScreen: View {
                 })
             return AnyView(MPVTransportFocusView(
                 state: state, panelModel: panelModel, chromeModel: chromeModel, upNext: upNext,
-                summary: summary, entry: entry, season: season, episode: episode, actions: actions))
+                summary: summary, entry: entry, season: season, episode: episode, actions: actions,
+                startsFromBar: closer.barWasShowing))
         }
     }
 
@@ -572,12 +590,20 @@ final class MPVChromeCoordinator {
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in self?.playbackStarted() }
             .store(in: &cancellables)
-        // The captions rise above the transport chrome while it is up (spec 8.3), as on the system player.
-        Publishers.CombineLatest4(state.$controlsVisible, state.$panelOpen, state.$isPaused, state.$pauseChromeDismissed)
-            .map { controls, panel, paused, dismissed in controls || panel || (paused && !dismissed) }
+        // The captions rise above the transport chrome while it is up (spec 8.3), as on the system player
+        // — and higher still above the content tabs' view (the pills and the panel).
+        Publishers.CombineLatest3(
+            Publishers.CombineLatest4(state.$controlsVisible, state.$panelOpen, state.$isPaused, state.$pauseChromeDismissed),
+            state.$skimVisible,
+            state.$tabViewOpen)
+            .map { chrome, skim, tabs -> MPVSubtitleLift in
+                if tabs { return .tabs }
+                let (controls, panel, paused, dismissed) = chrome
+                return controls || panel || skim || (paused && !dismissed) ? .chrome : .none
+            }
             .removeDuplicates()
             .receive(on: RunLoop.main)
-            .sink { [weak self] up in self?.controller?.setSubtitleChromeLift(up) }
+            .sink { [weak self] lift in self?.controller?.setSubtitleChromeLift(lift) }
             .store(in: &cancellables)
         captionObserver = NotificationCenter.default.addObserver(
             forName: Notification.Name(kMACaptionAppearanceSettingsChangedNotification as String),

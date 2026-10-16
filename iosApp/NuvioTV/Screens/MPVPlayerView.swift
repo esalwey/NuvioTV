@@ -50,8 +50,33 @@ final class MPVTVPlayerViewController: UIViewController {
     private var didLoad = false
     private var pollTimer: Timer?
     var hideWork: DispatchWorkItem?
-    /// Clears the skip hint a while after the last ±10 s click (`MPVPlayerView+Remote`).
+    /// Clears the skip glyph a moment after a ±10 s click (`MPVPlayerView+Remote`).
     var skipHintWork: DispatchWorkItem?
+    /// Hides the bar a skip click brought up on its own, `PlayerSpec.Chrome.skimLifetime` after the
+    /// last click.
+    var skimWork: DispatchWorkItem?
+    /// Brings the pause chrome in `PlayerSpec.Chrome.pauseRevealDelaySec` after a pause.
+    var pauseRevealWork: DispatchWorkItem?
+    /// A finger rests on a paused player: the knob comes after `PlayerSpec.Scrub.knobDelaySec`, and the
+    /// bar goes back to the full chrome when nothing has happened for `PlayerSpec.Scrub.idleReturnSec`.
+    var knobWork: DispatchWorkItem?
+    var scrubIdleWork: DispatchWorkItem?
+    /// A finger that lands on the surface is a touch only if no button goes down with it: a click
+    /// (Select, an edge) lands a finger too, and the system chrome does not answer that as a touch.
+    var touchWork: DispatchWorkItem?
+    var lastPressUptime: TimeInterval = 0
+    /// The glide of the scrub head after the finger leaves (`PlayerSpec.Scrub`), and the last moves of
+    /// the finger it is worked out from (uptime, seconds). Main thread only.
+    var scrubTailTimer: Timer?
+    var scrubMoves: [(uptime: TimeInterval, seconds: Double)] = []
+    /// A hold has the picture frozen by pausing the core (`MPVScan`): `refreshState` publishes the
+    /// player as playing meanwhile, and the release plays on if `scanResumesPlayback`.
+    var scanPausedCore = false
+    var scanResumesPlayback = false
+    /// The spinner of a hold's release stays at least until `seekSettleMinUntil`, goes when its seek
+    /// has been answered after that, and at `seekSettleDeadline` at the latest.
+    var seekSettleMinUntil: TimeInterval = 0
+    var seekSettleDeadline: TimeInterval = 0
     /// When the last ±10 s click happened, and the exact seek still owed to a burst of clicks
     /// (`MPVPlayerView+Remote`, `skip(by:)`). Main thread only.
     var lastSkipClickUptime: TimeInterval = 0
@@ -59,10 +84,13 @@ final class MPVTVPlayerViewController: UIViewController {
     /// When a left / right edge last went down: a touch-surface pan that starts right after it is the
     /// click's own drift, not a scrub.
     var lastEdgePressUptime: TimeInterval = 0
-    /// Skip back (docs/player-spec.md, "Skip"): the subtitles turned on for the section being replayed
-    /// go off again once the playhead is back at this position. nil = none turned on that way.
-    /// Main thread only (`MPVPlayerView+Tracks`).
-    var rewindSubtitlesUntil: Double?
+    /// Skip back (docs/player-spec.md, "Skip"): back skips in a row, and the subtitles the third turns
+    /// on for `PlayerSpec.Skip.subtitlesWindowSec` (off again by `rewindSubtitlesOffWork`, or at once
+    /// when the viewer picks a subtitle). Main thread only (`MPVPlayerView+Tracks`).
+    var backSkipRun = 0
+    var lastBackSkipUptime: TimeInterval = 0
+    var rewindSubtitlesActive = false
+    var rewindSubtitlesOffWork: DispatchWorkItem?
     private var lastSaveUptime: TimeInterval = 0
     private var pendingResumeSec: Double?
     /// A saved row with a percentage and no timecode (Simkl episode or Trakt playback row, upstream
@@ -72,8 +100,6 @@ final class MPVTVPlayerViewController: UIViewController {
     /// applies `pendingResumeFraction` (main thread only).
     private var resumeFractionAwaitsDuration = false
     var seekTimer: Timer?
-    /// Walks the head during a rewind or a hold while paused (`MPVPlayerView+Remote`).
-    var rateStepTimer: Timer?
     var seekDirection: Double = 0
     var seekHoldCount = 0
     private var subtitleWatcher: FlowWatcher?
@@ -153,7 +179,7 @@ final class MPVTVPlayerViewController: UIViewController {
     var subtitleGeneration = 0
     /// The captions ride above the transport chrome while it is up; `sub-pos` as last posted, and the
     /// counter that cancels a glide a newer one replaces.
-    var subtitlesLifted = false
+    var subtitleLift: MPVSubtitleLift = .none
     var subtitlePosShown = 95
     var subtitleLiftGeneration = 0
 
@@ -979,9 +1005,8 @@ final class MPVTVPlayerViewController: UIViewController {
     func nowPlayingPause() {
         guard mpv != nil else { return }
         // No "Still watching?" reset here: the system pauses too (sleep, HDMI-CEC), and a pause
-        // never starts an episode anyway.
+        // never starts an episode anyway. The chrome follows the pause on its own, after its delay.
         setPaused(true)
-        flashControls()
     }
 
     func nowPlayingTogglePause() {
@@ -1000,10 +1025,11 @@ final class MPVTVPlayerViewController: UIViewController {
         // Going back means the viewer is still watching — same rule as the remote's left arrow.
         if seconds < 0 { state.upNextCancel?() }
         // The same answer as a click on the remote's edge: the head and the time jump at once, the
-        // hint adds the skips up, and skipping back turns subtitles on for the replayed section.
+        // glyph shows the way, the bar comes up on its own if the chrome was away, and skipping
+        // back a third time in a run turns subtitles on for the replayed section.
         skip(by: seconds)
-        showSkipHint(seconds < 0 ? -1 : 1, seconds: abs(seconds))
-        flashControls()
+        showSkipGlyph(seconds < 0 ? -1 : 1, seconds: abs(seconds))
+        revealSkim()
     }
 
     func nowPlayingSeek(to seconds: Double) {
@@ -1265,9 +1291,13 @@ final class MPVTVPlayerViewController: UIViewController {
         resyncIfStale(snap, advancing: advancing, now: tickUptime)
 
         state.durationSec = snap.duration
-        // A rewind walks the head by timer: the bar shows where it is, not the keyframe last landed on.
-        state.positionSec = state.rateSeekTarget ?? max(snap.position, 0)
-        state.isPaused = snap.paused
+        state.positionSec = max(snap.position, 0)
+        // A hold freezes the picture by pausing the core (`MPVScan`); the player still reads as
+        // playing meanwhile, so nothing reacts to a pause the viewer never asked for.
+        let paused = snap.paused && !scanPausedCore
+        state.isPaused = paused
+        updatePauseReveal()
+        settleSeekSpinner(snap, now: tickUptime)
         // A failed load leaves the core idle and unpaused — which reads as buffering forever (PLY-1).
         // A moving playhead is never a stall: the spinner cannot outlive the first seconds of video.
         state.isBuffering = playbackError == nil && !advancing
@@ -1276,7 +1306,7 @@ final class MPVTVPlayerViewController: UIViewController {
         // appear/disappear, whose order across an Up Next rebuild is not guaranteed: the outgoing
         // player's `onDisappear` could re-enable the screensaver under the incoming episode.
         if pollTimer != nil, view.window != nil {
-            let holdIdle = !snap.paused && !state.isEnded && playbackError == nil
+            let holdIdle = !paused && !state.isEnded && playbackError == nil
             if UIApplication.shared.isIdleTimerDisabled != holdIdle {
                 UIApplication.shared.isIdleTimerDisabled = holdIdle
             }
@@ -1287,10 +1317,10 @@ final class MPVTVPlayerViewController: UIViewController {
             traktStartPending = false
             startTraktScrobble()
         }
-        if snap.paused != lastPausedFlag {
-            lastPausedFlag = snap.paused
+        if paused != lastPausedFlag {
+            lastPausedFlag = paused
             lastPauseFlipUptime = ProcessInfo.processInfo.systemUptime
-            if snap.paused, !snap.eof, !state.isEnded { saveProgress(flush: true) }   // PLY-4
+            if paused, !snap.eof, !state.isEnded { saveProgress(flush: true) }   // PLY-4
         }
 
         // Rising-edge detection: eof-reached STAYS true while keep-open holds the last frame, so
@@ -1319,20 +1349,18 @@ final class MPVTVPlayerViewController: UIViewController {
         }
 
         let now = ProcessInfo.processInfo.systemUptime
-        if !snap.paused, now - lastSaveUptime > 5 {
+        if !paused, now - lastSaveUptime > 5 {
             lastSaveUptime = now
             saveProgress()
             logStartupStatsIfNeeded()
         }
 
         updateSkipPrompt(position: snap.position, durationSec: snap.duration)
-        // The replayed section is over: the subtitles skip-back turned on go off again.
-        endRewindSubtitlesIfDue(position: snap.position)
 
         nowPlaying?.update(
             positionSec: state.positionSec,
             durationSec: snap.duration,
-            isPlaying: !snap.paused && !state.isEnded && playbackError == nil,
+            isPlaying: !paused && !state.isEnded && playbackError == nil,
             rate: state.playbackSpeed
         )
     }
@@ -1688,8 +1716,14 @@ final class MPVTVPlayerViewController: UIViewController {
         pollTimer = nil
         seekTimer?.invalidate()
         seekTimer = nil
-        rateStepTimer?.invalidate()
-        rateStepTimer = nil
+        scrubTailTimer?.invalidate()
+        scrubTailTimer = nil
+        skimWork?.cancel()
+        pauseRevealWork?.cancel()
+        knobWork?.cancel()
+        scrubIdleWork?.cancel()
+        touchWork?.cancel()
+        rewindSubtitlesOffWork?.cancel()
         if stallSessionOpen {
             stallSessionOpen = false
             MainThreadStallMonitor.shared.endSession()
@@ -1717,7 +1751,7 @@ final class MPVTVPlayerViewController: UIViewController {
             // The last reference went away on a libmpv queue (a closure that was mid-call when the
             // screen let go of the player). Timers and observers belong to the main run loop and the
             // main thread, so they are handed over there, by value, without touching `self`.
-            let timers = [pollTimer, seekTimer, rateStepTimer].compactMap { $0 }
+            let timers = [pollTimer, seekTimer, scrubTailTimer].compactMap { $0 }
             let observers = lifecycleObservers + [backgroundObserver].compactMap { $0 }
             let watchdog = loadWatchdog
             let restoreDeadline = subtitleRestoreDeadline

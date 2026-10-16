@@ -94,6 +94,15 @@ struct SubtitleRenderStyle: Equatable {
     /// `sub-pos` while the chrome is up: never lower than the resting position's own margin.
     var mpvSubPosWithChrome: Int64 { min(mpvSubPos, Int64(100 - Self.chromeClearancePercent)) }
 
+    /// While the content tabs' view is up (the pills and the panel take the middle of the picture) the
+    /// captions ride above it, around a quarter of the way down the picture. [observed: owner video
+    /// 2026-10-16] they jump from just over the bar to 23 % from the top at 29.523 s, as the tab view
+    /// comes in, and stay there while it is open (29.8 to 36.0 s).
+    static let tabsClearancePercent = 70
+
+    /// `sub-pos` while the tab view is up.
+    var mpvSubPosWithTabs: Int64 { min(mpvSubPos, Int64(100 - Self.tabsClearancePercent)) }
+
     /// "#AARRGGBB" for `sub-color` and friends.
     static func mpvColor(_ argb: Int64) -> String {
         let a = (argb >> 24) & 0xFF, r = (argb >> 16) & 0xFF, g = (argb >> 8) & 0xFF, b = argb & 0xFF

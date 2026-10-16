@@ -701,15 +701,19 @@ extension MPVTVPlayerViewController {
     }
 
     private func subtitleTargetPos(_ style: SubtitleRenderStyle) -> Int {
-        Int(subtitlesLifted ? style.mpvSubPosWithChrome : style.mpvSubPos)
+        switch subtitleLift {
+        case .none: return Int(style.mpvSubPos)
+        case .chrome: return Int(style.mpvSubPosWithChrome)
+        case .tabs: return Int(style.mpvSubPosWithTabs)
+        }
     }
 
     /// The transport chrome came or went (main thread): the captions glide up above it and back down,
     /// as they do on the system player, in a few steps of `sub-pos` posted to the core. The glide takes
-    /// as long as the bar's own fade (`PlayerSpec.Chrome.fadeDuration`), so the two move together.
-    func setSubtitleChromeLift(_ lifted: Bool) {
-        guard mpv != nil, lifted != subtitlesLifted else { return }
-        subtitlesLifted = lifted
+    /// `PlayerSpec.Chrome.captionsLiftSec`, as the system player moves its captions with the chrome.
+    func setSubtitleChromeLift(_ lift: MPVSubtitleLift) {
+        guard mpv != nil, lift != subtitleLift else { return }
+        subtitleLift = lift
         guard fileLoaded else { return }
         let style = SubtitleRenderStyle(playerSettings?.subtitleStyle)
         let from = subtitlePosShown
@@ -718,7 +722,7 @@ extension MPVTVPlayerViewController {
         subtitleLiftGeneration += 1
         let generation = subtitleLiftGeneration
         let steps = 8
-        let stepInterval = PlayerSpec.Chrome.fadeDuration / Double(steps)
+        let stepInterval = PlayerSpec.Chrome.captionsLiftSec / Double(steps)
         for step in 1...steps {
             DispatchQueue.main.asyncAfter(deadline: .now() + stepInterval * Double(step)) { [weak self] in
                 guard let self, self.mpv != nil, self.subtitleLiftGeneration == generation else { return }
@@ -909,32 +913,57 @@ extension MPVTVPlayerViewController {
 
     /// Skipping back replays a section, and the system turns subtitles on for it (Apple's "Control video
     /// playback on Apple TV": "Skipping back 10 seconds turns subtitles on automatically so you can
-    /// rewatch that section", up to three clicks, 10 to 30 s). They go off again once the playhead is back
-    /// where the first click started. Only when none is showing: a viewer who has subtitles on keeps
-    /// exactly what they chose. The track is the language plan's full-subtitle pick (docs/player-spec.md,
-    /// "Skip"). Nothing is saved — this is not a choice — and any pick of the viewer's ends it.
-    func beginRewindSubtitles(replayingFrom origin: Double) {
-        guard mpv != nil, fileLoaded, subtitleSelectionResolved, rewindSubtitlesUntil == nil,
-              origin.isFinite, origin > 0 else { return }
-        guard !lastSubtitleInfos.contains(where: { $0.selected }) else { return }
-        guard let id = rewindSubtitleTrackId() else { return }
-        rewindSubtitlesUntil = origin
-        postSet("sid", String(id))
-        refreshTracksAsync()
+    /// rewatch that section"). On the owner's recording of the system player it is the THIRD back skip
+    /// of a run that does it (the clicks at 23.1 and 24.5 s did nothing, the one at 25.8 s turned them on
+    /// 0.23 s later), and the bar says "Subtitles on for 11 seconds" under the remaining time (a
+    /// constant: it never counts down) until they go off by themselves, 11 s after the last of the run.
+    /// Only when none is showing: a viewer who has subtitles on keeps exactly what they chose. The track
+    /// is the language plan's full-subtitle pick (docs/player-spec.md, "Skip"). Nothing is saved — this
+    /// is not a choice — and any pick of the viewer's ends it.
+    func registerBackSkip() {
+        let now = ProcessInfo.processInfo.systemUptime
+        if now - lastBackSkipUptime > PlayerSpec.Skip.runGapSec { backSkipRun = 0 }
+        lastBackSkipUptime = now
+        backSkipRun += 1
+        guard backSkipRun >= PlayerSpec.Skip.subtitlesFromClick else { return }
+        turnRewindSubtitlesOn()
     }
 
-    /// The playhead is back where the skip back started (or the file ended): the subtitles it turned on
-    /// go off again. Called on every poll tick.
-    func endRewindSubtitlesIfDue(position: Double) {
-        guard let until = rewindSubtitlesUntil, position >= until || state.isEnded else { return }
-        rewindSubtitlesUntil = nil
+    private func turnRewindSubtitlesOn() {
+        guard mpv != nil, fileLoaded, subtitleSelectionResolved else { return }
+        if !rewindSubtitlesActive {
+            guard !lastSubtitleInfos.contains(where: { $0.selected }) else { return }
+            guard let id = rewindSubtitleTrackId() else { return }
+            rewindSubtitlesActive = true
+            postSet("sid", String(id))
+            refreshTracksAsync()
+        }
+        // The hint and the window start over with each further back skip of the run.
+        state.subtitleHint = PlayerSpec.Skip.subtitlesWindowSec
+        rewindSubtitlesOffWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in self?.endRewindSubtitles() }
+        rewindSubtitlesOffWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + Double(PlayerSpec.Skip.subtitlesWindowSec), execute: work)
+    }
+
+    /// The window is over (or the player is going away): the subtitles skip-back turned on go off
+    /// again, and the hint with them.
+    func endRewindSubtitles() {
+        rewindSubtitlesOffWork?.cancel()
+        rewindSubtitlesOffWork = nil
+        state.subtitleHint = nil
+        guard rewindSubtitlesActive else { return }
+        rewindSubtitlesActive = false
         postSet("sid", "no")
         refreshTracksAsync()
     }
 
     /// The viewer chose subtitles (or Automatic): what skip back turned on is now theirs.
     func cancelRewindSubtitles() {
-        rewindSubtitlesUntil = nil
+        rewindSubtitlesOffWork?.cancel()
+        rewindSubtitlesOffWork = nil
+        state.subtitleHint = nil
+        rewindSubtitlesActive = false
     }
 
     /// The full (not forced-only) subtitle track the language plan would pick: the viewer's preferred

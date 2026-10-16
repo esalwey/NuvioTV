@@ -10,9 +10,11 @@ import UIKit
 //  - Up (or a swipe up) with the bar showing → the transport buttons: the app's items (Sources,
 //    Playback Speed, Aspect Ratio, Subtitle Timing — the native screen's `transportBarCustomMenuItems`, same
 //    order, labels and symbols) then Subtitles and Audio, each a system menu with checkmarks.
-//  - Down (or a swipe down) → the content tabs (Info, Episodes, Chapters, Stream Info), the
-//    focused tab's content under the bar.
-//  - Moving focus back onto the scrubber, or Back, hands the remote back to libmpv.
+//  - Down (or a swipe down) → the content tabs (Info, Chapters, Episodes, Stream Info): the tab view
+//    of the system player, the pills and the focused tab's panel in the middle of the picture with
+//    no transport bar (it slides up from the bottom edge; with the bar up, the bar's block of title,
+//    bar and pills slides up with it, and slides back down when the view closes).
+//  - Moving focus back onto the scrubber, Back, or an Up on the pills hands the remote back to libmpv.
 // Both layers draw the same `PlayerTransportBar`, so nothing moves when focus changes hands.
 
 /// Where focus lands when the focus layer opens.
@@ -26,6 +28,8 @@ enum PlayerChromeEntry {
 @MainActor
 final class PlayerChromeCloser {
     weak var host: PlayerPanelPresenting?
+    /// The passive bar was on screen when the layer opened (the layer then starts from the bar's layout).
+    var barWasShowing = false
 
     func close(then action: (() -> Void)? = nil) {
         guard let host else {
@@ -51,11 +55,12 @@ enum MPVChromeContent {
                                           hasServerAudio: !panelModel.serverAudio.isEmpty)
     }
 
-    /// The content tabs, in the native screen's order.
+    /// The content tabs, in the native screen's order: the system's Info and Chapters, then the app's
+    /// Episodes and Stream Info (Infos, Chapitres, Épisodes, Infos du stream in the owner's recording).
     static func tabs(hasEpisodes: Bool, hasChapters: Bool) -> [PlayerContentTab] {
         var tabs: [PlayerContentTab] = [.info]
-        if hasEpisodes { tabs.append(.episodes) }
         if hasChapters { tabs.append(.chapters) }
+        if hasEpisodes { tabs.append(.episodes) }
         tabs.append(.streamInfo)
         return tabs
     }
@@ -87,6 +92,8 @@ struct MPVTransportFocusView: View {
     let season: Int?
     let episode: Int?
     let actions: MPVChromeActions
+    /// The passive bar was up when the layer opened: the tab view then grows out of the bar's layout.
+    let startsFromBar: Bool
 
     private enum Focus: Hashable {
         case item(PlayerTransportItem)
@@ -99,15 +106,18 @@ struct MPVTransportFocusView: View {
 
     @FocusState private var focus: Focus?
     @State private var selectedTab: PlayerContentTab = .info
-    /// A tab has focus, or focus went down into its content: the content shows under the bar.
-    @State private var tabsEngaged = false
+    /// The tab view is open: the pills and the focused tab's panel in the middle of the picture, with
+    /// the title, the bar and the buttons gone (faded out where they are).
+    @State private var tabsEngaged: Bool
+    /// The layer's own slide-in, for a tab view that opens with the bar away.
+    @State private var entered: Bool
     /// The opening focus has landed: from then on, focus on the scrubber hands the remote back.
     @State private var armed = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     init(state: MPVPlaybackState, panelModel: PlayerTopPanelModel, chromeModel: MPVChromeModel,
          upNext: NextEpisodeEngine, summary: PlayerInfoSummary, entry: PlayerChromeEntry,
-         season: Int?, episode: Int?, actions: MPVChromeActions) {
+         season: Int?, episode: Int?, actions: MPVChromeActions, startsFromBar: Bool = false) {
         _state = ObservedObject(wrappedValue: state)
         _panelModel = ObservedObject(wrappedValue: panelModel)
         _chromeModel = ObservedObject(wrappedValue: chromeModel)
@@ -117,16 +127,20 @@ struct MPVTransportFocusView: View {
         self.season = season
         self.episode = episode
         self.actions = actions
-        _tabsEngaged = State(initialValue: entry == .tabs)
+        self.startsFromBar = startsFromBar
+        // From nothing the tab view comes in as it is, sliding up; from the bar it grows out of it.
+        let fromNothing = entry == .tabs && !startsFromBar
+        _tabsEngaged = State(initialValue: fromNothing)
+        _entered = State(initialValue: !fromNothing)
     }
 
     var body: some View {
         ZStack(alignment: .bottom) {
             // Full-screen clear layer so the hosting view fills the window (focus + gestures).
             Color.clear.ignoresSafeArea()
-            PlayerChromeScrim(deep: tabsEngaged)
-            VStack(alignment: .leading, spacing: Theme.Spacing.lg) {
-                PlayerTransportBar(state: state, summary: summary) {
+            VStack(alignment: .leading, spacing: 0) {
+                PlayerTransportBar(state: state, summary: summary,
+                                   parts: parts, barDimmed: barDimmed) {
                     buttonRow
                 } scrubberOverlay: {
                     scrubberProxy
@@ -135,25 +149,37 @@ struct MPVTransportFocusView: View {
                 }
                 if tabsEngaged {
                     tabContent
-                        .frame(height: contentHeight(selectedTab), alignment: .top)
-                        .padding(.horizontal, PlayerChromeLayout.contentInset)
+                        .id(selectedTab)
+                        .transition(.opacity)
+                        .frame(maxWidth: .infinity, alignment: .topLeading)
+                        .frame(height: PlayerSpec.Layout.tabContentHeight, alignment: .top)
+                        .padding(.horizontal, PlayerSpec.Layout.sideInset)
+                        .padding(.top, PlayerSpec.Layout.tabPillsToContent)
                         .focusSection()
-                        .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
                 }
             }
-            .padding(.horizontal, PlayerChromeLayout.barInset)
-            .padding(.bottom, PlayerChromeLayout.barBottomInset)
+            .padding(.bottom, tabsEngaged ? PlayerSpec.Layout.tabContentBottom : PlayerSpec.Layout.bottomInset)
+            .offset(y: entered ? 0 : PlayerSpec.Layout.tabSlideDistance)
+            .opacity(entered ? 1 : 0)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
-        .animation(reduceMotion ? nil : .easeInOut(duration: 0.25), value: tabsEngaged)
+        .animation(reduceMotion ? nil : .easeOut(duration: PlayerSpec.Tabs.closeSec), value: tabsEngaged)
+        .animation(reduceMotion ? nil : .easeOut(duration: PlayerSpec.Tabs.swapSec), value: selectedTab)
+        .animation(reduceMotion ? nil : .easeOut(duration: PlayerSpec.Tabs.openSec), value: entered)
         .defaultFocus($focus, initialFocus, priority: .userInitiated)
         .onAppear {
             focus = initialFocus
+            state.tabViewOpen = tabsEngaged
+            entered = true
+            // A tab view that opens over the bar grows out of it.
+            if entry == .tabs, !tabsEngaged { tabsEngaged = true }
             Task { @MainActor in
                 try? await Task.sleep(for: .milliseconds(450))
                 armed = true
             }
         }
+        .onDisappear { state.tabViewOpen = false }
+        .onChange(of: tabsEngaged) { _, engaged in state.tabViewOpen = engaged }
         .onChange(of: focus) { oldValue, newValue in
             switch newValue {
             case .scrubber:
@@ -179,11 +205,36 @@ struct MPVTransportFocusView: View {
                 break
             }
         }
-        .onExitCommand { actions.close() }
+        .onExitCommand { closeRequested() }
         // Play/Pause always plays or pauses, wherever focus sits in the bar or in a tab — the system
         // player never lets a focused button swallow it. Answered here, at once, rather than left to
         // bubble up to libmpv's controller or to arrive as a (debounced) Now Playing command.
         .onPlayPauseCommand { state.togglePlayPause?() }
+    }
+
+    /// Which parts of the bar are drawn: all of them in the transport layout, only the pills in the
+    /// tab view (the title, the bar and the buttons fade out where they are, and come back as the
+    /// block slides down again).
+    private var parts: PlayerBarParts {
+        PlayerBarParts(bar: !tabsEngaged, title: !tabsEngaged, buttons: !tabsEngaged, pills: true)
+    }
+
+    /// Focus sits on a transport button: the bar and its labels dim (64.867 s of the owner's recording).
+    private var barDimmed: Bool {
+        if case .item = focus { return true }
+        return false
+    }
+
+    /// Back, or an Up on the pills: from the tab view, the block of pills (with the title and the bar
+    /// behind them) slides back down to the transport layout while the panel fades, then the layer
+    /// lets go (39.2 to 39.6 s of the owner's recording).
+    private func closeRequested() {
+        guard tabsEngaged, !reduceMotion else {
+            actions.close()
+            return
+        }
+        withAnimation(.easeOut(duration: PlayerSpec.Tabs.closeSec)) { tabsEngaged = false }
+        DispatchQueue.main.asyncAfter(deadline: .now() + PlayerSpec.Tabs.closeSec) { actions.close() }
     }
 
     private var initialFocus: Focus {
@@ -201,8 +252,8 @@ struct MPVTransportFocusView: View {
     }
 
     private var buttonRow: some View {
-        GlassEffectContainer(spacing: Theme.Spacing.md) {
-            HStack(spacing: Theme.Spacing.md) {
+        GlassEffectContainer(spacing: PlayerSpec.Layout.buttonSpacing) {
+            HStack(spacing: PlayerSpec.Layout.buttonSpacing) {
                 ForEach(items) { item in
                     button(for: item)
                         .focused($focus, equals: .item(item))
@@ -211,6 +262,8 @@ struct MPVTransportFocusView: View {
             }
         }
         .focusSection()
+        // Out of the focus chain while the tab view is open (the buttons are faded out there).
+        .disabled(tabsEngaged)
     }
 
     @ViewBuilder
@@ -538,7 +591,8 @@ struct MPVTransportFocusView: View {
 
     // MARK: - Scrubber
 
-    /// The scrubber's place in the focus layout: reaching it gives the remote back to libmpv.
+    /// The scrubber's place in the focus layout: reaching it gives the remote back to libmpv. Out of
+    /// the focus chain while the tab view is open.
     private var scrubberProxy: some View {
         Color.clear
             .frame(maxWidth: .infinity)
@@ -546,6 +600,7 @@ struct MPVTransportFocusView: View {
             .contentShape(Rectangle())
             .focusable()
             .focused($focus, equals: .scrubber)
+            .disabled(tabsEngaged)
             .accessibilityHidden(true)
     }
 
@@ -559,49 +614,57 @@ struct MPVTransportFocusView: View {
         chromeModel.chapters(durationSec: state.durationSec)
     }
 
+    /// "HD" or "4K" beside the runtime of the Info card, from the stream's own size.
+    private var resolutionBadge: String? {
+        guard let resolution = state.streamInfo?.resolution else { return nil }
+        let sizes = resolution.split(separator: "\u{00D7}").compactMap { Int($0) }
+        guard sizes.count == 2 else { return nil }
+        if sizes[0] >= 3000 || sizes[1] >= 2000 { return "4K" }
+        return max(sizes[0], sizes[1]) >= 1280 ? "HD" : nil
+    }
+
     private var tabRow: some View {
-        HStack(spacing: Theme.Spacing.sm) {
-            ForEach(tabs) { tab in
-                Button {
-                    selectedTab = tab
-                    tabsEngaged = true
-                } label: {
-                    Text(verbatim: tab.title)
+        GlassEffectContainer(spacing: PlayerSpec.Layout.pillSpacing) {
+            HStack(spacing: PlayerSpec.Layout.pillSpacing) {
+                ForEach(tabs) { tab in
+                    Button {
+                        selectedTab = tab
+                        tabsEngaged = true
+                    } label: {
+                        Text(verbatim: tab.title)
+                    }
+                    .buttonStyle(PlayerTabPillButtonStyle(title: tab.title,
+                                                          selected: tabsEngaged && selectedTab == tab))
+                    .focused($focus, equals: .tab(tab))
+                    .accessibilityLabel(Text(verbatim: tab.title))
                 }
-                .buttonStyle(PlayerTabPillButtonStyle(title: tab.title,
-                                                      selected: tabsEngaged && selectedTab == tab))
-                .focused($focus, equals: .tab(tab))
-                .accessibilityLabel(Text(verbatim: tab.title))
             }
         }
         .focusSection()
+        // Up on the pills of the tab view closes it (nothing is above them).
+        .onMoveCommand { direction in
+            if direction == .up, tabsEngaged { closeRequested() }
+        }
     }
 
     @ViewBuilder
     private var tabContent: some View {
         switch selectedTab {
         case .info:
-            PlayerInfoSummaryTab(summary: summary)
+            PlayerInfoSummaryTab(summary: summary, runtimeSec: state.durationSec,
+                                 resolutionBadge: resolutionBadge) {
+                actions.startOver()
+            }
         case .episodes:
             PlayerEpisodesTab(engine: upNext, season: season, episode: episode) { video in
                 actions.selectEpisode(video)
             }
         case .chapters:
-            PlayerChaptersTab(chapters: chapters, positionSec: state.positionSec,
-                              artwork: summary.chapterArtwork) { chapter in
+            PlayerChaptersTab(chapters: chapters, positionSec: state.positionSec) { chapter in
                 actions.seek(chapter.start)
             }
         case .streamInfo:
             PlayerStreamInfoTab(model: panelModel) { nil }
-        }
-    }
-
-    private func contentHeight(_ tab: PlayerContentTab) -> CGFloat {
-        switch tab {
-        case .info: return PlayerInfoSummaryTab.tabHeight
-        case .episodes: return PlayerEpisodesTab.tabHeight
-        case .chapters: return PlayerChaptersTab.tabHeight
-        case .streamInfo: return PlayerStreamInfoTab.tabHeight
         }
     }
 }
